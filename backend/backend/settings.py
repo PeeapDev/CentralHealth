@@ -99,6 +99,13 @@ DATABASES = {
     }
 }
 
+# MongoDB settings
+MONGODB_URL = os.getenv('MONGODB_URL', 'mongodb://localhost:27017/')
+MONGODB_DB_NAME = os.getenv('MONGODB_DB_NAME', 'hospital_fhir')
+
+# Configure the chat app to use MongoDB
+DATABASE_ROUTERS = ['chat.routers.ChatRouter']
+
 
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
@@ -149,10 +156,26 @@ REST_FRAMEWORK = {
 }
 
 # CORS settings
-CORS_ALLOW_ALL_ORIGINS = False
-CORS_ALLOWED_ORIGINS = [
-    'http://localhost:3000',  # Next.js frontend
-    'http://localhost:8000',  # Django development server
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
 ]
 
 # Channels settings
