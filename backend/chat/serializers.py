@@ -67,20 +67,6 @@ class ChatNotificationSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(read_only=True)
     is_read = serializers.BooleanField(read_only=True)
 
-    class Meta:
-        model = ChatNotification
-        fields = [
-            'id',
-            'chat_room',
-            'recipient',
-            'notification_type',
-            'notification_type_display',
-            'message',
-            'created_at',
-            'is_read',
-            'metadata',
-        ]
-    
     def to_representation(self, instance):
         data = super().to_representation(instance)
         # Add any custom notification message based on type
