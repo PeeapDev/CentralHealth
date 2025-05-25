@@ -7,3 +7,5 @@ fhir.resources>=8.0.0
 psycopg2-binary>=2.9.9
 python-dotenv>=1.0.0
 daphne>=4.0.0
+pymongo>=4.6.1
+django-pymongo>=1.0.0
