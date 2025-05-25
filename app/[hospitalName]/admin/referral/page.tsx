@@ -1,0 +1,209 @@
+import { PageHeader } from "@/components/page-header"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Plus, Search, UserCheck, Clock, CheckCircle, XCircle } from "lucide-react"
+
+interface ReferralPageProps {
+  params: { hospitalName: string }
+}
+
+export default function ReferralPage({ params }: ReferralPageProps) {
+  const hospitalName = params.hospitalName.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())
+
+  const referrals = [
+    {
+      id: "REF001",
+      patientName: "John Doe",
+      referringDoctor: "Dr. Smith",
+      referredTo: "Dr. Johnson",
+      department: "Cardiology",
+      status: "Pending",
+      date: "2024-05-24",
+      priority: "High",
+    },
+    {
+      id: "REF002",
+      patientName: "Jane Smith",
+      referringDoctor: "Dr. Brown",
+      referredTo: "Dr. Wilson",
+      department: "Neurology",
+      status: "Completed",
+      date: "2024-05-23",
+      priority: "Medium",
+    },
+    {
+      id: "REF003",
+      patientName: "Mike Johnson",
+      referringDoctor: "Dr. Davis",
+      referredTo: "Dr. Miller",
+      department: "Orthopedics",
+      status: "In Progress",
+      date: "2024-05-22",
+      priority: "Low",
+    },
+  ]
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "Pending":
+        return (
+          <Badge className="bg-yellow-500 text-white">
+            <Clock className="h-3 w-3 mr-1" />
+            Pending
+          </Badge>
+        )
+      case "Completed":
+        return (
+          <Badge className="bg-green-500 text-white">
+            <CheckCircle className="h-3 w-3 mr-1" />
+            Completed
+          </Badge>
+        )
+      case "In Progress":
+        return (
+          <Badge className="bg-blue-500 text-white">
+            <UserCheck className="h-3 w-3 mr-1" />
+            In Progress
+          </Badge>
+        )
+      case "Cancelled":
+        return (
+          <Badge className="bg-red-500 text-white">
+            <XCircle className="h-3 w-3 mr-1" />
+            Cancelled
+          </Badge>
+        )
+      default:
+        return <Badge variant="secondary">{status}</Badge>
+    }
+  }
+
+  const getPriorityBadge = (priority: string) => {
+    switch (priority) {
+      case "High":
+        return <Badge variant="destructive">High</Badge>
+      case "Medium":
+        return <Badge className="bg-yellow-500 text-white">Medium</Badge>
+      case "Low":
+        return <Badge className="bg-green-500 text-white">Low</Badge>
+      default:
+        return <Badge variant="outline">{priority}</Badge>
+    }
+  }
+
+  return (
+    <div className="flex-1 space-y-6 p-4 md:p-8 pt-6">
+      <PageHeader
+        title={`Welcome to ${hospitalName} - Referral Management`}
+        description="Manage patient referrals between departments and external facilities"
+        breadcrumbs={[{ label: hospitalName }, { label: "Admin" }, { label: "Referral Management" }]}
+      />
+
+      {/* Stats Cards */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Referrals</CardTitle>
+            <UserCheck className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">156</div>
+            <p className="text-xs text-muted-foreground">+12% from last month</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Pending Referrals</CardTitle>
+            <Clock className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">23</div>
+            <p className="text-xs text-muted-foreground">Awaiting approval</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Completed Today</CardTitle>
+            <CheckCircle className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">8</div>
+            <p className="text-xs text-muted-foreground">+2 from yesterday</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
+            <UserCheck className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">94%</div>
+            <p className="text-xs text-muted-foreground">+2% from last month</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Referrals Management */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>Referral Management</CardTitle>
+            <Button>
+              <Plus className="h-4 w-4 mr-2" />
+              New Referral
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center space-x-4 mb-6">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+              <Input placeholder="Search referrals..." className="pl-10" />
+            </div>
+            <Button variant="outline">Filter</Button>
+          </div>
+
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Referral ID</TableHead>
+                  <TableHead>Patient</TableHead>
+                  <TableHead>Referring Doctor</TableHead>
+                  <TableHead>Referred To</TableHead>
+                  <TableHead>Department</TableHead>
+                  <TableHead>Priority</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {referrals.map((referral) => (
+                  <TableRow key={referral.id}>
+                    <TableCell className="font-medium">{referral.id}</TableCell>
+                    <TableCell>{referral.patientName}</TableCell>
+                    <TableCell>{referral.referringDoctor}</TableCell>
+                    <TableCell>{referral.referredTo}</TableCell>
+                    <TableCell>{referral.department}</TableCell>
+                    <TableCell>{getPriorityBadge(referral.priority)}</TableCell>
+                    <TableCell>{getStatusBadge(referral.status)}</TableCell>
+                    <TableCell>{referral.date}</TableCell>
+                    <TableCell>
+                      <Button variant="ghost" size="sm">
+                        View
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
