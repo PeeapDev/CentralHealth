@@ -32,7 +32,7 @@ import {
   Activity,
 } from "lucide-react"
 import { useParams } from "next/navigation"
-import { use } from 'react'
+import { useEffect, useState } from 'react'
 
 interface HospitalDashboardProps {
   params: { hospitalName?: string } | Promise<{ hospitalName?: string }>
@@ -54,8 +54,48 @@ export default function HospitalDashboard({ params }: HospitalDashboardProps) {
   // Get the hospital slug from the URL params
   const hospitalSlug = ((urlParams?.hospitalName as string) || '') as string
   
-  // Get hospital name from the mapping or default to a generic name
-  const hospitalName = hospitalNames[hospitalSlug] || "Hospital"
+  // State for hospital data
+  const [hospital, setHospital] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  
+  // Fetch hospital data from API
+  useEffect(() => {
+    const fetchHospital = async () => {
+      try {
+        setLoading(true)
+        const response = await fetch(`/api/hospitals/${hospitalSlug}`)
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch hospital data')
+        }
+        
+        const data = await response.json()
+        setHospital(data)
+        console.log('Hospital data:', data)
+      } catch (error) {
+        console.error('Error fetching hospital:', error)
+        setError('Failed to load hospital data')
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    if (hospitalSlug) {
+      fetchHospital()
+    }
+  }, [hospitalSlug])
+  
+  // Get hospital name from the data or fallback to the mapping or default
+  const hospitalName = hospital?.name || hospitalNames[hospitalSlug] || "Hospital"
+  
+  // Get enabled modules
+  const enabledModules = hospital?.modules || []
+  
+  // Check if a module is enabled
+  const isModuleEnabled = (moduleName: string) => {
+    return enabledModules.includes(moduleName.toLowerCase())
+  }
 
   // Breadcrumb items
   const breadcrumbItems = [
@@ -122,119 +162,148 @@ export default function HospitalDashboard({ params }: HospitalDashboardProps) {
         </p>
       </div>
 
-      {/* Income Cards Row */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <Card className="bg-green-500 text-white">
-          <CardContent className="p-4">
-            <div className="flex items-center space-x-3">
-              <Stethoscope className="h-8 w-8" />
-              <div>
-                <p className="text-sm opacity-90">OPD Income</p>
-                <p className="text-2xl font-bold">$8,028.00</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {loading ? (
+        <div className="bg-white rounded-lg shadow-sm border p-6 text-center">
+          <p className="text-lg">Loading hospital data...</p>
+        </div>
+      ) : error ? (
+        <div className="bg-white rounded-lg shadow-sm border p-6 text-center text-red-500">
+          <p className="text-lg">{error}</p>
+        </div>
+      ) : (
+        <>
+          {/* Income Cards Row */}
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            {isModuleEnabled('OPD') && (
+              <Card className="bg-green-500 text-white">
+                <CardContent className="p-4">
+                  <div className="flex items-center space-x-3">
+                    <Stethoscope className="h-8 w-8" />
+                    <div>
+                      <p className="text-sm opacity-90">OPD Income</p>
+                      <p className="text-2xl font-bold">$8,028.00</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
-        <Card className="bg-green-600 text-white">
-          <CardContent className="p-4">
-            <div className="flex items-center space-x-3">
-              <Bed className="h-8 w-8" />
-              <div>
-                <p className="text-sm opacity-90">IPD Income</p>
-                <p className="text-2xl font-bold">$2,525.50</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            {isModuleEnabled('IPD') && (
+              <Card className="bg-green-600 text-white">
+                <CardContent className="p-4">
+                  <div className="flex items-center space-x-3">
+                    <Bed className="h-8 w-8" />
+                    <div>
+                      <p className="text-sm opacity-90">IPD Income</p>
+                      <p className="text-2xl font-bold">$2,525.50</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
-        <Card className="bg-green-500 text-white">
-          <CardContent className="p-4">
-            <div className="flex items-center space-x-3">
-              <Pill className="h-8 w-8" />
-              <div>
-                <p className="text-sm opacity-90">Pharmacy Income</p>
-                <p className="text-2xl font-bold">$3,263.75</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            {isModuleEnabled('Pharmacy') && (
+              <Card className="bg-green-500 text-white">
+                <CardContent className="p-4">
+                  <div className="flex items-center space-x-3">
+                    <Pill className="h-8 w-8" />
+                    <div>
+                      <p className="text-sm opacity-90">Pharmacy Income</p>
+                      <p className="text-2xl font-bold">$3,263.75</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
-        <Card className="bg-green-600 text-white">
-          <CardContent className="p-4">
-            <div className="flex items-center space-x-3">
-              <TestTube className="h-8 w-8" />
-              <div>
-                <p className="text-sm opacity-90">Pathology Income</p>
-                <p className="text-2xl font-bold">$1,575.27</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            {isModuleEnabled('Pathology') && (
+              <Card className="bg-green-600 text-white">
+                <CardContent className="p-4">
+                  <div className="flex items-center space-x-3">
+                    <TestTube className="h-8 w-8" />
+                    <div>
+                      <p className="text-sm opacity-90">Pathology Income</p>
+                      <p className="text-2xl font-bold">$1,575.27</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
-        <Card className="bg-green-500 text-white">
-          <CardContent className="p-4">
-            <div className="flex items-center space-x-3">
-              <Scan className="h-8 w-8" />
-              <div>
-                <p className="text-sm opacity-90">Radiology Income</p>
-                <p className="text-2xl font-bold">$1,885.80</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            {isModuleEnabled('Radiology') && (
+              <Card className="bg-green-500 text-white">
+                <CardContent className="p-4">
+                  <div className="flex items-center space-x-3">
+                    <Scan className="h-8 w-8" />
+                    <div>
+                      <p className="text-sm opacity-90">Radiology Income</p>
+                      <p className="text-2xl font-bold">$1,885.80</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </>
+      )}
 
-      {/* Second Row of Income Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card className="bg-green-600 text-white">
-          <CardContent className="p-4">
-            <div className="flex items-center space-x-3">
-              <Droplet className="h-8 w-8" />
-              <div>
-                <p className="text-sm opacity-90">Blood Bank Income</p>
-                <p className="text-2xl font-bold">$1,802.90</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      {!loading && !error && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {isModuleEnabled('BloodBank') && (
+            <Card className="bg-green-600 text-white">
+              <CardContent className="p-4">
+                <div className="flex items-center space-x-3">
+                  <Droplet className="h-8 w-8" />
+                  <div>
+                    <p className="text-sm opacity-90">Blood Bank Income</p>
+                    <p className="text-2xl font-bold">$1,802.90</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-        <Card className="bg-green-500 text-white">
-          <CardContent className="p-4">
-            <div className="flex items-center space-x-3">
-              <Truck className="h-8 w-8" />
-              <div>
-                <p className="text-sm opacity-90">Ambulance Income</p>
-                <p className="text-2xl font-bold">$1,535.25</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+          {isModuleEnabled('Ambulance') && (
+            <Card className="bg-green-500 text-white">
+              <CardContent className="p-4">
+                <div className="flex items-center space-x-3">
+                  <Truck className="h-8 w-8" />
+                  <div>
+                    <p className="text-sm opacity-90">Ambulance Income</p>
+                    <p className="text-2xl font-bold">$1,535.25</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-        <Card className="bg-green-600 text-white">
-          <CardContent className="p-4">
-            <div className="flex items-center space-x-3">
-              <DollarSign className="h-8 w-8" />
-              <div>
-                <p className="text-sm opacity-90">General Income</p>
-                <p className="text-2xl font-bold">$1,150.00</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+          {isModuleEnabled('Billing') && (
+            <Card className="bg-green-600 text-white">
+              <CardContent className="p-4">
+                <div className="flex items-center space-x-3">
+                  <DollarSign className="h-8 w-8" />
+                  <div>
+                    <p className="text-sm opacity-90">General Income</p>
+                    <p className="text-2xl font-bold">$1,150.00</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-        <Card className="bg-red-500 text-white">
-          <CardContent className="p-4">
-            <div className="flex items-center space-x-3">
-              <TrendingDown className="h-8 w-8" />
-              <div>
-                <p className="text-sm opacity-90">Expenses</p>
-                <p className="text-2xl font-bold">$201,210.00</p>
+          <Card className="bg-red-500 text-white">
+            <CardContent className="p-4">
+              <div className="flex items-center space-x-3">
+                <TrendingDown className="h-8 w-8" />
+                <div>
+                  <p className="text-sm opacity-90">Expenses</p>
+                  <p className="text-2xl font-bold">$201,210.00</p>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Charts and Calendar Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -292,7 +361,19 @@ export default function HospitalDashboard({ params }: HospitalDashboardProps) {
             <ResponsiveContainer width="100%" height={200}>
               <PieChart>
                 <Pie
-                  data={pieData}
+                  data={pieData.filter(entry => {
+                    // Only show pie slices for enabled modules
+                    const moduleName = entry.name.toLowerCase();
+                    if (moduleName === 'opd') return isModuleEnabled('opd');
+                    if (moduleName === 'ipd') return isModuleEnabled('ipd');
+                    if (moduleName === 'pharmacy') return isModuleEnabled('pharmacy');
+                    if (moduleName === 'pathology') return isModuleEnabled('pathology');
+                    if (moduleName === 'radiology') return isModuleEnabled('radiology');
+                    if (moduleName === 'blood bank') return isModuleEnabled('bloodbank');
+                    if (moduleName === 'ambulance') return isModuleEnabled('ambulance');
+                    // Always show income for any hospital
+                    return true;
+                  })}
                   cx="50%"
                   cy="50%"
                   innerRadius={40}
@@ -300,7 +381,18 @@ export default function HospitalDashboard({ params }: HospitalDashboardProps) {
                   paddingAngle={2}
                   dataKey="value"
                 >
-                  {pieData.map((entry, index) => (
+                  {pieData.filter(entry => {
+                    // Only show pie slices for enabled modules (same filter as above)
+                    const moduleName = entry.name.toLowerCase();
+                    if (moduleName === 'opd') return isModuleEnabled('opd');
+                    if (moduleName === 'ipd') return isModuleEnabled('ipd');
+                    if (moduleName === 'pharmacy') return isModuleEnabled('pharmacy');
+                    if (moduleName === 'pathology') return isModuleEnabled('pathology');
+                    if (moduleName === 'radiology') return isModuleEnabled('radiology');
+                    if (moduleName === 'blood bank') return isModuleEnabled('bloodbank');
+                    if (moduleName === 'ambulance') return isModuleEnabled('ambulance');
+                    return true;
+                  }).map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={entry.color} />
                   ))}
                 </Pie>
@@ -316,6 +408,7 @@ export default function HospitalDashboard({ params }: HospitalDashboardProps) {
             <CardTitle className="text-lg">Role Management</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
+            {/* Admin is always shown */}
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <Badge className="bg-orange-500 text-white">
@@ -325,42 +418,58 @@ export default function HospitalDashboard({ params }: HospitalDashboardProps) {
               </div>
               <span className="font-semibold">1</span>
             </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Badge className="bg-orange-500 text-white">
-                  <UserCheck className="h-4 w-4 mr-1" />
-                  Accountant
-                </Badge>
+            
+            {/* Show accountant if billing module is enabled */}
+            {isModuleEnabled('billing') && (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Badge className="bg-orange-500 text-white">
+                    <UserCheck className="h-4 w-4 mr-1" />
+                    Accountant
+                  </Badge>
+                </div>
+                <span className="font-semibold">1</span>
               </div>
-              <span className="font-semibold">1</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Badge className="bg-orange-500 text-white">
-                  <Stethoscope className="h-4 w-4 mr-1" />
-                  Doctor
-                </Badge>
+            )}
+            
+            {/* Show doctor if OPD or IPD is enabled */}
+            {(isModuleEnabled('opd') || isModuleEnabled('ipd')) && (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Badge className="bg-orange-500 text-white">
+                    <Stethoscope className="h-4 w-4 mr-1" />
+                    Doctor
+                  </Badge>
+                </div>
+                <span className="font-semibold">4</span>
               </div>
-              <span className="font-semibold">4</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Badge className="bg-orange-500 text-white">
-                  <Pill className="h-4 w-4 mr-1" />
-                  Pharmacist
-                </Badge>
+            )}
+            
+            {/* Show pharmacist if pharmacy module is enabled */}
+            {isModuleEnabled('pharmacy') && (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Badge className="bg-orange-500 text-white">
+                    <Pill className="h-4 w-4 mr-1" />
+                    Pharmacist
+                  </Badge>
+                </div>
+                <span className="font-semibold">1</span>
               </div>
-              <span className="font-semibold">1</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Badge className="bg-orange-500 text-white">
-                  <FlaskConical className="h-4 w-4 mr-1" />
-                  Pathologist
-                </Badge>
+            )}
+            
+            {/* Show pathologist if pathology module is enabled */}
+            {isModuleEnabled('pathology') && (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Badge className="bg-orange-500 text-white">
+                    <FlaskConical className="h-4 w-4 mr-1" />
+                    Pathologist
+                  </Badge>
+                </div>
+                <span className="font-semibold">1</span>
               </div>
-              <span className="font-semibold">1</span>
-            </div>
+            )}
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <Badge className="bg-orange-500 text-white">

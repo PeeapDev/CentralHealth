@@ -323,6 +323,36 @@ function HospitalForm({ onSubmit, onCancel, initialData }: HospitalFormProps): J
     'Referral',
     'TPA Management'
   ]
+  
+  // Define facility templates for quick selection
+  const facilityTemplates = [
+    { 
+      name: 'Full Hospital', 
+      modules: [
+        'Billing', 'Appointment', 'OPD', 'IPD', 'Pharmacy', 'Pathology', 'Radiology', 
+        'Blood Bank', 'Ambulance', 'Front Office', 'Birth & Death Record', 'Human Resource'
+      ] 
+    },
+    { 
+      name: 'Basic Clinic', 
+      modules: ['Billing', 'Appointment', 'OPD', 'Pharmacy'] 
+    },
+    { 
+      name: 'Pharmacy Only', 
+      modules: ['Billing', 'Pharmacy'] 
+    },
+    { 
+      name: 'Diagnostic Center', 
+      modules: ['Billing', 'Appointment', 'Pathology', 'Radiology'] 
+    },
+    { 
+      name: 'Custom', 
+      modules: [] 
+    }
+  ]
+  
+  // State for selected template
+  const [selectedTemplate, setSelectedTemplate] = useState('Custom')
 
   useEffect(() => {
     if (initialData) {
@@ -609,6 +639,30 @@ function HospitalForm({ onSubmit, onCancel, initialData }: HospitalFormProps): J
       </div>
 
       <div className="space-y-2">
+        <Label>Facility Type</Label>
+        <div className="flex flex-wrap gap-2 mb-4">
+          {facilityTemplates.map(template => (
+            <Button
+              key={template.name}
+              type="button"
+              variant={selectedTemplate === template.name ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => {
+                setSelectedTemplate(template.name);
+                // Apply template modules
+                if (template.name !== 'Custom') {
+                  setFormData(prev => ({
+                    ...prev,
+                    modules: template.modules
+                  }));
+                }
+              }}
+            >
+              {template.name}
+            </Button>
+          ))}
+        </div>
+        
         <Label>Modules & Features</Label>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2">
           {availableModules.map(module => (
@@ -616,7 +670,10 @@ function HospitalForm({ onSubmit, onCancel, initialData }: HospitalFormProps): J
               <Checkbox
                 id={`module-${module}`}
                 checked={formData.modules.includes(module)}
-                onCheckedChange={() => handleCheckboxChange(module)}
+                onCheckedChange={() => {
+                  handleCheckboxChange(module);
+                  setSelectedTemplate('Custom'); // Switch to custom when manually selecting
+                }}
               />
               <Label htmlFor={`module-${module}`} className="text-sm font-normal cursor-pointer">
                 {module}

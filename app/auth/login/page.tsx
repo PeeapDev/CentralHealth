@@ -226,27 +226,7 @@ export default function LoginPage() {
                 ))}
               </div>
 
-              {/* Hospital Demo Accounts */}
-              <div className="mt-6 space-y-2">
-                <div className="text-sm font-medium text-gray-700 mb-2">Demo Hospitals</div>
-                <div className="text-xs text-muted-foreground mb-2">Click to access hospital login page</div>
-                {demoHospitals.map((hospital, index) => (
-                  <Button
-                    key={index}
-                    variant="outline"
-                    className="w-full justify-start"
-                    onClick={() => handleHospitalDemoLogin(hospital)}
-                  >
-                    <div className="flex items-center space-x-2">
-                      <Building2 className="h-4 w-4 text-blue-600" />
-                      <div className="text-left">
-                        <div className="font-medium text-sm">{hospital.name}</div>
-                        <div className="text-xs text-muted-foreground">/{hospital.slug}/auth/login</div>
-                      </div>
-                    </div>
-                  </Button>
-                ))}
-              </div>
+              {/* Removed Demo Hospitals Section */}
             </div>
 
             <div className="mt-6 text-center text-sm">

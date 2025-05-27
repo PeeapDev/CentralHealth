@@ -3,7 +3,24 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import Image from 'next/image'
 import Link from 'next/link'
-import { CalendarRange, Clock, Heart, Mail, MapPin, Phone, Shield, User } from 'lucide-react'
+import { 
+  CalendarRange, 
+  Clock, 
+  Heart, 
+  Mail, 
+  MapPin, 
+  Phone, 
+  Shield, 
+  User, 
+  DollarSign,
+  Stethoscope,
+  Bed,
+  Pill,
+  TestTube,
+  Scan,
+  Droplet,
+  Truck
+} from 'lucide-react'
 
 async function getHospitalBySlug(hospitalName: string) {
   try {
@@ -22,20 +39,45 @@ async function getHospitalBySlug(hospitalName: string) {
   }
 }
 
+// Helper function to check if a module is enabled
+function isModuleEnabled(hospital: any, moduleName: string) {
+  if (!hospital || !hospital.modules) return false;
+  return hospital.modules.includes(moduleName.toLowerCase());
+}
+
 export default async function HospitalPage({ params }: { params: { hospitalName: string } }) {
   const hospital = await getHospitalBySlug(params.hospitalName)
 
   if (!hospital) {
     notFound()
   }
+  
+  // Get a list of enabled modules for the hospital
+  const enabledModules = hospital.modules || []
 
-  // Placeholder data - in a real app, this would come from the backend
-  const features = [
-    { name: "24/7 Emergency", icon: Clock },
-    { name: "Top Specialists", icon: Shield },
-    { name: "Advanced Equipment", icon: Heart },
-    { name: "Patient-Centered Care", icon: User },
-  ]
+  // Generate features based on enabled modules
+  const moduleFeatures: { [key: string]: { name: string; icon: any; description: string } } = {
+    'billing': { name: "Streamlined Billing", icon: DollarSign, description: "Our advanced billing system ensures transparency and convenience for all patients." },
+    'appointment': { name: "Easy Appointments", icon: CalendarRange, description: "Book appointments online or via phone with our efficient scheduling system." },
+    'opd': { name: "OutPatient Services", icon: Stethoscope, description: "Comprehensive outpatient care with minimal wait times." },
+    'ipd': { name: "InPatient Excellence", icon: Bed, description: "Comfortable accommodations and round-the-clock care for admitted patients." },
+    'pharmacy': { name: "In-House Pharmacy", icon: Pill, description: "Convenient access to medications with expert pharmacist consultation." },
+    'pathology': { name: "Advanced Pathology", icon: TestTube, description: "State-of-the-art laboratory services for accurate and timely diagnostics." },
+    'radiology': { name: "Modern Imaging", icon: Scan, description: "The latest in radiological technology for precise diagnosis." },
+    'bloodbank': { name: "Blood Bank Services", icon: Droplet, description: "Safe and reliable blood banking with quick processing times." },
+    'ambulance': { name: "24/7 Emergency", icon: Truck, description: "Rapid response ambulance service available around the clock." }
+  }
+  
+  // Filter features based on enabled modules
+  const features = enabledModules
+    .map((module: string) => moduleFeatures[module.toLowerCase()])
+    .filter(Boolean)
+  
+  // Add some default features if we don't have enough from modules
+  if (features.length < 2) {
+    features.push({ name: "Patient-Centered Care", icon: User, description: "Our focus is on providing personalized, compassionate care to every patient." })
+    features.push({ name: "Qualified Specialists", icon: Shield, description: "Our team of healthcare professionals is dedicated to excellence in medical care." })
+  }
 
   const stats = [
     { name: "Years Experience", value: "25+" },
@@ -52,6 +94,9 @@ export default async function HospitalPage({ params }: { params: { hospitalName:
           <div className="grid gap-6 lg:grid-cols-[1fr_500px] lg:gap-12">
             <div className="flex flex-col justify-center space-y-4">
               <div className="space-y-2">
+                <div className="inline-flex items-center px-3 py-1 mb-2 text-sm font-medium rounded-full bg-green-100 text-green-800">
+                  Healthcare Excellence for Sierra Leone
+                </div>
                 <h1 className="text-3xl font-bold tracking-tighter sm:text-5xl xl:text-6xl/none">
                   {hospital.name}
                 </h1>
@@ -102,13 +147,13 @@ export default async function HospitalPage({ params }: { params: { hospitalName:
         <div className="container px-4 md:px-6">
           <div className="mb-10 text-center">
             <h2 className="text-3xl font-bold">Our Services</h2>
-            <p className="mt-2 text-muted-foreground">We provide comprehensive healthcare services for all your needs</p>
+            <p className="mt-2 text-muted-foreground">We provide specialized healthcare services tailored to your needs</p>
           </div>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {features.map((feature, i) => {
+          <div className={`grid gap-6 sm:grid-cols-2 lg:grid-cols-${Math.min(features.length, 4)}`}>
+            {features.map((feature: any, i: number) => {
               const Icon = feature.icon
               return (
-                <Card key={i} className="text-center">
+                <Card key={i} className="text-center hover:shadow-lg transition-shadow">
                   <CardHeader>
                     <div className="mx-auto rounded-full bg-primary/10 p-3 w-14 h-14 flex items-center justify-center">
                       <Icon className="h-7 w-7 text-primary" />
@@ -117,7 +162,7 @@ export default async function HospitalPage({ params }: { params: { hospitalName:
                   </CardHeader>
                   <CardContent>
                     <p className="text-muted-foreground">
-                      High-quality {feature.name.toLowerCase()} services provided by experienced medical professionals.
+                      {feature.description}
                     </p>
                   </CardContent>
                 </Card>
@@ -128,7 +173,7 @@ export default async function HospitalPage({ params }: { params: { hospitalName:
       </section>
 
       {/* Contact Section */}
-      <section className="py-12 bg-muted/50">
+      <section id="contact" className="py-12 bg-muted/50">
         <div className="container px-4 md:px-6">
           <div className="mb-10 text-center">
             <h2 className="text-3xl font-bold">Contact Us</h2>
@@ -186,8 +231,13 @@ export default async function HospitalPage({ params }: { params: { hospitalName:
             <Button size="lg" variant="secondary" asChild>
               <Link href={`/${params.hospitalName}/auth/login`}>Patient Login</Link>
             </Button>
+            {isModuleEnabled(hospital, 'appointment') && (
+              <Button size="lg" variant="outline" className="bg-transparent" asChild>
+                <Link href={`/${params.hospitalName}/appointments`}>Book Appointment</Link>
+              </Button>
+            )}
             <Button size="lg" variant="outline" className="bg-transparent" asChild>
-              <Link href="#">Call Us Now</Link>
+              <Link href="#contact">Contact Us</Link>
             </Button>
           </div>
         </div>
