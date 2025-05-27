@@ -11,68 +11,87 @@ import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Eye, EyeOff, Building2, ArrowLeft } from "lucide-react"
 
-// Demo hospital data
-const demoHospitals = [
-  {
-    slug: "smart-hospital",
-    name: "Smart Hospital & Research Center",
-    logo: "/placeholder.svg?height=40&width=40",
-    adminEmail: "admin@smarthospital.com",
-    adminPassword: "admin123",
-    adminName: "Dr. John Smith",
-    address: "123 Medical Center Dr, New York, NY 10001",
-  },
-  {
-    slug: "city-medical",
-    name: "City Medical Center",
-    logo: "/placeholder.svg?height=40&width=40",
-    adminEmail: "admin@citymedical.com",
-    adminPassword: "admin123",
-    adminName: "Dr. Sarah Johnson",
-    address: "456 Healthcare Ave, Los Angeles, CA 90210",
-  },
-  {
-    slug: "general-hospital",
-    name: "General Hospital",
-    logo: "/placeholder.svg?height=40&width=40",
-    adminEmail: "admin@generalhospital.com",
-    adminPassword: "admin123",
-    adminName: "Dr. Michael Brown",
-    address: "789 Health St, Chicago, IL 60601",
-  },
-]
+// Hospital data will be fetched from the server
+
+// Define the hospital type
+type Hospital = {
+  id: string;
+  name: string;
+  subdomain: string;
+  description?: string;
+  logo?: string;
+  address?: string;
+  admin_email?: string;
+  settings?: any;
+}
 
 export default function HospitalLoginPage() {
   const router = useRouter()
   const params = useParams()
-  const hospitalSlug = params.hospitalName as string
+  const hospitalSlug = params?.hospitalName as string || ''
 
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
-  const [hospital, setHospital] = useState<(typeof demoHospitals)[0] | null>(null)
+  const [hospital, setHospital] = useState<Hospital | null>(null)
   const [formData, setFormData] = useState({
     email: "",
     password: "",
   })
 
   useEffect(() => {
-    // Find the hospital by slug
-    const foundHospital = demoHospitals.find((h) => h.slug === hospitalSlug)
-    if (foundHospital) {
-      setHospital(foundHospital)
-    } else {
-      // Hospital not found, redirect to main login
-      router.push("/auth/login")
-    }
-  }, [hospitalSlug, router])
+    // Fetch hospital data from the API
+    const fetchHospital = async () => {
+      try {
+        const response = await fetch(`/api/hospitals/${hospitalSlug}`);
+        if (!response.ok) {
+          throw new Error('Hospital not found');
+        }
+        
+        const data = await response.json();
+        console.log('Fetched hospital data:', data);
+        
+        // Store the complete hospital data
+        setHospital({
+          id: data.id,
+          name: data.name,
+          subdomain: data.subdomain,
+          description: data.description,
+          logo: data.logo || '/placeholder.svg?height=40&width=40',
+          address: data.address,
+          admin_email: data.admin_email || '',
+          settings: data.settings || {},
+        });
+        
+        // Pre-populate the email field with the admin email
+        setFormData(prevState => ({
+          ...prevState,
+          email: data.admin_email || ''
+        }));
+      } catch (error) {
+        console.error('Error fetching hospital:', error);
+        // Hospital not found, redirect to main login
+        router.push('/auth/login');
+      }
+    };
 
-  const handleDemoLogin = () => {
+    if (hospitalSlug) {
+      fetchHospital();
+    } else {
+      router.push('/auth/login');
+    }
+  }, [hospitalSlug, router]);
+
+  // Need to add a demo login button to fill credentials 
+  const handleDemoFill = () => {
     if (hospital) {
+      // Use the admin_email directly from the hospital object
       setFormData({
-        email: hospital.adminEmail,
-        password: hospital.adminPassword,
-      })
+        email: hospital.admin_email || '',
+        password: '', // Let the user input the password
+      });
+      
+      console.log('Pre-filled with admin email:', hospital.admin_email);
     }
   }
 
@@ -81,30 +100,52 @@ export default function HospitalLoginPage() {
     setIsLoading(true)
     setError("")
 
-    // Simulate authentication
-    await new Promise((resolve) => setTimeout(resolve, 1000))
+    try {
+      // Call the real authentication API with the hospital ID
+      const loginData = {
+        email: formData.email,
+        password: formData.password,
+        hospitalId: hospital?.id,
+      };
+      
+      console.log('Attempting hospital login with:', JSON.stringify(loginData, null, 2));
+      
+      const response = await fetch('/api/auth', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(loginData),
+      });
 
-    if (hospital && formData.email === hospital.adminEmail && formData.password === hospital.adminPassword) {
-      // Store auth state
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Authentication failed');
+      }
+
+      // Login successful - store the token in local storage and cookies
       localStorage.setItem(
         "auth",
         JSON.stringify({
           user: {
-            email: hospital.adminEmail,
-            role: "admin",
-            hospitalSlug: hospital.slug,
-            name: hospital.adminName,
-            hospitalName: hospital.name,
+            email: formData.email,
+            role: data.user.role,
+            hospitalId: hospital?.id,
+            hospitalSlug: hospital?.subdomain,
+            name: data.user.name || 'Hospital Admin',
+            hospitalName: hospital?.name,
           },
-          token: "demo-token",
+          token: data.access_token,
         }),
       )
-      router.push(`/${hospital.slug}/admin`)
-    } else {
-      setError("Invalid credentials for this hospital")
+      router.push(`/${hospital?.subdomain}/admin`)
+    } catch (error) {
+      console.error('Login error:', error);
+      setError(error instanceof Error ? error.message : 'Login failed. Please check your credentials.');
+    } finally {
+      setIsLoading(false);
     }
-
-    setIsLoading(false)
   }
 
   if (!hospital) {
@@ -190,24 +231,24 @@ export default function HospitalLoginPage() {
 
             {/* Demo Login */}
             <div className="mt-6">
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
+              {hospital.admin_email && (
+                <div className="text-xs text-muted-foreground">
+                  <span className="font-semibold">Admin Login:</span> {hospital.admin_email}
                 </div>
-                <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-background px-2 text-muted-foreground">Demo Account</span>
-                </div>
+              )}
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-background px-2 text-muted-foreground">Demo Account</span>
               </div>
+            </div>
 
-              <div className="mt-4">
-                <Button variant="outline" className="w-full justify-start" onClick={handleDemoLogin}>
-                  <div className="flex items-center space-x-2">
-                    <div className="w-2 h-2 rounded-full bg-blue-500" />
-                    <span>Hospital Admin</span>
-                    <span className="text-muted-foreground">- {hospital.adminEmail}</span>
-                  </div>
-                </Button>
-              </div>
+            <div className="mt-4">
+              {hospital && (
+                <div className="flex items-center space-x-2 mb-6 p-3 bg-secondary/20 rounded-lg" onClick={handleDemoFill}>
+                  <div className="w-2 h-2 rounded-full bg-blue-500" />
+                  <span>Hospital Admin</span>
+                  <span className="text-muted-foreground">- {hospital.admin_email}</span>
+                </div>
+              )}
             </div>
 
             {/* Back to Main Login */}

@@ -19,10 +19,19 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={inter.className}>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          {children}
+      <body className={inter.className} suppressHydrationWarning>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+          storageKey="medicore-theme"
+        >
+          <main className="min-h-screen">
+            {children}
+          </main>
         </ThemeProvider>
+        <div id="portal-root" />
       </body>
     </html>
   )

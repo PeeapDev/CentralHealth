@@ -1,8 +1,15 @@
-import jwt from "jsonwebtoken"
+import * as jose from 'jose'
 
 // Demo JWT secret - in production, use environment variable
-const JWT_SECRET = "demo_jwt_secret_key_for_hospital_management_system_2024"
+const JWT_SECRET = new TextEncoder().encode("demo_jwt_secret_key_for_hospital_management_system_2024")
 const JWT_EXPIRES_IN = "7d"
+
+export function extractTokenFromHeader(authHeader: string | null): string | null {
+  if (!authHeader) return null
+  
+  const [type, token] = authHeader.split(' ')
+  return type === 'Bearer' && token ? token : null
+}
 
 export interface JWTPayload {
   userId: string
@@ -13,15 +20,18 @@ export interface JWTPayload {
   exp?: number
 }
 
-export function signToken(payload: Omit<JWTPayload, "iat" | "exp">): string {
-  return jwt.sign(payload, JWT_SECRET, {
-    expiresIn: JWT_EXPIRES_IN,
-  })
+export async function signToken(payload: Omit<JWTPayload, "iat" | "exp">): Promise<string> {
+  return await new jose.SignJWT(payload)
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime(JWT_EXPIRES_IN)
+    .sign(JWT_SECRET)
 }
 
-export function verifyToken(token: string): JWTPayload {
+export async function verifyToken(token: string): Promise<JWTPayload> {
   try {
-    return jwt.verify(token, JWT_SECRET) as JWTPayload
+    const { payload } = await jose.jwtVerify(token, JWT_SECRET)
+    return payload as JWTPayload
   } catch (error) {
     throw new Error("Invalid or expired token")
   }
@@ -29,7 +39,8 @@ export function verifyToken(token: string): JWTPayload {
 
 export function decodeToken(token: string): JWTPayload | null {
   try {
-    return jwt.decode(token) as JWTPayload
+    const decoded = jose.decodeJwt(token)
+    return decoded as JWTPayload
   } catch (error) {
     return null
   }

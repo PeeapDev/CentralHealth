@@ -32,22 +32,30 @@ import {
   Activity,
 } from "lucide-react"
 import { useParams } from "next/navigation"
+import { use } from 'react'
 
 interface HospitalDashboardProps {
-  params: { hospitalName: string }
+  params: { hospitalName?: string } | Promise<{ hospitalName?: string }>
 }
 
 // Hospital names mapping
-const hospitalNames = {
+const hospitalNames: Record<string, string> = {
   "smart-hospital": "Smart Hospital & Research Center",
   "city-medical": "City Medical Center",
   "general-hospital": "General Hospital",
+  // Add default empty case for type safety
+  "": "Hospital"
 }
 
 export default function HospitalDashboard({ params }: HospitalDashboardProps) {
+  // Access params directly since we're in a client component
   const urlParams = useParams()
-  const hospitalSlug = (params?.hospitalName || urlParams?.hospitalName) as string
-  const hospitalName = hospitalNames[hospitalSlug as keyof typeof hospitalNames] || "Hospital"
+  
+  // Get the hospital slug from the URL params
+  const hospitalSlug = ((urlParams?.hospitalName as string) || '') as string
+  
+  // Get hospital name from the mapping or default to a generic name
+  const hospitalName = hospitalNames[hospitalSlug] || "Hospital"
 
   // Breadcrumb items
   const breadcrumbItems = [

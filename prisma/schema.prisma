@@ -1,0 +1,86 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Hospital {
+  id          String    @id @default(cuid())
+  name        String
+  subdomain   String    @unique
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  settings    Json
+  branding    Json?
+  users       User[]
+  patients    Patient[]
+}
+
+model User {
+  id          String    @id @default(cuid())
+  email       String    @unique
+  password    String
+  name        String?
+  role        String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  hospitalId  String
+  hospital    Hospital  @relation(fields: [hospitalId], references: [id])
+  patients    Patient[] @relation("DoctorPatients")
+  appointments Appointment[]
+  medicalRecords MedicalRecord[]
+}
+
+model Patient {
+  id            String    @id @default(cuid())
+  mrn           String    @unique
+  name          String
+  dateOfBirth   DateTime
+  gender        String
+  contact       Json
+  medicalHistory Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  hospitalId    String
+  hospital      Hospital  @relation(fields: [hospitalId], references: [id])
+  doctors       User[]    @relation("DoctorPatients")
+  appointments  Appointment[]
+  records       MedicalRecord[]
+}
+
+model Appointment {
+  id          String    @id @default(cuid())
+  patientId   String
+  patient     Patient   @relation(fields: [patientId], references: [id])
+  doctorId    String
+  doctor      User      @relation(fields: [doctorId], references: [id])
+  date        DateTime
+  status      String
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model MedicalRecord {
+  id          String    @id @default(cuid())
+  patientId   String
+  patient     Patient   @relation(fields: [patientId], references: [id])
+  doctorId    String
+  doctor      User      @relation(fields: [doctorId], references: [id])
+  type        String
+  details     Json
+  date        DateTime
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}

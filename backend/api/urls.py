@@ -1,16 +1,12 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from patients.views import PatientViewSet, MedicalRecordViewSet, AppointmentViewSet
-from chat.views import ChatRoomViewSet, MessageViewSet, ChatNotificationViewSet
 from fhir_integration.views import FHIRPatientViewSet, FHIRObservationViewSet
 
 router = DefaultRouter()
 router.register(r'patients', PatientViewSet)
 router.register(r'medical-records', MedicalRecordViewSet)
 router.register(r'appointments', AppointmentViewSet)
-router.register(r'chat-rooms', ChatRoomViewSet, basename='chat-room')
-router.register(r'messages', MessageViewSet, basename='message')
-router.register(r'chat-notifications', ChatNotificationViewSet, basename='chat-notification')
 router.register(r'fhir/patients', FHIRPatientViewSet)
 router.register(r'fhir/observations', FHIRObservationViewSet)
 

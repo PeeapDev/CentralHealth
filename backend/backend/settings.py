@@ -29,7 +29,7 @@ SECRET_KEY = 'django-insecure-5!hdr62nbz5&q8!jzr^^e&6u792bxqbyr3&8ye@qwcig@7mi9a
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '.localhost', '.127.0.0.1']
 
 
 # Application definition
@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     'patients',
     'chat',
     'fhir_integration',
+    'hospitals',
 ]
 
 MIDDLEWARE = [
@@ -63,6 +64,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'hospitals.middleware.HospitalSubdomainMiddleware',
 ]
 
 ROOT_URLCONF = 'backend.urls'
@@ -83,6 +85,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'backend.wsgi.application'
+ASGI_APPLICATION = 'backend.asgi.application'
 
 
 # Database
@@ -90,17 +93,16 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME', 'hospital_fhir'),
-        'USER': os.getenv('DB_USER', 'postgres'),
-        'PASSWORD': os.getenv('DB_PASSWORD', ''),
-        'HOST': os.getenv('DB_HOST', 'localhost'),
-        'PORT': os.getenv('DB_PORT', '5432'),
+        'ENGINE': 'djongo',
+        'NAME': os.getenv('MONGODB_DB_NAME'),
+        'CLIENT': {
+            'host': os.getenv('MONGODB_URL'),
+        }
     }
 }
 
 # MongoDB settings
-MONGODB_URL = os.getenv('MONGODB_URL', 'mongodb://localhost:27017/')
+MONGODB_URL = os.getenv('MONGODB_URL', 'mongodb+srv://peeapltd:3M3OuJX5HLNsfDwD@fhirhospital.zfyw0vg.mongodb.net/')
 MONGODB_DB_NAME = os.getenv('MONGODB_DB_NAME', 'hospital_fhir')
 
 # Configure the chat app to use MongoDB
@@ -156,7 +158,11 @@ REST_FRAMEWORK = {
 }
 
 # CORS settings
-CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:8000',
+]
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_METHODS = [
     'DELETE',

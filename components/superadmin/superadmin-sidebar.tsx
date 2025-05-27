@@ -150,7 +150,11 @@ export function SuperAdminSidebar() {
       url: "/auth/login",
       icon: LogOut,
       onClick: () => {
+        // Clear HTTP-only cookie
+        document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+        // Also clear localStorage for redundancy
         localStorage.removeItem("auth")
+        // Navigate to login page
         router.push("/auth/login")
       },
     },

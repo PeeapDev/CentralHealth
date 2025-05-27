@@ -1,10 +1,24 @@
 "use client"
+
+import { useEffect } from "react"
+import { useRouter } from "next/navigation"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Building2, CheckCircle, Pause, Ban, Users, UserCheck, UserX } from "lucide-react"
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts"
 
-export default function SuperAdminDashboard() {
+export default function SuperadminDashboard() {
+  const router = useRouter()
+
+  useEffect(() => {
+    // Check if user is logged in
+    const token = document.cookie.includes('token')
+    if (!token) {
+      router.push('/login')
+    }
+  }, [])
+
   const stats = [
     {
       title: "Total hospitals",

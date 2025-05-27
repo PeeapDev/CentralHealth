@@ -73,33 +73,49 @@ export default function LoginPage() {
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setIsLoading(true)
-    setError("")
+    e.preventDefault();
+    setIsLoading(true);
+    setError("");
 
-    // Simulate authentication
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-
-    // Check superadmin credentials
-    const superAdminAccount = demoAccounts.find(
-      (acc) => acc.email === formData.email && acc.password === formData.password,
-    )
-
-    if (superAdminAccount) {
-      localStorage.setItem(
-        "auth",
-        JSON.stringify({
-          user: { email: superAdminAccount.email, role: superAdminAccount.role },
-          token: "demo-token",
+    try {
+      console.log('Attempting login with:', { email: formData.email, role: formData.role });
+      
+      const response = await fetch("/api/auth", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password
         }),
-      )
-      router.push(superAdminAccount.redirect)
-      return
-    }
+      });
 
-    setError("Invalid credentials")
-    setIsLoading(false)
-  }
+      if (!response.ok) {
+        const error = await response.json();
+        setError(error.error || error.detail || "Login failed");
+        return;
+      }
+
+      const data = await response.json();
+      console.log('Login successful:', data);
+      
+      // Automatically redirects to superadmin dashboard via middleware
+      if (data.user.role === 'superadmin') {
+        console.log('Redirecting to superadmin dashboard');
+        // Force navigation to superadmin dashboard
+        window.location.href = '/superadmin';
+      } else {
+        // For non-superadmin roles
+        router.push('/dashboard');
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+      setError("An error occurred during login");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-muted/50 p-4">

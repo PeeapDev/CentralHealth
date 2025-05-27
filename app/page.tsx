@@ -20,7 +20,7 @@ import Link from "next/link"
 import { LandingHeader } from "@/components/landing/landing-header"
 import { LandingFooter } from "@/components/landing/landing-footer"
 
-export default function HomePage() {
+export default async function HomePage() {
   const features = [
     {
       icon: Users,
@@ -111,7 +111,9 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <LandingHeader />
+      <div suppressHydrationWarning>
+        <LandingHeader />
+      </div>
 
       {/* Hero Section */}
       <section className="relative py-20 lg:py-32 overflow-hidden">
@@ -337,7 +339,9 @@ export default function HomePage() {
         </div>
       </section>
 
-      <LandingFooter />
+      <div suppressHydrationWarning>
+        <LandingFooter />
+      </div>
     </div>
   )
 }

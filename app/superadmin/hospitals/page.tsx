@@ -1,637 +1,502 @@
 "use client"
-import { useState, useEffect } from "react"
-import type React from "react"
-import { useRouter } from "next/navigation"
 
-import { PageHeader } from "@/components/page-header"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import * as React from "react"
+import { useState, useEffect } from "react"
+import { toast } from "sonner"
+import { v4 as uuidv4 } from 'uuid'
+import { ColumnDef } from "@tanstack/react-table"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Checkbox } from "@/components/ui/checkbox"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
-import { Building2, Plus, Search, Eye, Edit, Trash2, Users, Save, X } from "lucide-react"
-import { toast } from "sonner"
+import { EyeIcon, PencilIcon, TrashIcon } from "lucide-react"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
-// Hospital type definition
-type Hospital = {
-  id: number
+// Types and interfaces
+type Status = 'Active' | 'Inactive'
+type Package = 'Basic' | 'Premium' | 'Enterprise'
+type ButtonVariant = 'default' | 'secondary' | 'destructive' | 'outline' | null | undefined
+
+interface Hospital {
+  id: string
   name: string
-  slug: string
-  status: string
-  admin: string
+  subdomain: string
   email: string
   phone: string
   address: string
-  package: string
-  branches: number
-  logo: string
-  createdAt: string
-  lastLogin: string
-  description?: string
+  city: string
+  state: string
+  country: string
+  zip: string
+  status: Status
+  package: Package
   website?: string
-  modules?: string[]
+  description?: string
+  modules: string[]
+  admin_email: string
+  admin_password?: string
+  branches: string[]
+  created_at: string
+  updated_at: string
 }
 
-// Sample hospital data
-const initialHospitals: Hospital[] = [
-  {
-    id: 1,
-    name: "Smart Hospital & Research Center",
-    slug: "smart-hospital",
-    status: "Active",
-    admin: "Dr. John Smith",
-    email: "admin@smarthospital.com",
-    phone: "+1 (555) 123-4567",
-    address: "123 Medical Center Dr, New York, NY 10001",
-    package: "Premium",
-    branches: 3,
-    logo: "/placeholder.svg?height=40&width=40",
-    createdAt: "2024-01-15",
-    lastLogin: "2024-05-24",
-    description: "Leading research hospital",
-    website: "https://smarthospital.com",
-    modules: ["billing", "appointment", "opd", "ipd"],
-  },
-  {
-    id: 2,
-    name: "City Medical Center",
-    slug: "city-medical",
-    status: "Active",
-    admin: "Dr. Sarah Johnson",
-    email: "admin@citymedical.com",
-    phone: "+1 (555) 987-6543",
-    address: "456 Healthcare Ave, Los Angeles, CA 90210",
-    package: "Standard",
-    branches: 1,
-    logo: "/placeholder.svg?height=40&width=40",
-    createdAt: "2024-02-20",
-    lastLogin: "2024-05-23",
-    description: "Community healthcare center",
-    website: "https://citymedical.com",
-    modules: ["billing", "appointment", "pharmacy"],
-  },
-  {
-    id: 3,
-    name: "General Hospital",
-    slug: "general-hospital",
-    status: "Inactive",
-    admin: "Dr. Michael Brown",
-    email: "admin@generalhospital.com",
-    phone: "+1 (555) 456-7890",
-    address: "789 Health St, Chicago, IL 60601",
-    package: "Basic",
-    branches: 2,
-    logo: "/placeholder.svg?height=40&width=40",
-    createdAt: "2024-03-10",
-    lastLogin: "2024-05-20",
-    description: "General medical services",
-    website: "https://generalhospital.com",
-    modules: ["billing", "appointment"],
-  },
-]
+interface HospitalFormData {
+  name: string
+  subdomain: string
+  email: string
+  phone: string
+  address: string
+  city: string
+  state: string
+  country: string
+  zip: string
+  status: Status
+  package: Package
+  website?: string
+  description?: string
+  modules: string[]
+  admin_email: string
+  admin_password: string
+  branches: string[]
+}
 
-export default function AllHospitalsPage() {
-  const router = useRouter()
-  const [hospitals, setHospitals] = useState<Hospital[]>(initialHospitals)
-  const [searchTerm, setSearchTerm] = useState("")
-  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
-  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
-  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
-  const [selectedHospital, setSelectedHospital] = useState<Hospital | null>(null)
+interface HospitalFormProps {
+  initialData?: HospitalFormData
+  onSubmit: (data: HospitalFormData) => Promise<void>
+  onCancel: () => void
+}
 
-  // Load hospitals from localStorage on component mount
-  useEffect(() => {
-    const storedHospitals = localStorage.getItem("hospitals_list")
-    if (storedHospitals) {
-      try {
-        const parsed = JSON.parse(storedHospitals)
-        setHospitals(parsed)
-      } catch (error) {
-        console.error("Error parsing stored hospitals:", error)
-        setHospitals(initialHospitals)
-      }
-    }
-  }, [])
+interface HospitalViewProps {
+  hospital: Hospital
+  onClose: () => void
+}
 
-  // Save hospitals to localStorage whenever hospitals change
-  useEffect(() => {
-    localStorage.setItem("hospitals_list", JSON.stringify(hospitals))
-  }, [hospitals])
-
-  const filteredHospitals = hospitals.filter(
-    (hospital) =>
-      hospital.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      hospital.admin.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      hospital.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      hospital.slug.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "Active":
-        return <Badge className="bg-green-500 text-white">Active</Badge>
-      case "Inactive":
-        return <Badge className="bg-red-500 text-white">Inactive</Badge>
-      case "Suspended":
-        return <Badge className="bg-yellow-500 text-white">Suspended</Badge>
-      default:
-        return <Badge variant="secondary">{status}</Badge>
-    }
-  }
-
-  const getPackageBadge = (packageType: string) => {
-    switch (packageType) {
-      case "Premium":
-        return <Badge className="bg-purple-500 text-white">Premium</Badge>
-      case "Standard":
-        return <Badge className="bg-blue-500 text-white">Standard</Badge>
-      case "Basic":
-        return <Badge className="bg-gray-500 text-white">Basic</Badge>
-      default:
-        return <Badge variant="outline">{packageType}</Badge>
-    }
-  }
-
-  // CREATE - Add new hospital (FIXED VERSION)
-  const handleCreateHospital = (hospitalData: Partial<Hospital>) => {
-    console.log("Creating hospital with data:", hospitalData) // Debug log
-
-    const newHospital: Hospital = {
-      id: Date.now(),
-      name: hospitalData.name || "",
-      slug: hospitalData.slug || "",
-      status: "Active",
-      admin: hospitalData.admin || "",
-      email: hospitalData.email || "",
-      phone: hospitalData.phone || "",
-      address: hospitalData.address || "",
-      package: hospitalData.package || "Basic",
-      branches: hospitalData.branches || 1,
-      logo: "/placeholder.svg?height=40&width=40",
-      createdAt: new Date().toISOString().split("T")[0],
-      lastLogin: "Never",
-      description: hospitalData.description || "",
-      website: hospitalData.website || "",
-      modules: hospitalData.modules || [],
-    }
-
-    console.log("New hospital object:", newHospital) // Debug log
-
-    setHospitals((prev) => {
-      const updated = [...prev, newHospital]
-      console.log("Updated hospitals list:", updated) // Debug log
-      return updated
-    })
-
-    // Also store individual hospital data for login
-    localStorage.setItem(
-      `hospital_${newHospital.slug}`,
-      JSON.stringify({
-        ...newHospital,
-        adminPassword: "admin123", // Default password for demo
-      }),
-    )
-
-    toast.success(`Hospital "${newHospital.name}" created successfully!`)
-    toast.info(`Login URL: /${newHospital.slug}/auth/login`)
-    toast.info(`Admin credentials: ${newHospital.email} / admin123`)
-
-    setIsCreateDialogOpen(false)
-  }
-
-  // READ - View hospital details
-  const handleViewHospital = (hospital: Hospital) => {
-    setSelectedHospital(hospital)
-    setIsViewDialogOpen(true)
-  }
-
-  // UPDATE - Edit hospital
-  const handleEditHospital = (hospital: Hospital) => {
-    setSelectedHospital(hospital)
-    setIsEditDialogOpen(true)
-  }
-
-  const handleUpdateHospital = (hospitalData: Partial<Hospital>) => {
-    if (!selectedHospital) return
-
-    const updatedHospital: Hospital = {
-      ...selectedHospital,
-      ...hospitalData,
-      id: selectedHospital.id, // Keep original ID
-      createdAt: selectedHospital.createdAt, // Keep original creation date
-    }
-
-    setHospitals((prev) => prev.map((h) => (h.id === selectedHospital.id ? updatedHospital : h)))
-
-    toast.success(`Hospital "${updatedHospital.name}" updated successfully!`)
-    setIsEditDialogOpen(false)
-    setSelectedHospital(null)
-  }
-
-  // DELETE - Remove hospital
-  const handleDeleteHospital = (hospitalId: number) => {
-    const hospital = hospitals.find((h) => h.id === hospitalId)
-    if (!hospital) return
-
-    setHospitals((prev) => prev.filter((h) => h.id !== hospitalId))
-    toast.success(`Hospital "${hospital.name}" deleted successfully!`)
-  }
-
+// Data table component for displaying hospitals data
+function DataTable<TData extends Record<string, any>, TValue>({ columns, data }: { columns: ColumnDef<TData, TValue>[]; data: TData[] }) {
   return (
-    <div className="flex-1 space-y-6 p-4 md:p-8 pt-6">
-      <PageHeader
-        title="All Hospitals"
-        description="Manage all hospital instances and their administrators"
-        breadcrumbs={[{ label: "Home" }, { label: "Subscription" }, { label: "All Hospitals" }]}
-      />
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center space-x-2">
-              <Building2 className="h-5 w-5" />
-              <span>Hospital Management</span>
-            </CardTitle>
-
-            <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-              <DialogTrigger asChild>
-                <Button className="bg-blue-600 hover:bg-blue-700">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add New Hospital
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>Create New Hospital</DialogTitle>
-                  <DialogDescription>Add a new hospital instance with administrator credentials</DialogDescription>
-                </DialogHeader>
-                <HospitalForm
-                  mode="create"
-                  onSubmit={handleCreateHospital}
-                  onCancel={() => setIsCreateDialogOpen(false)}
-                />
-              </DialogContent>
-            </Dialog>
-          </div>
-        </CardHeader>
-
-        <CardContent>
-          {/* Search and Filters */}
-          <div className="flex items-center space-x-4 mb-6">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input
-                placeholder="Search hospitals, admins, or emails..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <Button variant="outline">
-              <Users className="h-4 w-4 mr-2" />
-              Total: {hospitals.length}
-            </Button>
-          </div>
-
-          {/* Hospitals Table */}
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Hospital Details</TableHead>
-                  <TableHead>Administrator</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Package</TableHead>
-                  <TableHead>Branches</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead>Last Login</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredHospitals.map((hospital) => (
-                  <TableRow key={hospital.id}>
-                    <TableCell>
-                      <div className="flex items-center space-x-3">
-                        <img
-                          src={hospital.logo || "/placeholder.svg"}
-                          alt={hospital.name}
-                          className="w-8 h-8 rounded"
-                        />
-                        <div>
-                          <div className="font-medium">{hospital.name}</div>
-                          <div className="text-sm text-gray-500">/{hospital.slug}</div>
-                          <div className="text-sm text-gray-500">{hospital.address}</div>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <div className="font-medium">{hospital.admin}</div>
-                        <div className="text-sm text-gray-500">{hospital.email}</div>
-                        <div className="text-sm text-gray-500">{hospital.phone}</div>
-                      </div>
-                    </TableCell>
-                    <TableCell>{getStatusBadge(hospital.status)}</TableCell>
-                    <TableCell>{getPackageBadge(hospital.package)}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">
-                        {hospital.branches} Branch{hospital.branches > 1 ? "es" : ""}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-sm">{hospital.createdAt}</TableCell>
-                    <TableCell className="text-sm">{hospital.lastLogin}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end space-x-2">
-                        {/* VIEW Button */}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleViewHospital(hospital)}
-                          title="View Hospital Details"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-
-                        {/* EDIT Button */}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleEditHospital(hospital)}
-                          title="Edit Hospital"
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-
-                        {/* DELETE Button */}
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-red-600 hover:text-red-700"
-                              title="Delete Hospital"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                This action cannot be undone. This will permanently delete the hospital "{hospital.name}
-                                " and remove all associated data.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => handleDeleteHospital(hospital.id)}
-                                className="bg-red-600 hover:bg-red-700"
-                              >
-                                Delete Hospital
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-
-          {filteredHospitals.length === 0 && (
-            <div className="text-center py-8 text-muted-foreground">
-              <Building2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p>No hospitals found matching your search.</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* VIEW Hospital Dialog */}
-      <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Hospital Details</DialogTitle>
-            <DialogDescription>View complete hospital information</DialogDescription>
-          </DialogHeader>
-          {selectedHospital && <HospitalView hospital={selectedHospital} />}
-        </DialogContent>
-      </Dialog>
-
-      {/* EDIT Hospital Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Hospital</DialogTitle>
-            <DialogDescription>Update hospital information and settings</DialogDescription>
-          </DialogHeader>
-          {selectedHospital && (
-            <HospitalForm
-              mode="edit"
-              hospital={selectedHospital}
-              onSubmit={handleUpdateHospital}
-              onCancel={() => {
-                setIsEditDialogOpen(false)
-                setSelectedHospital(null)
-              }}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+    <div className="rounded-md border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            {columns.map((column, columnIndex) => (
+              <TableHead key={column.id || `column-${columnIndex}`}>
+                {typeof column.header === 'string' ? column.header : (column.id || '')}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {data.map((row, rowIndex) => (
+            <TableRow key={`row-${rowIndex}`}>
+              {columns.map((column, columnIndex) => {
+                // Create a display value using the column's accessor key or id
+                const displayValue = () => {
+                  // Use regular property access for type safety
+                  if ('accessorKey' in column && typeof column.accessorKey === 'string') {
+                    return row[column.accessorKey];
+                  }
+                  
+                  // Handle accessor function if present
+                  if ('accessorFn' in column && typeof column.accessorFn === 'function') {
+                    return column.accessorFn(row, rowIndex);
+                  }
+                  
+                  // Fallback to empty string
+                  return '';
+                };
+                
+                return (
+                  <TableCell key={`cell-${column.id || `column-${columnIndex}`}-${rowIndex}`}>
+                    {/* Safely handle the cell rendering */}
+                    {(() => {
+                      if (!column.cell) {
+                        return displayValue();
+                      }
+                      
+                      if (typeof column.cell === 'function') {
+                        // Create a simplified mock of the row object that TanStack Table expects
+                        const mockRow = {
+                          original: row,
+                          getValue: (key: string) => row[key],
+                          index: rowIndex
+                        };
+                        
+                        try {
+                          // @ts-ignore - We know this isn't fully type-safe, but it's a pragmatic solution
+                          return column.cell({ row: mockRow });
+                        } catch (e) {
+                          console.error('Error rendering cell:', e);
+                          return displayValue();
+                        }
+                      }
+                      
+                      // Handle case where cell might be a React element or string
+                      return column.cell;
+                    })()}
+                  </TableCell>
+                );
+              })}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     </div>
   )
 }
 
-// Hospital Form Component (CREATE & UPDATE)
-function HospitalForm({
-  mode,
-  hospital,
-  onSubmit,
-  onCancel,
-}: {
-  mode: "create" | "edit"
-  hospital?: Hospital
-  onSubmit: (data: Partial<Hospital>) => void
-  onCancel: () => void
-}) {
-  const [isLoading, setIsLoading] = useState(false)
-  const [formData, setFormData] = useState({
-    name: hospital?.name || "",
-    slug: hospital?.slug || "",
-    admin: hospital?.admin || "",
-    email: hospital?.email || "",
-    phone: hospital?.phone || "",
-    address: hospital?.address || "",
-    package: hospital?.package || "Basic",
-    status: hospital?.status || "Active",
-    branches: hospital?.branches || 1,
-    description: hospital?.description || "",
-    website: hospital?.website || "",
-    modules: hospital?.modules || [],
-  })
+// Hospital view component
+function HospitalView({ hospital, onClose }: HospitalViewProps): JSX.Element {
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <h3 className="font-semibold">Hospital Details</h3>
+          <div className="mt-2 space-y-2">
+            <div>
+              <Label>Name</Label>
+              <div className="mt-1">{hospital.name}</div>
+            </div>
+            <div>
+              <Label>Subdomain</Label>
+              <div className="mt-1">{hospital.subdomain}</div>
+            </div>
+            <div>
+              <Label>Email</Label>
+              <div className="mt-1">{hospital.email}</div>
+            </div>
+            <div>
+              <Label>Phone</Label>
+              <div className="mt-1">{hospital.phone}</div>
+            </div>
+            <div>
+              <Label>Website</Label>
+              <div className="mt-1">{hospital.website || 'N/A'}</div>
+            </div>
+            <div>
+              <Label>Status</Label>
+              <div className="mt-1">
+                <Badge variant={hospital.status === 'Active' ? 'default' : 'destructive'}>
+                  {hospital.status}
+                </Badge>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <h3 className="font-semibold">Address</h3>
+          <div className="mt-2 space-y-2">
+            <div>
+              <Label>Street</Label>
+              <div className="mt-1">{hospital.address}</div>
+            </div>
+            <div>
+              <Label>City</Label>
+              <div className="mt-1">{hospital.city}</div>
+            </div>
+            <div>
+              <Label>State</Label>
+              <div className="mt-1">{hospital.state}</div>
+            </div>
+            <div>
+              <Label>Country</Label>
+              <div className="mt-1">{hospital.country}</div>
+            </div>
+            <div>
+              <Label>ZIP</Label>
+              <div className="mt-1">{hospital.zip}</div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-  const packages = ["Basic", "Standard", "Premium", "Enterprise"]
-  const statuses = ["Active", "Inactive", "Suspended"]
+      <div>
+        <h3 className="font-semibold">Modules</h3>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {hospital.modules && hospital.modules.length > 0 ? (
+            hospital.modules.map((module, index) => (
+              <Badge key={index}>{module}</Badge>
+            ))
+          ) : (
+            <div>No modules</div>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <h3 className="font-semibold">Branches</h3>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {hospital.branches && hospital.branches.length > 0 ? (
+            hospital.branches.map((branch, index) => (
+              <Badge key={index}>{branch}</Badge>
+            ))
+          ) : (
+            <div>No branches</div>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <h3 className="font-semibold">Admin Email</h3>
+        <div className="mt-1">{hospital.admin_email}</div>
+      </div>
+
+      <div className="mt-6 p-4 bg-muted/50 rounded-lg border border-muted-foreground/20">
+        <h3 className="font-semibold text-primary">Hospital Access</h3>
+        <div className="mt-2 flex flex-col space-y-2">
+          <div className="flex items-center space-x-2">
+            <span className="text-sm text-muted-foreground">Hospital Login URL:</span>
+            <a 
+              href={`/${hospital.subdomain}/auth/login`} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-blue-600 hover:underline font-medium"
+            >
+              /{hospital.subdomain}/auth/login
+            </a>
+          </div>
+          <Button 
+            variant="secondary" 
+            className="w-full mt-2"
+            onClick={() => window.open(`/${hospital.subdomain}/auth/login`, '_blank')}
+          >
+            Go to Hospital Login
+          </Button>
+        </div>
+      </div>
+
+      <div className="pt-4 text-right">
+        <Button onClick={onClose}>Close</Button>
+      </div>
+    </div>
+  )
+}
+
+// Hospital form component
+function HospitalForm({ onSubmit, onCancel, initialData }: HospitalFormProps): JSX.Element {
+  const [formData, setFormData] = useState<HospitalFormData>(
+    initialData || {
+      name: '',
+      subdomain: '',
+      email: '',
+      phone: '',
+      address: '',
+      city: '',
+      state: '',
+      country: '',
+      zip: '',
+      status: 'Active',
+      package: 'Basic',
+      website: '',
+      description: '',
+      modules: [],
+      admin_email: '',
+      admin_password: '',
+      branches: []
+    }
+  )
+
+  const [branchesInput, setBranchesInput] = useState<string>('')
+  const [isCheckingSubdomain, setIsCheckingSubdomain] = useState(false)
+  const [subdomainAvailable, setSubdomainAvailable] = useState<boolean | null>(null)
+  const [subdomainTimeout, setSubdomainTimeout] = useState<NodeJS.Timeout | null>(null)
+
+  // Define all available modules
   const availableModules = [
-    "billing",
-    "appointment",
-    "opd",
-    "ipd",
-    "pharmacy",
-    "pathology",
-    "radiology",
-    "bloodbank",
-    "ambulance",
-    "hr",
-    "finance",
-    "messaging",
+    'Billing',
+    'Appointment',
+    'OPD', // Out Patient
+    'IPD', // In Patient
+    'Pharmacy',
+    'Pathology',
+    'Radiology',
+    'Blood Bank',
+    'Ambulance',
+    'Front Office',
+    'Birth & Death Record',
+    'Human Resource',
+    'Duty Roster',
+    'Annual Calendar',
+    'Referral',
+    'TPA Management'
   ]
 
-  const generateSlug = (name: string) => {
-    return name
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, "")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-")
-      .trim()
-  }
-
-  const handleNameChange = (value: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      name: value,
-      slug: mode === "create" ? generateSlug(value) : prev.slug,
-    }))
-  }
-
-  const handleModuleToggle = (moduleId: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      modules: prev.modules.includes(moduleId)
-        ? prev.modules.filter((id) => id !== moduleId)
-        : [...prev.modules, moduleId],
-    }))
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    console.log("Form submitted with data:", formData) // Debug log
-    setIsLoading(true)
-
-    try {
-      // Validation
-      if (!formData.name || !formData.slug || !formData.admin || !formData.email) {
-        toast.error("Please fill in all required fields")
-        setIsLoading(false)
-        return
-      }
-
-      console.log("Calling onSubmit with:", formData) // Debug log
-      // Submit data
-      onSubmit(formData)
-    } catch (error) {
-      console.error("Error in form submission:", error) // Debug log
-      toast.error(`Failed to ${mode} hospital. Please try again.`)
-    } finally {
-      setIsLoading(false)
+  useEffect(() => {
+    if (initialData) {
+      setBranchesInput(initialData.branches?.join(', ') || '')
     }
+  }, [initialData])
+  
+  // Check subdomain availability
+  useEffect(() => {
+    const checkSubdomainAvailability = async () => {
+      if (!formData.subdomain || formData.subdomain.length < 3) {
+        setSubdomainAvailable(null);
+        return;
+      }
+      
+      setIsCheckingSubdomain(true);
+      try {
+        const response = await fetch(`/api/hospitals/check-subdomain?subdomain=${formData.subdomain}`);
+        const data = await response.json();
+        setSubdomainAvailable(data.available);
+      } catch (error) {
+        console.error('Error checking subdomain:', error);
+        setSubdomainAvailable(null);
+      } finally {
+        setIsCheckingSubdomain(false);
+      }
+    };
+
+    // Clear previous timeout
+    if (subdomainTimeout) {
+      clearTimeout(subdomainTimeout);
+    }
+
+    // Set a new timeout to check after user stops typing
+    if (formData.subdomain) {
+      const timeout = setTimeout(checkSubdomainAvailability, 500);
+      setSubdomainTimeout(timeout);
+    } else {
+      setSubdomainAvailable(null);
+    }
+
+    return () => {
+      if (subdomainTimeout) {
+        clearTimeout(subdomainTimeout);
+      }
+    };
+  }, [formData.subdomain])
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    onSubmit(formData)
+  }
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target
+    setFormData(prev => ({ ...prev, [name]: value }))
+  }
+
+  const handleBranchesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    setBranchesInput(value)
+    setFormData(prev => ({
+      ...prev,
+      branches: value.split(',').map(item => item.trim()).filter(Boolean)
+    }))
+  }
+
+  const handleCheckboxChange = (module: string) => {
+    setFormData(prev => {
+      if (prev.modules.includes(module)) {
+        return {
+          ...prev,
+          modules: prev.modules.filter(m => m !== module)
+        }
+      } else {
+        return {
+          ...prev,
+          modules: [...prev.modules, module]
+        }
+      }
+    })
+  }
+  
+  // Auto-generate subdomain from name
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { value } = e.target;
+    setFormData(prev => ({ 
+      ...prev, 
+      name: value,
+      // Only auto-generate subdomain if it hasn't been manually modified
+      subdomain: prev.subdomain === '' ? value.toLowerCase().replace(/[^a-z0-9]/g, '-') : prev.subdomain
+    }))
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      {/* Basic Information */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="name">Hospital Name *</Label>
+          <Label htmlFor="name">Hospital Name</Label>
           <Input
             id="name"
+            name="name"
             value={formData.name}
-            onChange={(e) => handleNameChange(e.target.value)}
-            placeholder="Enter hospital name"
+            onChange={handleNameChange}
             required
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="slug">URL Slug *</Label>
-          <Input
-            id="slug"
-            value={formData.slug}
-            onChange={(e) => setFormData((prev) => ({ ...prev, slug: e.target.value }))}
-            placeholder="hospital-slug"
-            disabled={mode === "edit"}
-            required
-          />
+          <Label htmlFor="subdomain">Subdomain</Label>
+          <div className="relative">
+            <Input
+              id="subdomain"
+              name="subdomain"
+              value={formData.subdomain}
+              onChange={handleChange}
+              required
+              className={`${
+                subdomainAvailable === true ? 'border-green-500 pr-10' : 
+                subdomainAvailable === false ? 'border-red-500 pr-10' : ''
+              }`}
+            />
+            {isCheckingSubdomain && (
+              <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                <svg className="animate-spin h-5 w-5 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+              </div>
+            )}
+            {!isCheckingSubdomain && subdomainAvailable === true && (
+              <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-green-500">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+            )}
+            {!isCheckingSubdomain && subdomainAvailable === false && (
+              <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-red-500">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </div>
+            )}
+          </div>
+          {subdomainAvailable === false && (
+            <p className="text-xs text-red-500 mt-1">This subdomain is already taken. Please choose another one.</p>
+          )}
+          {subdomainAvailable === true && (
+            <p className="text-xs text-green-500 mt-1">This subdomain is available!</p>
+          )}
+          <p className="text-xs text-muted-foreground mt-1">Your hospital will be accessible at: /{formData.subdomain}/</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="admin">Administrator Name *</Label>
-          <Input
-            id="admin"
-            value={formData.admin}
-            onChange={(e) => setFormData((prev) => ({ ...prev, admin: e.target.value }))}
-            placeholder="Dr. John Smith"
-            required
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="email">Email Address *</Label>
+          <Label htmlFor="email">Email</Label>
           <Input
             id="email"
+            name="email"
             type="email"
             value={formData.email}
-            onChange={(e) => setFormData((prev) => ({ ...prev, email: e.target.value }))}
-            placeholder="admin@hospital.com"
+            onChange={handleChange}
             required
           />
         </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="phone">Phone Number</Label>
+          <Label htmlFor="phone">Phone</Label>
           <Input
             id="phone"
+            name="phone"
             value={formData.phone}
-            onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
-            placeholder="+1 (555) 123-4567"
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="website">Website</Label>
-          <Input
-            id="website"
-            value={formData.website}
-            onChange={(e) => setFormData((prev) => ({ ...prev, website: e.target.value }))}
-            placeholder="https://hospital.com"
+            onChange={handleChange}
+            required
           />
         </div>
       </div>
@@ -640,86 +505,120 @@ function HospitalForm({
         <Label htmlFor="address">Address</Label>
         <Input
           id="address"
+          name="address"
           value={formData.address}
-          onChange={(e) => setFormData((prev) => ({ ...prev, address: e.target.value }))}
-          placeholder="123 Medical Center Dr, City, State"
+          onChange={handleChange}
+          required
         />
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="description">Description</Label>
-        <Textarea
-          id="description"
-          value={formData.description}
-          onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-          placeholder="Brief description of the hospital"
-          rows={3}
-        />
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="package">Package</Label>
-          <Select
-            value={formData.package}
-            onValueChange={(value) => setFormData((prev) => ({ ...prev, package: value }))}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Select package" />
-            </SelectTrigger>
-            <SelectContent>
-              {packages.map((pkg) => (
-                <SelectItem key={pkg} value={pkg}>
-                  {pkg}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="status">Status</Label>
-          <Select
-            value={formData.status}
-            onValueChange={(value) => setFormData((prev) => ({ ...prev, status: value }))}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Select status" />
-            </SelectTrigger>
-            <SelectContent>
-              {statuses.map((status) => (
-                <SelectItem key={status} value={status}>
-                  {status}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="branches">Number of Branches</Label>
+          <Label htmlFor="city">City</Label>
           <Input
-            id="branches"
-            type="number"
-            min="1"
-            value={formData.branches}
-            onChange={(e) => setFormData((prev) => ({ ...prev, branches: Number.parseInt(e.target.value) || 1 }))}
+            id="city"
+            name="city"
+            value={formData.city}
+            onChange={handleChange}
+            required
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="state">State</Label>
+          <Input
+            id="state"
+            name="state"
+            value={formData.state}
+            onChange={handleChange}
+            required
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="zip">ZIP Code</Label>
+          <Input
+            id="zip"
+            name="zip"
+            value={formData.zip}
+            onChange={handleChange}
+            required
           />
         </div>
       </div>
 
-      {/* Modules */}
-      <div className="space-y-4">
-        <Label>Available Modules</Label>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {availableModules.map((module) => (
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="country">Country</Label>
+          <Input
+            id="country"
+            name="country"
+            value="Sierra Leone"
+            onChange={handleChange}
+            disabled
+            required
+          />
+          <p className="text-xs text-muted-foreground">Default country for all hospitals</p>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="website">Website (optional)</Label>
+          <Input
+            id="website"
+            name="website"
+            value={formData.website || ''}
+            onChange={handleChange}
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="status">Status</Label>
+          <Select name="status" value={formData.status} onValueChange={(value: Status) => setFormData(prev => ({ ...prev, status: value }))}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Active">Active</SelectItem>
+              <SelectItem value="Inactive">Inactive</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="package">Package</Label>
+          <Select name="package" value={formData.package} onValueChange={(value: Package) => setFormData(prev => ({ ...prev, package: value }))}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select package" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="Basic">Basic</SelectItem>
+              <SelectItem value="Premium">Premium</SelectItem>
+              <SelectItem value="Enterprise">Enterprise</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="description">Description (optional)</Label>
+        <Textarea
+          id="description"
+          name="description"
+          value={formData.description || ''}
+          onChange={handleChange}
+          rows={3}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>Modules & Features</Label>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-2">
+          {availableModules.map(module => (
             <div key={module} className="flex items-center space-x-2">
               <Checkbox
-                id={module}
+                id={`module-${module}`}
                 checked={formData.modules.includes(module)}
-                onCheckedChange={() => handleModuleToggle(module)}
+                onCheckedChange={() => handleCheckboxChange(module)}
               />
-              <Label htmlFor={module} className="text-sm capitalize">
+              <Label htmlFor={`module-${module}`} className="text-sm font-normal cursor-pointer">
                 {module}
               </Label>
             </div>
@@ -727,125 +626,343 @@ function HospitalForm({
         </div>
       </div>
 
-      {/* Submit Buttons */}
-      <div className="flex justify-end space-x-2 pt-4 border-t">
-        <Button type="button" variant="outline" onClick={onCancel}>
-          <X className="h-4 w-4 mr-2" />
-          Cancel
-        </Button>
-        <Button type="submit" disabled={isLoading}>
-          <Save className="h-4 w-4 mr-2" />
-          {isLoading
-            ? `${mode === "create" ? "Creating" : "Updating"}...`
-            : `${mode === "create" ? "Create" : "Update"} Hospital`}
-        </Button>
+      <div className="space-y-2">
+        <Label htmlFor="branches">Branches (comma separated)</Label>
+        <Input
+          id="branches"
+          name="branches"
+          value={branchesInput}
+          onChange={handleBranchesChange}
+          placeholder="e.g. Downtown, North Branch, South Branch"
+        />
       </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="admin_email">Admin Email</Label>
+          <Input
+            id="admin_email"
+            name="admin_email"
+            type="email"
+            value={formData.admin_email}
+            onChange={handleChange}
+            required
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="admin_password">Admin Password</Label>
+          <Input
+            id="admin_password"
+            name="admin_password"
+            type="password"
+            value={formData.admin_password}
+            onChange={handleChange}
+            required={!initialData}
+          />
+        </div>
+      </div>
+
+      <DialogFooter>
+        <div className="flex justify-end space-x-2">
+          <Button type="button" variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button 
+            type="submit" 
+            disabled={isCheckingSubdomain || subdomainAvailable === false}
+          >
+            {isCheckingSubdomain ? 'Checking...' : 'Save Hospital'}
+          </Button>
+        </div>
+      </DialogFooter>
     </form>
   )
 }
 
-// Hospital View Component (READ)
-function HospitalView({ hospital }: { hospital: Hospital }) {
+// Main HospitalsPage component
+export default function HospitalsPage() {
+  // We need to preserve the superadmin layout
+  const [hospitals, setHospitals] = useState<Hospital[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
+  const [editingHospital, setEditingHospital] = useState<Hospital | null>(null)
+  const [selectedHospital, setSelectedHospital] = useState<Hospital | null>(null)
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  const fetchHospitals = async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+      const response = await fetch('/api/hospitals')
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch hospitals')
+      }
+      
+      const data = await response.json()
+      console.log('Fetched hospitals:', data)
+
+      // Check if the data is in the expected format
+      if (data.hospitals) {
+        setHospitals(data.hospitals)
+      } else {
+        setHospitals(data)
+      }
+    } catch (error) {
+      console.error('Error fetching hospitals:', error)
+      setError('Failed to fetch hospitals')
+      toast.error('Failed to fetch hospitals')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchHospitals()
+  }, [])
+
+  const handleAddHospital = async (data: HospitalFormData): Promise<void> => {
+    try {
+      setIsSubmitting(true)
+      console.log('Creating hospital with data:', data)
+      
+      // Prepare data for submission
+      const hospitalData = {
+        name: data.name,
+        subdomain: data.subdomain || data.name.toLowerCase().replace(/[^a-z0-9]/g, '-'),
+        admin_email: data.admin_email,
+        admin_password: data.admin_password,
+        description: data.description || '',
+        website: data.website || '',
+        phone: data.phone || '',
+        address: data.address || '',
+        city: data.city || '',
+        state: data.state || '',
+        country: data.country || '',
+        zip: data.zip || '',
+        modules: Array.isArray(data.modules) ? data.modules : ['billing', 'appointment'],
+        package: data.package || 'Basic'
+      }
+
+      const response = await fetch('/api/hospitals', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(hospitalData),
+      })
+
+      const responseData = await response.json()
+      
+      if (!response.ok) {
+        throw new Error(responseData.error || responseData.detail || 'Failed to create hospital')
+      }
+
+      console.log('Hospital created:', responseData)
+      toast.success('Hospital created successfully')
+      setIsAddDialogOpen(false)
+      await fetchHospitals() // Refresh hospital list
+    } catch (error: any) {
+      console.error('Error creating hospital:', error)
+      toast.error(error.message || 'An error occurred while creating the hospital')
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const handleUpdateHospital = async (data: HospitalFormData): Promise<void> => {
+    if (!editingHospital) return
+    try {
+      const updatedHospitalData = {
+        ...data,
+        id: editingHospital.id,
+        created_at: editingHospital.created_at,
+        updated_at: new Date().toISOString()
+      }
+
+      const response = await fetch(`/api/hospitals/${editingHospital.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(updatedHospitalData)
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to update hospital')
+      }
+
+      const updatedHospital = await response.json()
+      setHospitals(prev => prev.map(h => h.id === editingHospital.id ? updatedHospital : h))
+      setIsEditDialogOpen(false)
+      setEditingHospital(null)
+      toast.success('Hospital updated successfully')
+    } catch (error) {
+      console.error('Error updating hospital:', error)
+      toast.error('Failed to update hospital')
+    }
+  }
+
+  const handleDeleteHospital = async (id: string): Promise<void> => {
+    if (!window.confirm('Are you sure you want to delete this hospital?')) return
+
+    try {
+      const response = await fetch(`/api/hospitals/${id}`, { method: 'DELETE' })
+      if (!response.ok) throw new Error('Failed to delete hospital')
+      
+      setHospitals(prev => prev.filter(h => h.id !== id))
+      toast.success('Hospital deleted successfully')
+    } catch (error) {
+      console.error('Error deleting hospital:', error)
+      toast.error('Failed to delete hospital')
+    }
+  }
+
+  const handleViewHospital = (hospital: Hospital): void => {
+    setSelectedHospital(hospital)
+    setIsViewDialogOpen(true)
+  }
+
+  const handleEditHospital = (hospital: Hospital): void => {
+    setEditingHospital(hospital)
+    setIsEditDialogOpen(true)
+  }
+
+  const columns: ColumnDef<Hospital, any>[] = [
+    {
+      accessorKey: 'name',
+      header: 'Name',
+      cell: ({ row }) => row.getValue('name')
+    },
+    {
+      accessorKey: 'email',
+      header: 'Email',
+      cell: ({ row }) => row.getValue('email')
+    },
+    {
+      accessorKey: 'status',
+      header: 'Status',
+      cell: ({ row }) => (
+        <Badge variant={row.getValue('status') === 'Active' ? 'default' : 'destructive'}>
+          {row.getValue('status')}
+        </Badge>
+      )
+    },
+    {
+      accessorKey: 'package',
+      header: 'Package',
+      cell: ({ row }) => row.getValue('package')
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      cell: ({ row }) => {
+        const hospital = row.original
+        return (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => handleViewHospital(hospital)}
+            >
+              <EyeIcon className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => handleEditHospital(hospital)}
+            >
+              <PencilIcon className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => handleDeleteHospital(hospital.id)}
+            >
+              <TrashIcon className="h-4 w-4" />
+            </Button>
+          </div>
+        )
+      }
+    }
+  ]
+
   return (
-    <div className="space-y-6">
-      {/* Basic Info */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="space-y-4">
-          <div>
-            <Label className="text-sm font-medium text-gray-500">Hospital Name</Label>
-            <p className="text-lg font-semibold">{hospital.name}</p>
-          </div>
-          <div>
-            <Label className="text-sm font-medium text-gray-500">URL Slug</Label>
-            <p className="text-sm text-blue-600">/{hospital.slug}</p>
-          </div>
-          <div>
-            <Label className="text-sm font-medium text-gray-500">Administrator</Label>
-            <p>{hospital.admin}</p>
-          </div>
-          <div>
-            <Label className="text-sm font-medium text-gray-500">Email</Label>
-            <p>{hospital.email}</p>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div>
-            <Label className="text-sm font-medium text-gray-500">Phone</Label>
-            <p>{hospital.phone || "Not provided"}</p>
-          </div>
-          <div>
-            <Label className="text-sm font-medium text-gray-500">Website</Label>
-            <p>{hospital.website || "Not provided"}</p>
-          </div>
-          <div>
-            <Label className="text-sm font-medium text-gray-500">Package</Label>
-            <Badge className="mt-1">{hospital.package}</Badge>
-          </div>
-          <div>
-            <Label className="text-sm font-medium text-gray-500">Status</Label>
-            <div className="mt-1">
-              {hospital.status === "Active" && <Badge className="bg-green-500">Active</Badge>}
-              {hospital.status === "Inactive" && <Badge className="bg-red-500">Inactive</Badge>}
-              {hospital.status === "Suspended" && <Badge className="bg-yellow-500">Suspended</Badge>}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Address */}
-      <div>
-        <Label className="text-sm font-medium text-gray-500">Address</Label>
-        <p>{hospital.address || "Not provided"}</p>
-      </div>
-
-      {/* Description */}
-      {hospital.description && (
-        <div>
-          <Label className="text-sm font-medium text-gray-500">Description</Label>
-          <p>{hospital.description}</p>
-        </div>
-      )}
-
-      {/* Modules */}
-      {hospital.modules && hospital.modules.length > 0 && (
-        <div>
-          <Label className="text-sm font-medium text-gray-500">Active Modules</Label>
-          <div className="flex flex-wrap gap-2 mt-2">
-            {hospital.modules.map((module) => (
-              <Badge key={module} variant="outline" className="capitalize">
-                {module}
-              </Badge>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Metadata */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-4 border-t">
-        <div>
-          <Label className="text-sm font-medium text-gray-500">Branches</Label>
-          <p>{hospital.branches}</p>
-        </div>
-        <div>
-          <Label className="text-sm font-medium text-gray-500">Created</Label>
-          <p>{hospital.createdAt}</p>
-        </div>
-        <div>
-          <Label className="text-sm font-medium text-gray-500">Last Login</Label>
-          <p>{hospital.lastLogin}</p>
-        </div>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="flex space-x-2 pt-4 border-t">
-        <Button variant="outline" onClick={() => window.open(`/${hospital.slug}/auth/login`, "_blank")}>
-          Visit Hospital Login
-        </Button>
-        <Button variant="outline" onClick={() => window.open(`/${hospital.slug}/home`, "_blank")}>
-          Visit Hospital Website
+    <div className="py-6 px-8">
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-2xl font-bold">Hospitals</h1>
+        <Button onClick={() => setIsAddDialogOpen(true)}>
+          Add Hospital
         </Button>
       </div>
+
+      {isLoading ? (
+        <div>Loading...</div>
+      ) : error ? (
+        <div className="text-red-500">{error}</div>
+      ) : (
+        <DataTable<Hospital, any> columns={columns} data={hospitals} />
+      )}
+
+      {/* Create Dialog */}
+      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add Hospital</DialogTitle>
+          </DialogHeader>
+          <HospitalForm
+            onSubmit={handleAddHospital}
+            onCancel={() => setIsAddDialogOpen(false)}
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Hospital</DialogTitle>
+          </DialogHeader>
+          {editingHospital && (
+            <HospitalForm
+              initialData={{
+                name: editingHospital.name,
+                subdomain: editingHospital.subdomain,
+                email: editingHospital.email,
+                phone: editingHospital.phone,
+                address: editingHospital.address,
+                city: editingHospital.city,
+                state: editingHospital.state,
+                country: editingHospital.country,
+                zip: editingHospital.zip,
+                status: editingHospital.status,
+                package: editingHospital.package,
+                website: editingHospital.website,
+                description: editingHospital.description,
+                modules: editingHospital.modules,
+                admin_email: editingHospital.admin_email,
+                admin_password: editingHospital.admin_password || '',
+                branches: editingHospital.branches
+              }}
+              onSubmit={handleUpdateHospital}
+              onCancel={() => setIsEditDialogOpen(false)}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* View Dialog */}
+      <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>View Hospital</DialogTitle>
+          </DialogHeader>
+          {selectedHospital && <HospitalView hospital={selectedHospital} onClose={() => setIsViewDialogOpen(false)} />}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
