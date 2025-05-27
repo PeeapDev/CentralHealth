@@ -53,8 +53,22 @@ export function HospitalSidebar({ hospitalName }: HospitalSidebarProps) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [hospital, setHospital] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [unreadMessages, setUnreadMessages] = useState<number>(0)
   
   // Fetch hospital data to get enabled modules
+  // Fetch unread message count
+  const fetchUnreadMessages = async () => {
+    try {
+      const response = await fetch(`/api/hospitals/${hospitalName}/messages/recent`)
+      if (response.ok) {
+        const data = await response.json()
+        setUnreadMessages(data.unreadCount || 0)
+      }
+    } catch (error) {
+      console.error("Error fetching unread messages:", error)
+    }
+  }
+  
   useEffect(() => {
     const fetchHospital = async () => {
       try {
@@ -75,6 +89,11 @@ export function HospitalSidebar({ hospitalName }: HospitalSidebarProps) {
     
     if (hospitalName) {
       fetchHospital()
+      fetchUnreadMessages() // Fetch unread messages count
+      
+      // Poll for new messages every 30 seconds
+      const interval = setInterval(fetchUnreadMessages, 30000)
+      return () => clearInterval(interval)
     }
   }, [hospitalName])
   
@@ -106,7 +125,8 @@ export function HospitalSidebar({ hospitalName }: HospitalSidebarProps) {
     { icon: UserPlus, label: "Referral", href: `/${hospitalName}/admin/referral`, module: "referral" },
     { icon: Shield, label: "TPA Management", href: `/${hospitalName}/admin/tpa`, module: "tpa management" },
     { icon: DollarSign, label: "Finance", href: `/${hospitalName}/admin/finance`, module: "billing" }, // Finance is shown if billing is enabled
-    { icon: MessageSquare, label: "Messaging", href: `/${hospitalName}/admin/messaging`, module: null }, // Always show messaging
+    // Using notifications page as our chat/messaging page
+    { icon: MessageSquare, label: "Chat & Notifications", href: `/${hospitalName}/admin/notifications`, module: null } // Always show messaging
   ]
   
   // Filter menu items based on enabled modules
@@ -169,9 +189,16 @@ export function HospitalSidebar({ hospitalName }: HospitalSidebarProps) {
             {menuItems.map((item) => (
               <SidebarMenuItem key={item.href}>
                 <SidebarMenuButton asChild isActive={pathname === item.href} className="w-full justify-start">
-                  <Link href={item.href} className="flex items-center space-x-3 px-3 py-2">
+                  <Link href={item.href} className="flex items-center space-x-3 px-3 py-2 relative">
                     <item.icon className="h-4 w-4" />
                     <span className="text-sm">{item.label}</span>
+                    
+                    {/* Show unread count badge for Chat & Notifications */}
+                    {item.label === "Chat & Notifications" && unreadMessages > 0 && (
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 h-5 w-5 rounded-full bg-red-500 text-xs text-white flex items-center justify-center">
+                        {unreadMessages > 99 ? "99+" : unreadMessages}
+                      </span>
+                    )}
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
