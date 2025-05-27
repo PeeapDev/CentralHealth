@@ -24,28 +24,12 @@ export default function SuperAdminManagement() {
   const superAdmins = [
     {
       id: "1",
-      image: "/placeholder.svg?height=40&width=40",
+      image: "/placeholder-user.jpg",
       name: "Super Admin",
-      email: "superadmin@hms.com",
-      address: "Binodpur",
-      phone: "01749435500",
-    },
-    {
-      id: "2",
-      image: "/placeholder.svg?height=40&width=40",
-      name: "John Doe",
-      email: "john.doe@hms.com",
-      address: "123 Main Street",
-      phone: "01234567890",
-    },
-    {
-      id: "3",
-      image: "/placeholder.svg?height=40&width=40",
-      name: "Jane Smith",
-      email: "jane.smith@hms.com",
-      address: "456 Oak Avenue",
-      phone: "01987654321",
-    },
+      email: "admin@example.com",
+      address: "123 Admin Street, San Francisco",
+      phone: "+123456789",
+    }
   ]
 
   const columns: ColumnDef<any>[] = [

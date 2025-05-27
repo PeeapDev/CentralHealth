@@ -1,18 +1,84 @@
+"use client"
+
+import { useState } from "react"
 import { PageHeader } from "@/components/page-header"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Plus, Search, Users, UserPlus, Activity, Calendar } from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Plus, Search, Users, UserPlus, Activity, Calendar, FileText, Download, Filter, Heart } from "lucide-react"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { toast } from "sonner"
+
+// FHIR Types
+interface FHIRPatient {
+  resourceType: string;
+  id: string;
+  meta?: {
+    versionId?: string;
+    lastUpdated?: string;
+  };
+  active: boolean;
+  name: Array<{
+    use?: string;
+    text?: string;
+    family: string;
+    given: string[];
+  }>;
+  telecom?: Array<{
+    system: string;
+    value: string;
+    use?: string;
+  }>;
+  gender?: string;
+  birthDate?: string;
+  address?: Array<{
+    use?: string;
+    type?: string;
+    text?: string;
+    line?: string[];
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    country?: string;
+  }>;
+  contact?: Array<{
+    relationship?: Array<{
+      coding?: Array<{
+        system?: string;
+        code?: string;
+        display?: string;
+      }>;
+    }>;
+    name?: {
+      use?: string;
+      text?: string;
+      family?: string;
+      given?: string[];
+    };
+    telecom?: Array<{
+      system?: string;
+      value?: string;
+      use?: string;
+    }>;
+  }>;
+}
 
 interface PatientsPageProps {
   params: { hospitalName: string }
 }
 
 export default function PatientsPage({ params }: PatientsPageProps) {
-  const hospitalName = params.hospitalName.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())
+  const { hospitalName } = params;
+  const formattedHospitalName = hospitalName.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+  
+  const [activeTab, setActiveTab] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [fhirPatients, setFhirPatients] = useState<FHIRPatient[]>([]);
 
   const patients = [
     {
@@ -127,11 +193,22 @@ export default function PatientsPage({ params }: PatientsPageProps) {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>Patient Directory</CardTitle>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              Register Patient
-            </Button>
+            <CardTitle>Patient Directory (FHIR-Compliant)</CardTitle>
+            <div className="flex items-center gap-2">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="outline" size="sm">
+                      <Filter className="h-4 w-4 mr-2" />
+                      FHIR Filters
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Filter patients using FHIR search parameters</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -194,7 +271,15 @@ export default function PatientsPage({ params }: PatientsPageProps) {
                         {patient.bloodType}
                       </Badge>
                     </TableCell>
-                    <TableCell>{getStatusBadge(patient.status)}</TableCell>
+                    <TableCell>
+                      <Badge variant={patient.status === "Active" ? "outline" : "secondary"} className="flex items-center gap-1">
+                        {patient.status === "Active" && <div className="w-1.5 h-1.5 rounded-full bg-green-500" />}
+                        {patient.status}
+                      </Badge>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        FHIR: {patient.status === "Active" ? "active=true" : "active=false"}
+                      </div>
+                    </TableCell>
                     <TableCell>{patient.lastVisit}</TableCell>
                     <TableCell>{patient.doctor}</TableCell>
                     <TableCell>

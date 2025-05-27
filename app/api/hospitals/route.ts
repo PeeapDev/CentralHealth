@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import bcryptjs from 'bcryptjs';
 import { isSmtpConfigured, sendAdminCredentials } from '@/lib/email';
 import crypto from 'crypto';
+import { verifyToken } from '@/lib/auth/jwt';
 
 export async function GET(req: NextRequest) {
   try {
@@ -10,6 +11,17 @@ export async function GET(req: NextRequest) {
     const token = req.cookies.get('token')?.value;
     if (!token) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    
+    // Verify the token to ensure superadmin access only
+    try {
+      const payload = await verifyToken(token);
+      if (payload.role !== 'superadmin') {
+        return NextResponse.json({ error: 'Unauthorized access' }, { status: 403 });
+      }
+    } catch (error) {
+      console.error('Token verification failed:', error);
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
     // Get all hospitals from the database using Prisma
@@ -69,6 +81,17 @@ export async function POST(req: NextRequest) {
     const token = req.cookies.get('token')?.value;
     if (!token) {
       return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
+    
+    // Verify the token to ensure superadmin access only
+    try {
+      const payload = await verifyToken(token);
+      if (payload.role !== 'superadmin') {
+        return NextResponse.json({ error: 'Unauthorized access' }, { status: 403 });
+      }
+    } catch (error) {
+      console.error('Token verification failed:', error);
+      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
     const body = await req.json();
@@ -194,26 +217,38 @@ export async function POST(req: NextRequest) {
     console.log(`Hospital created: ${body.name} with subdomain ${body.subdomain} and UUID ${newHospital.id}`);
     
     // Send admin credentials via email if SMTP is configured
+    let emailStatus = false;
     if (smtpEnabled) {
       try {
-        await sendAdminCredentials({
+        const emailResult = await sendAdminCredentials({
           hospitalName: body.name,
           adminEmail: body.admin_email,
           adminPassword: adminPassword,
           hospitalSubdomain: body.subdomain,
           adminName: body.admin_name || 'Hospital Admin'
         });
-        console.log(`Admin credentials sent to ${body.admin_email}`);
+        
+        if (emailResult.success) {
+          console.log(`Admin credentials sent to ${body.admin_email}`);
+          emailStatus = true;
+        } else {
+          // Type assertion to access the error property safely
+          const errorResult = emailResult as { success: boolean; error: any };
+          console.error('Failed to send admin credentials email:', errorResult.error);
+        }
       } catch (error) {
         console.error('Failed to send admin credentials email:', error);
         // Continue anyway, just log the error
       }
+    } else {
+      console.log('SMTP not configured - not sending admin credentials email');
     }
 
     return NextResponse.json({
       message: 'Hospital created successfully',
       hospital: formattedHospital,
-      credentials_emailed: smtpEnabled
+      credentials_emailed: emailStatus,
+      admin_password: smtpEnabled ? undefined : adminPassword // Only return password if email wasn't sent
     });
   } catch (error) {
     console.error('Create hospital error:', error);

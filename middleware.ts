@@ -43,6 +43,8 @@ export async function middleware(request: NextRequest) {
     
     if (!token) {
       console.log('No token found - redirecting to login')
+      // Log this access attempt for security monitoring
+      console.warn(`SECURITY: Unauthorized access attempt to ${path} without token`)
       return NextResponse.redirect(new URL('/auth/login', request.url))
     }
     
@@ -50,16 +52,34 @@ export async function middleware(request: NextRequest) {
       const payload = await verifyToken(token)
       console.log('Token payload:', payload)
       
-      if (payload.role !== 'superadmin') {
-        console.log('User is not superadmin - redirecting to login')
-        return NextResponse.redirect(new URL('/auth/login', request.url))
+      // Enhanced role verification
+      if (!payload || payload.role !== 'superadmin') {
+        console.log('User is not superadmin - access denied')
+        // Log this access attempt for security monitoring
+        console.warn(`SECURITY: Unauthorized access attempt to ${path} by non-superadmin user: ${payload?.email || 'unknown'}`)
+        
+        // Clear the invalid token
+        const response = NextResponse.redirect(new URL('/auth/login', request.url))
+        response.cookies.delete('token')
+        return response
+      }
+      
+      // Double check that we have a valid userId
+      if (!payload.userId || !payload.email) {
+        console.error('Invalid token payload - missing required fields')
+        const response = NextResponse.redirect(new URL('/auth/login', request.url))
+        response.cookies.delete('token')
+        return response
       }
       
       console.log('Superadmin access granted')
       return NextResponse.next()
     } catch (error) {
       console.error('Token verification failed:', error)
-      return NextResponse.redirect(new URL('/auth/login', request.url))
+      // Clear the invalid token
+      const response = NextResponse.redirect(new URL('/auth/login', request.url))
+      response.cookies.delete('token')
+      return response
     }
   }
 

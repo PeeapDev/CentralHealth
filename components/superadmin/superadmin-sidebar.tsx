@@ -23,7 +23,6 @@ import {
 } from "@/components/ui/dropdown-menu"
 import {
   Settings,
-  LogOut,
   Heart,
   ChevronUp,
   LayoutDashboard,
@@ -40,6 +39,7 @@ import {
   Shield,
   Languages,
   User,
+  LogOut,
 } from "lucide-react"
 import { useState } from "react"
 import { cn } from "@/lib/utils"
@@ -52,17 +52,54 @@ export function SuperAdminSidebar() {
   const toggleMenu = (menuId: string) => {
     setOpenMenus((prev) => (prev.includes(menuId) ? prev.filter((id) => id !== menuId) : [...prev, menuId]))
   }
+  
+  // Handle logout - client-side implementation that doesn't rely on API
+  const handleLogout = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    
+    // Clear cookies with multiple approaches to ensure they're cleared
+    // Set standard cookies to empty with past expiration date
+    document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;';
+    document.cookie = 'hospitalToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;';
+    
+    // Try with domain specified
+    document.cookie = 'token=; path=/; domain=localhost; expires=Thu, 01 Jan 1970 00:00:00 GMT;';
+    document.cookie = 'hospitalToken=; path=/; domain=localhost; expires=Thu, 01 Jan 1970 00:00:00 GMT;';
+    
+    // Clear any local storage items that might contain auth info
+    localStorage.clear();
+    sessionStorage.clear();
+    
+    // Force a hard redirect to the root login page (more reliable than /auth/login)
+    window.location.replace('/');
+  }
 
-  const navigation = [
+  interface NavigationItem {
+    title: string;
+    url?: string;
+    icon: React.ElementType;
+    id?: string;
+    subItems?: Array<{ title: string; url: string }>;
+  }
+
+  const navigation: NavigationItem[] = [
     {
       title: "Dashboard",
       url: "/superadmin",
       icon: LayoutDashboard,
     },
     {
-      title: "Superadmin",
-      url: "/superadmin/admins",
+      title: "Users",
       icon: UserCog,
+      id: "users",
+      subItems: [
+        { title: "All Users", url: "/superadmin/users" },
+        { title: "Administrators", url: "/superadmin/users/admins" },
+        { title: "Staff", url: "/superadmin/users/staff" },
+        { title: "Patients", url: "/superadmin/users/patient" },
+        { title: "Roles & Permissions", url: "/superadmin/users/roles" },
+      ],
     },
     {
       title: "Subscription",
@@ -102,14 +139,15 @@ export function SuperAdminSidebar() {
       ],
     },
     {
-      title: "Email",
-      icon: Mail,
-      id: "email",
+      title: "Communication",
+      icon: MessageSquare,
+      id: "communication",
       subItems: [
-        { title: "NEW", url: "/superadmin/email/new" },
-        { title: "Sent", url: "/superadmin/email/sent" },
-        { title: "Settings", url: "/superadmin/email/settings" },
-        { title: "Contact Us Email", url: "/superadmin/email/contact" },
+        { title: "Chat", url: "/superadmin/communication/chat" },
+        { title: "Email", url: "/superadmin/communication/email" },
+        { title: "SMS", url: "/superadmin/communication/sms" },
+        { title: "Broadcast", url: "/superadmin/communication/broadcast" },
+        { title: "Settings", url: "/superadmin/communication/settings" },
       ],
     },
     {
@@ -123,6 +161,9 @@ export function SuperAdminSidebar() {
         { title: "Module/Extension", url: "/superadmin/settings/modules" },
         { title: "Payment Setting", url: "/superadmin/settings/payment" },
         { title: "System Update", url: "/superadmin/settings/update" },
+        { title: "Language", url: "/superadmin/settings/language" },
+        { title: "Error Logs", url: "/superadmin/settings/error-logs" },
+        { title: "Profile", url: "/superadmin/profile" },
       ],
     },
     {
@@ -134,29 +175,6 @@ export function SuperAdminSidebar() {
       title: "Payment Gateway",
       url: "/superadmin/payment-gateway",
       icon: DollarSign,
-    },
-    {
-      title: "Language",
-      url: "/superadmin/language",
-      icon: Languages,
-    },
-    {
-      title: "Profile",
-      url: "/superadmin/profile",
-      icon: User,
-    },
-    {
-      title: "Log Out",
-      url: "/auth/login",
-      icon: LogOut,
-      onClick: () => {
-        // Clear HTTP-only cookie
-        document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
-        // Also clear localStorage for redundancy
-        localStorage.removeItem("auth")
-        // Navigate to login page
-        router.push("/auth/login")
-      },
     },
     {
       title: "Help Center",
@@ -172,8 +190,8 @@ export function SuperAdminSidebar() {
 
   return (
     <Sidebar className="bg-slate-800 border-r-0">
-      <SidebarHeader className="bg-slate-800 border-b border-slate-700 p-6">
-        <div className="flex items-center space-x-3">
+      <SidebarHeader className="bg-slate-800 border-b border-slate-700 p-4">
+        <Link href="/superadmin" className="flex items-center space-x-3">
           <div className="flex items-center justify-center w-10 h-10 bg-red-600 rounded-lg">
             <Heart className="w-6 h-6 text-white" />
           </div>
@@ -181,80 +199,58 @@ export function SuperAdminSidebar() {
             <p className="text-white font-semibold text-lg">Hospital</p>
             <p className="text-slate-300 text-sm">Management System</p>
           </div>
-        </div>
+        </Link>
       </SidebarHeader>
 
-      <SidebarContent className="bg-slate-800 px-3 py-4">
+      <SidebarContent className="bg-slate-800 px-2 py-2">
         <SidebarGroup>
           <SidebarGroupContent>
-            <SidebarMenu className="space-y-2">
+            <SidebarMenu className="space-y-1">
               {navigation.map((item) => (
                 <div key={item.title}>
                   {item.subItems ? (
                     <div>
-                      <SidebarMenuItem>
-                        <SidebarMenuButton
-                          onClick={() => toggleMenu(item.id!)}
+                      <button
+                        onClick={() => toggleMenu(item.id!)}
+                        className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-white hover:bg-slate-700 transition-colors"
+                      >
+                        <item.icon className="h-5 w-5 text-white mr-3" />
+                        <span className="text-white font-medium">{item.title}</span>
+                        <ChevronRight
                           className={cn(
-                            "flex items-center justify-between w-full text-white hover:bg-slate-700 hover:text-white px-4 py-3 rounded-lg transition-colors",
-                            "data-[state=open]:bg-slate-700",
+                            "h-4 w-4 text-white transition-transform ml-auto",
+                            openMenus.includes(item.id!) && "rotate-90",
                           )}
-                        >
-                          <div className="flex items-center space-x-3">
-                            <item.icon className="h-5 w-5 text-white" />
-                            <span className="text-white font-medium">{item.title}</span>
-                          </div>
-                          <ChevronRight
-                            className={cn(
-                              "h-4 w-4 text-white transition-transform",
-                              openMenus.includes(item.id!) && "rotate-90",
-                            )}
-                          />
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                      {openMenus.includes(item.id!) && (
-                        <div className="ml-6 mt-2 border-l-2 border-slate-600 pl-4 space-y-1">
-                          {item.subItems.map((subItem) => (
-                            <SidebarMenuItem key={subItem.title}>
-                              <SidebarMenuButton
-                                asChild
-                                className={cn(
-                                  "text-slate-300 hover:bg-slate-700 hover:text-white px-3 py-2 rounded-md transition-colors",
-                                  pathname === subItem.url && "bg-slate-700 text-white",
-                                )}
-                              >
-                                <Link href={subItem.url} className="text-slate-300 hover:text-white">
-                                  <span className="text-sm">{subItem.title}</span>
-                                </Link>
-                              </SidebarMenuButton>
-                            </SidebarMenuItem>
-                          ))}
-                        </div>
-                      )}
+                        />
+                      </button>
                     </div>
                   ) : (
-                    <SidebarMenuItem>
-                      <SidebarMenuButton
-                        asChild={!item.onClick}
-                        onClick={item.onClick}
-                        className={cn(
-                          "text-white hover:bg-slate-700 hover:text-white px-4 py-3 rounded-lg transition-colors",
-                          pathname === item.url && "bg-slate-700",
-                        )}
+                    <div>
+                      <Link 
+                        href={item.url!} 
+                        className="flex items-center space-x-3 rounded-lg px-3 py-2 text-white hover:bg-slate-700 transition-colors"
                       >
-                        {item.onClick ? (
-                          <div className="flex items-center space-x-3 cursor-pointer">
-                            <item.icon className="h-5 w-5 text-white" />
-                            <span className="text-white font-medium">{item.title}</span>
-                          </div>
-                        ) : (
-                          <Link href={item.url!} className="flex items-center space-x-3">
-                            <item.icon className="h-5 w-5 text-white" />
-                            <span className="text-white font-medium">{item.title}</span>
+                        <item.icon className="h-5 w-5 text-white" />
+                        <span className="text-white font-medium">{item.title}</span>
+                      </Link>
+                    </div>
+                  )}
+                  {item.subItems && openMenus.includes(item.id!) && (
+                    <div className="pl-5 mt-2 space-y-1">
+                      {item.subItems.map((subItem) => (
+                        <div key={subItem.title}>
+                          <Link 
+                            href={subItem.url}
+                            className={cn(
+                              "block px-3 py-2 text-slate-300 hover:text-white hover:bg-slate-700/50 rounded-lg transition-colors",
+                              pathname === subItem.url && "bg-slate-700/50 text-white"
+                            )}
+                          >
+                            {subItem.title}
                           </Link>
-                        )}
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               ))}
@@ -264,42 +260,46 @@ export function SuperAdminSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="bg-slate-800 border-t border-slate-700 p-4">
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <SidebarMenuButton className="text-white hover:bg-slate-700 hover:text-white px-4 py-3 rounded-lg">
-                  <Avatar className="h-8 w-8">
-                    <AvatarImage src="/placeholder.svg" />
-                    <AvatarFallback className="bg-yellow-500 text-white font-semibold">SA</AvatarFallback>
-                  </Avatar>
-                  <div className="flex flex-col items-start">
-                    <span className="text-white font-medium">Super Admin</span>
-                    <span className="text-slate-300 text-xs">Administrator</span>
-                  </div>
-                  <ChevronUp className="ml-auto h-4 w-4 text-white" />
-                </SidebarMenuButton>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent side="top" className="w-[--radix-popper-anchor-width]">
-                <DropdownMenuLabel>Super Administrator</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem>
+        <div className="flex items-center justify-between">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex items-center space-x-2">
+                <Avatar className="h-8 w-8">
+                  <AvatarImage src="/placeholder-user.jpg" />
+                  <AvatarFallback className="bg-slate-700 text-white">SA</AvatarFallback>
+                </Avatar>
+                <div className="text-left">
+                  <p className="text-sm font-medium text-white">Super Admin</p>
+                  <p className="text-xs text-slate-400">admin@example.com</p>
+                </div>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+              <DropdownMenuLabel>My Account</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem asChild>
+                <Link href="/superadmin/profile">
+                  <User className="mr-2 h-4 w-4" />
+                  <span>Profile</span>
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link href="/superadmin/settings/general">
                   <Settings className="mr-2 h-4 w-4" />
-                  Account Settings
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    localStorage.removeItem("auth")
-                    router.push("/auth/login")
-                  }}
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Sign Out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </SidebarMenuItem>
-        </SidebarMenu>
+                  <span>Settings</span>
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-red-500 focus:text-red-500"
+                onClick={handleLogout}
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                <span>Sign Out</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </SidebarFooter>
     </Sidebar>
   )

@@ -150,6 +150,35 @@ function DataTable<TData extends Record<string, any>, TValue>({ columns, data }:
 
 // Hospital view component
 function HospitalView({ hospital, onClose }: HospitalViewProps): JSX.Element {
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  
+  // Handle password reset for hospital admin
+  const handleResetPassword = async (adminEmail: string) => {
+    try {
+      setIsResettingPassword(true);
+      
+      const response = await fetch('/api/hospitals/reset-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email: adminEmail })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to reset password');
+      }
+      
+      toast.success('New password generated and sent to the admin email');
+    } catch (error: any) {
+      console.error('Error resetting password:', error);
+      toast.error(error.message || 'Failed to reset password');
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
@@ -241,7 +270,28 @@ function HospitalView({ hospital, onClose }: HospitalViewProps): JSX.Element {
 
       <div>
         <h3 className="font-semibold">Admin Email</h3>
-        <div className="mt-1">{hospital.admin_email}</div>
+        <div className="mt-1 flex items-center gap-2">
+          <span>{hospital.admin_email}</span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs text-blue-600 border-blue-200"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const confirmReset = window.confirm(
+                `Are you sure you want to reset the password for ${hospital.admin_email}? 
+
+This will invalidate the current password and send a new one to the admin's email.`
+              );
+              if (confirmReset) {
+                handleResetPassword(hospital.admin_email);
+              }
+            }}
+          >
+            Resend Password
+          </Button>
+        </div>
       </div>
 
       <div className="mt-6 p-4 bg-muted/50 rounded-lg border border-muted-foreground/20">
@@ -305,6 +355,7 @@ function HospitalForm({ onSubmit, onCancel, initialData }: HospitalFormProps): J
   const [subdomainTimeout, setSubdomainTimeout] = useState<NodeJS.Timeout | null>(null)
   const [smtpEnabled, setSmtpEnabled] = useState(false)
   const [checkingSmtp, setCheckingSmtp] = useState(true)
+  const [isResettingPassword, setIsResettingPassword] = useState(false)
 
   // Define all available modules
   const availableModules = [
@@ -469,6 +520,34 @@ function HospitalForm({ onSubmit, onCancel, initialData }: HospitalFormProps): J
       subdomain: prev.subdomain === '' ? value.toLowerCase().replace(/[^a-z0-9]/g, '-') : prev.subdomain
     }))
   }
+
+  // Handle password reset for hospital admin
+  const handleResetPassword = async (adminEmail: string) => {
+    try {
+      setIsResettingPassword(true);
+      
+      const response = await fetch('/api/hospitals/reset-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email: adminEmail })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to reset password');
+      }
+      
+      toast.success('New password generated and sent to the admin email');
+    } catch (error: any) {
+      console.error('Error resetting password:', error);
+      toast.error(error.message || 'Failed to reset password');
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -755,6 +834,29 @@ function HospitalForm({ onSubmit, onCancel, initialData }: HospitalFormProps): J
             <p className="text-xs text-muted-foreground">
               A secure password will be generated and sent to the admin email.
             </p>
+            {initialData && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-2 text-xs text-blue-600 border-blue-200"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const confirmReset = window.confirm(
+                    `Are you sure you want to reset the password for ${formData.admin_email}? 
+
+This will invalidate the current password and send a new one to the admin's email.`
+                  );
+                  if (confirmReset && initialData) {
+                    handleResetPassword(initialData.admin_email);
+                  }
+                }}
+                disabled={isResettingPassword}
+              >
+                {isResettingPassword ? 'Sending...' : 'Resend Admin Password'}
+              </Button>
+            )}
           </div>
         )}
       </div>
@@ -869,6 +971,7 @@ export default function HospitalsPage() {
       setIsSubmitting(false)
     }
   }
+
 
   const handleUpdateHospital = async (data: HospitalFormData): Promise<void> => {
     if (!editingHospital) return
