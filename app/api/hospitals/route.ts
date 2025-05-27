@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import bcryptjs from 'bcryptjs';
+import { isSmtpConfigured, sendAdminCredentials } from '@/lib/email';
+import crypto from 'crypto';
 
 export async function GET(req: NextRequest) {
   try {
@@ -72,12 +74,23 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     console.log('Creating hospital with data:', body);
 
+    // Check if SMTP is configured
+    const smtpEnabled = await isSmtpConfigured();
+
     // Basic validation
-    if (!body.name || !body.admin_email || !body.admin_password) {
+    if (!body.name || !body.admin_email || (!body.admin_password && !smtpEnabled)) {
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        { error: smtpEnabled ? 'Missing required fields' : 'Missing required fields. Admin password is required when SMTP is not configured.' },
         { status: 400 }
       );
+    }
+    
+    // Generate a random password if SMTP is enabled and no password was provided
+    let adminPassword = body.admin_password;
+    if (smtpEnabled && !adminPassword) {
+      // Generate a secure random password (12 characters with letters, numbers, and symbols)
+      adminPassword = crypto.randomBytes(8).toString('base64').replace(/[/+=]/g, '$');
+      console.log('Generated random password for admin');
     }
 
     // Create subdomain from name if not provided
@@ -133,7 +146,7 @@ export async function POST(req: NextRequest) {
         users: {
           create: {
             email: body.admin_email,
-            password: await bcryptjs.hash(body.admin_password, 10),
+            password: await bcryptjs.hash(adminPassword, 10),
             name: body.admin_name || 'Hospital Admin',
             role: 'admin'
           }
@@ -179,10 +192,28 @@ export async function POST(req: NextRequest) {
     };
     
     console.log(`Hospital created: ${body.name} with subdomain ${body.subdomain} and UUID ${newHospital.id}`);
+    
+    // Send admin credentials via email if SMTP is configured
+    if (smtpEnabled) {
+      try {
+        await sendAdminCredentials({
+          hospitalName: body.name,
+          adminEmail: body.admin_email,
+          adminPassword: adminPassword,
+          hospitalSubdomain: body.subdomain,
+          adminName: body.admin_name || 'Hospital Admin'
+        });
+        console.log(`Admin credentials sent to ${body.admin_email}`);
+      } catch (error) {
+        console.error('Failed to send admin credentials email:', error);
+        // Continue anyway, just log the error
+      }
+    }
 
     return NextResponse.json({
       message: 'Hospital created successfully',
-      hospital: formattedHospital
+      hospital: formattedHospital,
+      credentials_emailed: smtpEnabled
     });
   } catch (error) {
     console.error('Create hospital error:', error);

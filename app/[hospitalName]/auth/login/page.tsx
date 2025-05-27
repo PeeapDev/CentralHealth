@@ -1,6 +1,6 @@
 "use client"
 
-import type React from "react"
+import React from "react"
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter, useParams } from "next/navigation"
@@ -28,7 +28,8 @@ type Hospital = {
 export default function HospitalLoginPage() {
   const router = useRouter()
   const params = useParams()
-  const hospitalSlug = params?.hospitalName as string || ''
+  // Use React.use to unwrap params safely, with fallback for compatibility
+  const hospitalSlug = params instanceof Promise ? React.use(params).hospitalName : (params?.hospitalName as string || '')
 
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)

@@ -1,0 +1,10 @@
+{
+  "host": "smtp.gmail.com",
+  "port": "465",
+  "username": "pay.peeap@gmail.com",
+  "password": "ipccqymdjfmqqxhk",
+  "fromEmail": "pay.peeap@gmail.com",
+  "fromName": "Hospital Management System",
+  "encryption": "ssl",
+  "enabled": true
+}

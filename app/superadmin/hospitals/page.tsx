@@ -303,6 +303,8 @@ function HospitalForm({ onSubmit, onCancel, initialData }: HospitalFormProps): J
   const [isCheckingSubdomain, setIsCheckingSubdomain] = useState(false)
   const [subdomainAvailable, setSubdomainAvailable] = useState<boolean | null>(null)
   const [subdomainTimeout, setSubdomainTimeout] = useState<NodeJS.Timeout | null>(null)
+  const [smtpEnabled, setSmtpEnabled] = useState(false)
+  const [checkingSmtp, setCheckingSmtp] = useState(true)
 
   // Define all available modules
   const availableModules = [
@@ -354,6 +356,27 @@ function HospitalForm({ onSubmit, onCancel, initialData }: HospitalFormProps): J
   // State for selected template
   const [selectedTemplate, setSelectedTemplate] = useState('Custom')
 
+  // Check if SMTP is configured
+  useEffect(() => {
+    const checkSmtpStatus = async () => {
+      setCheckingSmtp(true)
+      try {
+        const response = await fetch('/api/settings/smtp/status')
+        if (response.ok) {
+          const data = await response.json()
+          setSmtpEnabled(data.enabled)
+        }
+      } catch (error) {
+        console.error('Error checking SMTP status:', error)
+        setSmtpEnabled(false)
+      } finally {
+        setCheckingSmtp(false)
+      }
+    }
+    
+    checkSmtpStatus()
+  }, [])
+  
   useEffect(() => {
     if (initialData) {
       setBranchesInput(initialData.branches?.join(', ') || '')
@@ -705,18 +728,35 @@ function HospitalForm({ onSubmit, onCancel, initialData }: HospitalFormProps): J
             onChange={handleChange}
             required
           />
+          {smtpEnabled && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Admin credentials will be sent to this email address.
+            </p>
+          )}
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="admin_password">Admin Password</Label>
-          <Input
-            id="admin_password"
-            name="admin_password"
-            type="password"
-            value={formData.admin_password}
-            onChange={handleChange}
-            required={!initialData}
-          />
-        </div>
+        {!smtpEnabled ? (
+          <div className="space-y-2">
+            <Label htmlFor="admin_password">Admin Password</Label>
+            <Input
+              id="admin_password"
+              name="admin_password"
+              type="password"
+              value={formData.admin_password}
+              onChange={handleChange}
+              required={!initialData}
+            />
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <Label>Admin Password</Label>
+            <div className="h-10 px-3 py-2 rounded-md border border-input bg-gray-100 flex items-center">
+              <span className="text-sm text-muted-foreground">Password will be auto-generated</span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              A secure password will be generated and sent to the admin email.
+            </p>
+          </div>
+        )}
       </div>
 
       <DialogFooter>

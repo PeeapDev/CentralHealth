@@ -33,6 +33,7 @@ model User {
   password    String
   name        String?
   role        String
+  profileImage String?   // URL or base64 of profile image
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   hospitalId  String
@@ -40,6 +41,8 @@ model User {
   patients    Patient[] @relation("DoctorPatients")
   appointments Appointment[]
   medicalRecords MedicalRecord[]
+  chatParticipations ChatParticipant[]
+  messages Message[]
 }
 
 model Patient {
@@ -83,4 +86,47 @@ model MedicalRecord {
   date        DateTime
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+}
+
+model SystemSettings {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Chat {
+  id            String    @id @default(cuid())
+  name          String?   // Optional name for group chats
+  type          String    // 'direct', 'group', 'broadcast'
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  messages      Message[]
+  participants  ChatParticipant[]
+}
+
+model ChatParticipant {
+  id        String   @id @default(cuid())
+  chatId    String
+  userId    String
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isAdmin   Boolean  @default(false)  // Chat admin can add/remove participants
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([chatId, userId])
+}
+
+model Message {
+  id          String    @id @default(cuid())
+  chatId      String
+  senderId    String
+  content     String    @db.Text
+  isRead      Boolean   @default(false)
+  readBy      Json?     // Array of user IDs who have read the message
+  sentAt      DateTime  @default(now())
+  chat        Chat      @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender      User      @relation(fields: [senderId], references: [id], onDelete: Cascade)
 }

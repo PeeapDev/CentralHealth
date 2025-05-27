@@ -34,6 +34,10 @@ import {
   MessageSquare,
   BarChart3,
   ChevronRight,
+  Settings,
+  Bell,
+  Wrench,
+  CreditCard as PaymentIcon,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -46,6 +50,7 @@ interface HospitalSidebarProps {
 export function HospitalSidebar({ hospitalName }: HospitalSidebarProps) {
   const pathname = usePathname()
   const [isReportsOpen, setIsReportsOpen] = useState(false)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [hospital, setHospital] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   
@@ -202,6 +207,60 @@ export function HospitalSidebar({ hospitalName }: HospitalSidebarProps) {
               </Collapsible>
             </SidebarMenuItem>
           )}
+
+          {/* Settings Section with Collapsible Submenu */}
+          <SidebarMenuItem>
+            <Collapsible open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+              <CollapsibleTrigger asChild>
+                <SidebarMenuButton className="w-full justify-start">
+                  <div className="flex items-center space-x-3 px-3 py-2 w-full">
+                    <Settings className="h-4 w-4" />
+                    <span className="text-sm flex-1">Settings</span>
+                    <ChevronRight className={`h-4 w-4 transition-transform ${isSettingsOpen ? "rotate-90" : ""}`} />
+                  </div>
+                </SidebarMenuButton>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <SidebarMenuSub>
+                  <SidebarMenuSubItem>
+                    <SidebarMenuSubButton asChild isActive={pathname === `/${hospitalName}/admin/settings/general`}>
+                      <Link href={`/${hospitalName}/admin/settings/general`} className="text-sm">
+                        General Settings
+                      </Link>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                  <SidebarMenuSubItem>
+                    <SidebarMenuSubButton asChild isActive={pathname === `/${hospitalName}/admin/settings/roles`}>
+                      <Link href={`/${hospitalName}/admin/settings/roles`} className="text-sm">
+                        Role and Permission
+                      </Link>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                  <SidebarMenuSubItem>
+                    <SidebarMenuSubButton asChild isActive={pathname === `/${hospitalName}/admin/settings/notifications`}>
+                      <Link href={`/${hospitalName}/admin/settings/notifications`} className="text-sm">
+                        Notification Settings
+                      </Link>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                  <SidebarMenuSubItem>
+                    <SidebarMenuSubButton asChild isActive={pathname === `/${hospitalName}/admin/settings/utilities`}>
+                      <Link href={`/${hospitalName}/admin/settings/utilities`} className="text-sm">
+                        Utilities
+                      </Link>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                  <SidebarMenuSubItem>
+                    <SidebarMenuSubButton asChild isActive={pathname === `/${hospitalName}/admin/settings/payment`}>
+                      <Link href={`/${hospitalName}/admin/settings/payment`} className="text-sm">
+                        Payment Settings
+                      </Link>
+                    </SidebarMenuSubButton>
+                  </SidebarMenuSubItem>
+                </SidebarMenuSub>
+              </CollapsibleContent>
+            </Collapsible>
+          </SidebarMenuItem>
         </SidebarMenu>
       )}</SidebarContent>
     </Sidebar>
