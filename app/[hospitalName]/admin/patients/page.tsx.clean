@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, use } from "react"
+import { useState, useEffect } from "react"
 import { PageHeader } from "@/components/page-header"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -9,14 +9,8 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Search, Users, Activity, Calendar, FileText } from "lucide-react"
+import { Search, Users, UserPlus, Activity, Calendar, FileText } from "lucide-react"
 import { toast } from "sonner"
-import dynamic from "next/dynamic"
-
-// Use dynamic import to avoid SSR issues with React hooks
-const PatientInfoCard = dynamic(() => import("./info-card"), {
-  ssr: false
-})
 
 // FHIR Patient interface
 interface FHIRPatient {
@@ -150,14 +144,12 @@ function Pagination({ currentPage, totalPages, onPageChange }: PaginationProps) 
 }
 
 interface PatientsPageProps {
-  params: Promise<{ hospitalName: string }>
+  params: { hospitalName: string }
 }
 
 export default function PatientsPage({ params }: PatientsPageProps) {
-  // Unwrap params using React.use as recommended by Next.js
-  const unwrappedParams = use(params) as { hospitalName: string };
-  const { hospitalName } = unwrappedParams;
-  const formattedHospitalName = hospitalName.replace(/-/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase());
+  const { hospitalName } = params;
+  const formattedHospitalName = hospitalName.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
   
   // State management
   const [searchQuery, setSearchQuery] = useState("");
@@ -277,35 +269,22 @@ export default function PatientsPage({ params }: PatientsPageProps) {
       
       const response = await fetch(`/api/patients?${params.toString()}`);
       
-      // Process response even if not OK
-      const data = await response.json();
+      if (!response.ok) {
+        throw new Error('Failed to fetch patients');
+      }
       
-      // Check if we have valid patient data
-      if (data && Array.isArray(data.patients)) {
-        setPatients(data.patients);
-        setTotalPatients(data.pagination?.total || 0);
-        
-        // Show a gentle notification if no results found after search
-        if (data.patients.length === 0 && searchPerformed) {
-          toast.info("No patients found matching your criteria");
-        }
-      } else {
-        console.log("Invalid patient data format received:", data);
-        setPatients([]);
-        setTotalPatients(0);
-        
-        if (searchPerformed) {
-          toast.info("No patient records available");
-        }
+      const data = await response.json();
+      setPatients(data.patients || []);
+      setTotalPatients(data.pagination?.total || 0);
+      
+      if (data.patients.length === 0 && searchPerformed) {
+        toast.info("No patients found matching your criteria");
       }
       
     } catch (error) {
       console.error('Error searching patients:', error);
-      // Use a more friendly message rather than error
-      toast.info('No patient records available');
-      // Set empty state
+      toast.error('Failed to search patients');
       setPatients([]);
-      setTotalPatients(0);
     } finally {
       setIsLoading(false);
     }
@@ -339,42 +318,52 @@ export default function PatientsPage({ params }: PatientsPageProps) {
     <div className="flex-1 space-y-6 p-4 md:p-8 pt-6">
       <PageHeader
         title={`${formattedHospitalName} - Patient Management`}
-        description="Access patient records from the National Health Service FHIR registry"
+        description="Search and access patients from the centralized FHIR patient registry"
         breadcrumbs={[{ label: formattedHospitalName }, { label: "Admin" }, { label: "Patient Management" }]}
       />
 
-      {/* Layout with info card and stats */}
-      <div className="grid gap-6 md:grid-cols-3">
-        {/* Left side - Patient Info Card */}
-        <div className="md:col-span-1">
-          <PatientInfoCard />
-        </div>
-        
-        {/* Right side - Stats */}
-        <div className="md:col-span-2 space-y-6">
-          <div className="grid gap-4 grid-cols-2">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Patients</CardTitle>
-                <Users className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{totalPatients}</div>
-                <p className="text-xs text-muted-foreground">National patient registry</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Active Patients</CardTitle>
-                <Activity className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">75%</div>
-                <p className="text-xs text-muted-foreground">Of total patient base</p>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
+      {/* Stats Cards */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Patients</CardTitle>
+            <Users className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{totalPatients}</div>
+            <p className="text-xs text-muted-foreground">Centralized patient registry</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Recent Patients</CardTitle>
+            <UserPlus className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">20</div>
+            <p className="text-xs text-muted-foreground">Added this month</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Active Patients</CardTitle>
+            <Activity className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">75%</div>
+            <p className="text-xs text-muted-foreground">Of total patient base</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Appointments Today</CardTitle>
+            <Calendar className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">12</div>
+            <p className="text-xs text-muted-foreground">Scheduled visits</p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Patient Search Form */}
@@ -382,7 +371,7 @@ export default function PatientsPage({ params }: PatientsPageProps) {
         <CardHeader>
           <CardTitle>Patient Search</CardTitle>
           <CardDescription>
-            Search the National Health Service registry by name, email or medical number
+            Search the centralized patient registry using name, email or medical number
           </CardDescription>
         </CardHeader>
         <CardContent>

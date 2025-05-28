@@ -26,10 +26,23 @@ export default function LoginPage() {
 
       const data = await response.json()
 
-      if (response.ok) {
+      if (response.ok && data.access_token) {
+        // Store token in cookie for proper authentication
+        document.cookie = `token=${data.access_token}; path=/; max-age=86400; SameSite=Strict`;
+        
         toast.success("Login successful")
-        router.push("/superadmin")
-        router.refresh()
+        
+        // Add a delay to ensure cookie is set before navigation
+        setTimeout(() => {
+          if (data.user?.role === 'superadmin') {
+            router.push("/superadmin")
+          } else if (data.user?.hospitalId) {
+            router.push(`/${data.user.hospitalId}/admin`)
+          } else {
+            router.push("/dashboard")
+          }
+          router.refresh()
+        }, 500)
       } else {
         toast.error(data.error || "Login failed")
       }

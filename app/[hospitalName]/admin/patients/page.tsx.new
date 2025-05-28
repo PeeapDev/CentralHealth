@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, use } from "react"
+import { useState, useEffect } from "react"
 import { PageHeader } from "@/components/page-header"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -11,12 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Search, Users, Activity, Calendar, FileText } from "lucide-react"
 import { toast } from "sonner"
-import dynamic from "next/dynamic"
-
-// Use dynamic import to avoid SSR issues with React hooks
-const PatientInfoCard = dynamic(() => import("./info-card"), {
-  ssr: false
-})
+import { PatientInfoCard } from "./info-card"
 
 // FHIR Patient interface
 interface FHIRPatient {
@@ -150,14 +145,12 @@ function Pagination({ currentPage, totalPages, onPageChange }: PaginationProps) 
 }
 
 interface PatientsPageProps {
-  params: Promise<{ hospitalName: string }>
+  params: { hospitalName: string }
 }
 
 export default function PatientsPage({ params }: PatientsPageProps) {
-  // Unwrap params using React.use as recommended by Next.js
-  const unwrappedParams = use(params) as { hospitalName: string };
-  const { hospitalName } = unwrappedParams;
-  const formattedHospitalName = hospitalName.replace(/-/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase());
+  const { hospitalName } = params;
+  const formattedHospitalName = hospitalName.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
   
   // State management
   const [searchQuery, setSearchQuery] = useState("");
@@ -277,35 +270,22 @@ export default function PatientsPage({ params }: PatientsPageProps) {
       
       const response = await fetch(`/api/patients?${params.toString()}`);
       
-      // Process response even if not OK
-      const data = await response.json();
+      if (!response.ok) {
+        throw new Error('Failed to fetch patients');
+      }
       
-      // Check if we have valid patient data
-      if (data && Array.isArray(data.patients)) {
-        setPatients(data.patients);
-        setTotalPatients(data.pagination?.total || 0);
-        
-        // Show a gentle notification if no results found after search
-        if (data.patients.length === 0 && searchPerformed) {
-          toast.info("No patients found matching your criteria");
-        }
-      } else {
-        console.log("Invalid patient data format received:", data);
-        setPatients([]);
-        setTotalPatients(0);
-        
-        if (searchPerformed) {
-          toast.info("No patient records available");
-        }
+      const data = await response.json();
+      setPatients(data.patients || []);
+      setTotalPatients(data.pagination?.total || 0);
+      
+      if (data.patients.length === 0 && searchPerformed) {
+        toast.info("No patients found matching your criteria");
       }
       
     } catch (error) {
       console.error('Error searching patients:', error);
-      // Use a more friendly message rather than error
-      toast.info('No patient records available');
-      // Set empty state
+      toast.error('Failed to search patients');
       setPatients([]);
-      setTotalPatients(0);
     } finally {
       setIsLoading(false);
     }

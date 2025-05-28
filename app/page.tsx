@@ -24,8 +24,8 @@ export default async function HomePage() {
   const features = [
     {
       icon: Users,
-      title: "Patient Management",
-      description: "Complete patient records, history, and care coordination",
+      title: "Centralized Patient Registry",
+      description: "Nationwide patient identification with unified medical records across all hospitals",
     },
     {
       icon: Calendar,
@@ -124,26 +124,26 @@ export default async function HomePage() {
               <div className="space-y-2">
                 <Badge variant="outline" className="w-fit">
                   <Heart className="w-3 h-3 mr-1" />
-                  Healthcare Innovation
+                  National Health Service
                 </Badge>
                 <h1 className="text-3xl font-bold tracking-tighter sm:text-5xl xl:text-6xl/none">
-                  Modern Hospital Management
-                  <span className="text-blue-600 dark:text-blue-400"> Made Simple</span>
+                  Unified Healthcare
+                  <span className="text-blue-600 dark:text-blue-400"> Across the Nation</span>
                 </h1>
                 <p className="max-w-[600px] text-muted-foreground md:text-xl">
-                  Streamline your healthcare operations with our comprehensive SaaS platform. Manage patients, staff,
-                  and resources efficiently with enterprise-grade security.
+                  A centralized FHIR-compliant healthcare system that connects patients with hospitals nationwide.
+                  One medical number, one patient record, accessible at any participating healthcare facility.
                 </p>
               </div>
               <div className="flex flex-col gap-2 min-[400px]:flex-row">
                 <Button size="lg" asChild>
-                  <Link href="/auth/signup">
-                    Start Free Trial
+                  <Link href="/register">
+                    Register as a Patient
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
                 </Button>
                 <Button variant="outline" size="lg" asChild>
-                  <Link href="/auth/login">Sign In</Link>
+                  <Link href="/">Hospital Login</Link>
                 </Button>
               </div>
             </div>

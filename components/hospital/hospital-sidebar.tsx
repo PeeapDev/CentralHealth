@@ -126,9 +126,7 @@ export function HospitalSidebar({ hospitalName }: HospitalSidebarProps) {
     { icon: Shield, label: "TPA Management", href: `/${hospitalName}/admin/tpa`, module: "tpa management" },
     { icon: DollarSign, label: "Finance", href: `/${hospitalName}/admin/finance`, module: "billing" }, // Finance is shown if billing is enabled
     // Add Patient management - FHIR compliant
-    { icon: UserPlus, label: "Patients", href: `/${hospitalName}/admin/patients`, module: null }, // Always show patients
-    // Using notifications page as our chat/messaging page
-    { icon: MessageSquare, label: "Chat & Notifications", href: `/${hospitalName}/admin/notifications`, module: null } // Always show messaging
+    { icon: UserPlus, label: "Patients", href: `/${hospitalName}/admin/patients`, module: null } // Always show patients
   ]
   
   // Filter menu items based on enabled modules

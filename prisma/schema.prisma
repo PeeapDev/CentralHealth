@@ -46,46 +46,114 @@ model User {
 }
 
 model Patient {
-  id            String    @id @default(cuid())
-  mrn           String    @unique
-  name          String
-  dateOfBirth   DateTime
-  gender        String
-  contact       Json
-  medicalHistory Json?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  hospitalId    String
-  hospital      Hospital  @relation(fields: [hospitalId], references: [id])
-  doctors       User[]    @relation("DoctorPatients")
-  appointments  Appointment[]
-  records       MedicalRecord[]
+  id              String    @id @default(cuid())
+  medicalNumber   String    @unique // 10-digit identifier
+  mrn             String?   @unique // Optional hospital-specific medical record number
+  resourceType    String    @default("Patient") // FHIR resource type
+  active          Boolean   @default(true)
+  
+  // Demographic information
+  name            Json      // FHIR HumanName structure (given, family, prefix, suffix, etc.)
+  telecom         Json?     // FHIR ContactPoint array (phone, email, etc.)
+  gender          String    // FHIR AdministrativeGender
+  birthDate       DateTime
+  deceased        Boolean   @default(false)
+  deceasedDateTime DateTime?
+  
+  // Contact information
+  address         Json?     // FHIR Address array
+  maritalStatus   Json?     // FHIR CodeableConcept
+  multipleBirth   Boolean?  // Whether patient is part of multiple birth
+  multipleBirthInteger Int? // Birth order
+  photo           String?   // URL to patient photo
+  
+  // Contact parties
+  contact         Json?     // FHIR Patient.contact array
+  communication   Json?     // FHIR Communication preferences
+  
+  // Patient account data
+  managingOrganization String? // Reference to hospital/organization
+  email           String?   @unique // Email for patient portal access
+  password        String?   // Hashed password for patient portal access
+  
+  // Clinical Information
+  generalPractitioner Json?  // FHIR Reference to care providers
+  medicalHistory    Json?    // FHIR conditions summary
+  
+  // Timestamps and relations
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  // FHIR extensions
+  extension       Json?     // Additional FHIR extension fields
+  
+  // Relationships
+  hospitalId      String?   // Can be null for centralized patients
+  hospital        Hospital?  @relation(fields: [hospitalId], references: [id])
+  doctors         User[]    @relation("DoctorPatients")
+  appointments    Appointment[]
+  records         MedicalRecord[]
 }
 
 model Appointment {
-  id          String    @id @default(cuid())
-  patientId   String
-  patient     Patient   @relation(fields: [patientId], references: [id])
-  doctorId    String
-  doctor      User      @relation(fields: [doctorId], references: [id])
-  date        DateTime
-  status      String
-  notes       String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  resourceType    String    @default("Appointment") // FHIR resource type
+  patientId       String
+  patient         Patient   @relation(fields: [patientId], references: [id])
+  doctorId        String
+  doctor          User      @relation(fields: [doctorId], references: [id])
+  status          String    // FHIR AppointmentStatus (booked, cancelled, etc.)
+  start           DateTime  // Appointment start time
+  end             DateTime? // Appointment end time
+  minutesDuration Int?      // Duration in minutes
+  description     String?   // Description of the appointment
+  serviceType     Json?     // FHIR CodeableConcept for service type
+  specialty       Json?     // FHIR CodeableConcept for specialty
+  appointmentType Json?     // FHIR CodeableConcept for appointment type
+  reason          Json?     // FHIR CodeableConcept for reason
+  priority        Int?      // Priority of the appointment (1-9)
+  comment         String?   // Comments about the appointment
+  extension       Json?     // FHIR extensions
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  hospitalId      String?   // Optional reference to hospital
 }
 
 model MedicalRecord {
-  id          String    @id @default(cuid())
-  patientId   String
-  patient     Patient   @relation(fields: [patientId], references: [id])
-  doctorId    String
-  doctor      User      @relation(fields: [doctorId], references: [id])
-  type        String
-  details     Json
-  date        DateTime
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id              String    @id @default(cuid())
+  resourceType    String    // FHIR resource type (Observation, Condition, Procedure, etc.)
+  patientId       String
+  patient         Patient   @relation(fields: [patientId], references: [id])
+  doctorId        String
+  doctor          User      @relation(fields: [doctorId], references: [id])
+  
+  // Clinical information
+  status          String    // FHIR status (preliminary, final, amended, etc.)
+  category        Json?     // FHIR CodeableConcept for category
+  code            Json      // FHIR CodeableConcept describing what was observed
+  valueString     String?   // String result
+  valueQuantity   Json?     // Numeric result with units
+  valueCodeableConcept Json? // Result as a codeable concept
+  interpretation  Json?     // FHIR CodeableConcept for interpretation (normal, abnormal, etc.)
+  bodySite        Json?     // FHIR CodeableConcept for body site
+  method          Json?     // FHIR CodeableConcept for method
+  specimen        String?   // Reference to Specimen
+  device          String?   // Reference to Device
+  referenceRange  Json?     // Reference ranges for the result
+  hasMember       Json?     // Related observations
+  derivedFrom     Json?     // Related observations from which this is derived
+  
+  // Record data
+  effectiveDateTime DateTime // When the observation was made
+  issued          DateTime  // Date/Time issued
+  performer       Json?     // Who is responsible for the observation
+  note            Json?     // Comments about the observation
+  extension       Json?     // FHIR extensions
+  
+  // Meta
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  hospitalId      String?   // Optional reference to hospital
 }
 
 model SystemSettings {
