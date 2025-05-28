@@ -176,7 +176,7 @@ export function MultiStepForm() {
     setIsSubmitting(true)
     
     try {
-      // Format data according to FHIR standard
+      // Format data for API submission
       const patientData = {
         firstName: formData.firstName,
         lastName: formData.lastName,
@@ -203,231 +203,178 @@ export function MultiStepForm() {
         } : undefined,
         password: formData.password
       }
-        address: [
-          {
-            use: "home",
-            type: "physical",
-            line: [formData.addressLine],
-            city: formData.city,
-            district: formData.district,
-            postalCode: formData.postalCode,
-            country: "Sierra Leone",
-            extension: [
-              {
-                url: "http://hl7.org/fhir/StructureDefinition/geolocation",
-                extension: [
-                  {
-                    url: "latitude",
-                    valueDecimal: formData.latitude
-                  },
-                  {
-                    url: "longitude",
-                    valueDecimal: formData.longitude
-                  }
-                ]
-              }
-            ]
-          }
-        ],
-        contact: formData.emergencyContact ? [
-          {
-            relationship: [
-              {
-                coding: [
-                  {
-                    system: "http://terminology.hl7.org/CodeSystem/v2-0131",
-                    code: "C",
-                    display: "Emergency Contact"
-                  }
-                ],
-                text: formData.emergencyContact.relationship
-              }
-            ],
-            name: {
-              text: formData.emergencyContact.name
-            },
-            telecom: [
-              {
-                system: "phone",
-                value: formData.emergencyContact.contact
-              }
-            ]
-          }
-        ] : [],
-        extension: [
-          {
-            url: "http://example.org/fhir/StructureDefinition/patient-paymentMethod",
-            valueString: formData.paymentMethod
-          },
-          {
-            url: "http://example.org/fhir/StructureDefinition/patient-insurance",
-            extension: [
-              {
-                url: "provider",
-                valueString: formData.insuranceProvider
-              },
-              {
-                url: "number",
-                valueString: formData.insuranceNumber
-              }
-            ]
-          }
-        ]
-      },
-      // Include additional fields for authentication
-      email: formData.email,
-      password: formData.password,
-      photo: formData.photo
+      
+      // Submit to API
+      const response = await fetch("/api/patients/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(patientData)
+      })
+      
+      if (!response.ok) {
+        const error = await response.json()
+        throw new Error(error.message || "Failed to register patient")
+      }
+      
+      // Show success message
+      toast.success("Registration successful! You can now log in.")
+      
+      // Redirect to login page
+      setTimeout(() => {
+        router.push("/")
+      }, 2000)
+      
+    } catch (error: any) {
+      console.error("Registration error:", error)
+      toast.error(error.message || "Registration failed. Please try again.")
+    } finally {
+      setIsSubmitting(false)
     }
-    
-    // Submit the data to the API
-    const response = await fetch("/api/patients/register", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(patientData)
-    })
-    
-    if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.message || "Failed to register patient")
-    }
-    
-    // Show success message
-    toast.success("Registration successful! You can now log in.")
-    
-    // Redirect to login page
-    setTimeout(() => {
-      router.push("/login")
-    }, 2000)
-    
-  } catch (error: any) {
-    console.error("Registration error:", error)
-    toast.error(error.message || "Registration failed. Please try again.")
-    setIsSubmitting(false)
   }
-}
 
-// Render current step
-const renderStep = () => {
-  switch (step) {
-    case 1:
-      return <PersonalInfoStep formData={formData} updateFormData={updateFormData} />
-    case 2:
-      return <LocationStep formData={formData} updateFormData={updateFormData} />
-    case 3:
-      return <SiblingsStep formData={formData} updateFormData={updateFormData} />
-    case 4:
-      return <PaymentMethodStep formData={formData} updateFormData={updateFormData} />
-    case 5:
-      return <VerificationStep formData={formData} updateFormData={updateFormData} />
-    case 6:
-      return <ReviewStep formData={formData} updateFormData={updateFormData} onSubmit={handleSubmit} />
-    default:
-      return null
-  }
-}
-
-// Render step indicators
-const renderStepIndicators = () => {
-  return (
-    <div className="flex items-center justify-between mb-8">
-      {steps.map((s) => (
-        <div 
-          key={s.id} 
-          className={`flex flex-col items-center ${
-            step === s.id 
-              ? "text-primary" 
-              : step > s.id 
-                ? "text-green-500" 
-                : "text-muted-foreground"
-          }`}
-        >
+  // Render step indicators
+  const renderStepIndicators = () => {
+    return (
+      <div className="flex items-center justify-between mb-8">
+        {steps.map((s) => (
           <div 
-            className={`w-10 h-10 rounded-full flex items-center justify-center mb-2 ${
+            key={s.id} 
+            className={`flex flex-col items-center ${
               step === s.id 
-                ? "bg-primary text-primary-foreground" 
+                ? "text-primary" 
                 : step > s.id 
-                  ? "bg-green-100 text-green-500 border border-green-500" 
-                  : "bg-muted text-muted-foreground"
+                  ? "text-green-500" 
+                  : "text-muted-foreground"
             }`}
           >
-            {s.id}
+            <div 
+              className={`w-10 h-10 rounded-full flex items-center justify-center mb-2 ${
+                step === s.id 
+                  ? "bg-primary text-primary-foreground" 
+                  : step > s.id 
+                    ? "bg-green-100 text-green-500 border border-green-500" 
+                    : "bg-muted text-muted-foreground"
+              }`}
+            >
+              {s.id}
+            </div>
+            <span className="text-xs hidden md:block">{s.title}</span>
           </div>
-          <span className="text-xs hidden md:block">{s.title}</span>
+        ))}
+      </div>
+    )
+  }
+
+  // Calculate progress percentage
+  const getProgressPercentage = () => {
+    return Math.round(((step - 1) / 5) * 100)
+  }
+
+  return (
+    <Card className="w-full max-w-4xl mx-auto">
+      <CardHeader>
+        <CardTitle>Patient Registration</CardTitle>
+        <CardDescription>
+          Sierra Leone National Health Service - Patient Registration System
+        </CardDescription>
+        <div className="w-full bg-secondary h-2 mt-2 rounded-full overflow-hidden">
+          <div 
+            className="bg-primary h-full transition-all duration-300 ease-in-out" 
+            style={{ width: `${getProgressPercentage()}%` }}
+          />
         </div>
-      ))}
-    </div>
+      </CardHeader>
+      
+      <CardContent>
+        {renderStepIndicators()}
+        
+        {/* Step content */}
+        <div className="py-4">
+          {step === 1 && (
+            <PersonalInfoStep 
+              formData={formData}
+              updateFormData={updateFormData}
+            />
+          )}
+          
+          {step === 2 && (
+            <LocationStep 
+              formData={formData}
+              updateFormData={updateFormData}
+            />
+          )}
+          
+          {step === 3 && (
+            <SiblingsStep 
+              formData={formData}
+              updateFormData={updateFormData}
+            />
+          )}
+          
+          {step === 4 && (
+            <PaymentMethodStep 
+              formData={formData}
+              updateFormData={updateFormData}
+            />
+          )}
+          
+          {step === 5 && (
+            <VerificationStep 
+              formData={formData}
+              updateFormData={updateFormData}
+            />
+          )}
+          
+          {step === 6 && (
+            <ReviewStep 
+              formData={formData}
+              updateFormData={updateFormData}
+              onSubmit={handleSubmit}
+            />
+          )}
+        </div>
+      </CardContent>
+      
+      <CardFooter className="flex justify-between border-t pt-4">
+        {step > 1 && (
+          <Button 
+            variant="outline"
+            onClick={prevStep}
+            disabled={isSubmitting}
+            className="flex items-center"
+          >
+            <ChevronLeft className="mr-2 h-4 w-4" />
+            Previous
+          </Button>
+        )}
+        
+        {step < 6 ? (
+          <Button 
+            onClick={nextStep}
+            className={`${step === 1 ? 'w-full' : 'ml-auto'}`}
+          >
+            Next
+            <ChevronRight className="ml-2 h-4 w-4" />
+          </Button>
+        ) : (
+          <Button 
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            className="ml-auto"
+          >
+            {isSubmitting ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Submitting...
+              </>
+            ) : (
+              'Complete Registration'
+            )}
+          </Button>
+        )}
+      </CardFooter>
+    </Card>
   )
 }
-
-// Calculate progress percentage
-const getProgressPercentage = () => {
-  return Math.round(((step - 1) / 5) * 100)
-}
-
-return (
-  <Card className="w-full max-w-4xl mx-auto">
-    <CardHeader>
-      <CardTitle>Patient Registration</CardTitle>
-      <CardDescription>
-        Sierra Leone National Health Service - Patient Registration System
-      </CardDescription>
-      <div className="w-full bg-secondary h-2 mt-2 rounded-full overflow-hidden">
-        <div 
-          className="bg-primary h-full transition-all duration-300 ease-in-out" 
-          style={{ width: `${getProgressPercentage()}%` }}
-        />
-      </div>
-    </CardHeader>
-    
-    <CardContent>
-      {renderStepIndicators()}
-      
-      {/* Step content */}
-      <div className="py-4">
-        {renderStep()}
-      </div>
-    </CardContent>
-    
-    <CardFooter className="flex justify-between border-t pt-4">
-      {step > 1 && (
-        <Button 
-          variant="outline"
-          onClick={prevStep}
-          disabled={isSubmitting}
-          className="flex items-center"
-        >
-          <ChevronLeft className="mr-2 h-4 w-4" />
-          Previous
-        </Button>
-      )}
-      
-      {step < 6 ? (
-        <Button 
-          onClick={nextStep}
-          className={`${step === 1 ? 'w-full' : 'ml-auto'}`}
-        >
-          Next
-          <ChevronRight className="ml-2 h-4 w-4" />
-        </Button>
-      ) : (
-        <Button 
-          onClick={handleSubmit}
-          disabled={isSubmitting}
-          className="ml-auto"
-        >
-          {isSubmitting ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Submitting...
-            </>
-          ) : (
-            'Complete Registration'
-          )}
-        </Button>
-      )}
-    </CardFooter>
-  </Card>
-)

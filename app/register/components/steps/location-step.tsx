@@ -17,7 +17,7 @@ import { toast } from "sonner"
 import { MapPin, Loader2 } from "lucide-react"
 import Script from "next/script"
 
-// Sierra Leone districts
+// Sierra Leone districts with regions
 const SIERRA_LEONE_DISTRICTS = [
   "Western Area Urban",
   "Western Area Rural",
@@ -37,18 +37,27 @@ const SIERRA_LEONE_DISTRICTS = [
   "Tonkolili"
 ]
 
+// Group districts by region
+type RegionKey = "Northern" | "Southern" | "Eastern" | "Western"
+const SIERRA_LEONE_REGIONS: Record<RegionKey, string[]> = {
+  "Northern": ["Bombali", "Kambia", "Karene", "Koinadugu", "Port Loko", "Tonkolili", "Falaba"],
+  "Southern": ["Bo", "Bonthe", "Moyamba", "Pujehun"],
+  "Eastern": ["Kailahun", "Kenema", "Kono"],
+  "Western": ["Western Area Urban", "Western Area Rural"]
+}
+
 // Sierra Leone cities by district
 const SIERRA_LEONE_CITIES: Record<string, string[]> = {
-  "Western Area Urban": ["Freetown", "Hastings", "Kissy", "Waterloo"],
-  "Western Area Rural": ["Waterloo", "Newton", "Kent", "York"],
-  "Bo": ["Bo", "Koribondo", "Tikonko", "Yamandu"],
-  "Bombali": ["Makeni", "Kamabai", "Kamalo", "Binkolo"],
-  "Bonthe": ["Bonthe", "Mattru Jong", "Sahn"],
-  "Falaba": ["Mongo", "Falaba", "Senkunia"],
-  "Kailahun": ["Kailahun", "Pendembu", "Segbwema", "Daru"],
-  "Kambia": ["Kambia", "Rokupr", "Kukuna", "Madina"],
-  "Karene": ["Kamakwie", "Batkanu", "Gbinti", "Kamaron"],
-  "Kenema": ["Kenema", "Blama", "Tongo", "Panguma"],
+  "Western Area Urban": ["Freetown", "Hastings", "Kissy", "Waterloo", "Aberdeen", "Goderich", "Murray Town", "Congo Town"],
+  "Western Area Rural": ["Waterloo", "Newton", "Kent", "York", "Hamilton", "Sussex", "Tombo", "Gbaneh"],
+  "Bo": ["Bo", "Koribondo", "Tikonko", "Yamandu", "Baoma", "Bumpeh", "Kakua", "Lugbu"],
+  "Bombali": ["Makeni", "Kamabai", "Kamalo", "Binkolo", "Kalangba", "Kamaranka", "Mamaka", "Mapaki"],
+  "Bonthe": ["Bonthe", "Mattru Jong", "Sahn", "Gbangbatoke", "Bendu", "Tihun", "Mokaba", "York Island"],
+  "Falaba": ["Mongo", "Falaba", "Senkunia", "Kondembaia", "Musaia", "Bafodia", "Sinkunia", "Kurubonla"],
+  "Kailahun": ["Kailahun", "Pendembu", "Segbwema", "Daru", "Koindu", "Buedu", "Mobai", "Baiwala"],
+  "Kambia": ["Kambia", "Rokupr", "Kukuna", "Madina", "Kamakwie", "Kassiri", "Mange", "Barmoi"],
+  "Karene": ["Kamakwie", "Batkanu", "Gbinti", "Kamaron", "Makakura", "Rogbere", "Magburaka", "Mateboi"],
+  "Kenema": ["Kenema", "Blama", "Tongo", "Panguma", "Segbwema", "Giehun", "Boajibu", "Lalehun"],
   "Koinadugu": ["Kabala", "Sinkunia", "Falaba", "Musaia"],
   "Kono": ["Koidu", "Yengema", "Tombodu", "Motema"],
   "Moyamba": ["Moyamba", "Shenge", "Bradford", "Rotifunk"],
@@ -62,11 +71,40 @@ interface LocationStepProps {
   updateFormData: (data: Partial<PatientFormData>) => void
 }
 
+// Add Google Maps type definition to fix TypeScript errors
+declare global {
+  interface Window {
+    google: {
+      maps: {
+        Map: any;
+        Marker: any;
+        event: any;
+        Geocoder: any;
+      }
+    }
+  }
+}
+
 export function LocationStep({ formData, updateFormData }: LocationStepProps) {
   const [isMapLoaded, setIsMapLoaded] = useState(false)
   const [isLocating, setIsLocating] = useState(false)
   const [mapError, setMapError] = useState<string | null>(null)
   const [availableCities, setAvailableCities] = useState<string[]>([])
+  const [selectedRegion, setSelectedRegion] = useState<RegionKey | "">("") 
+  const [filteredDistricts, setFilteredDistricts] = useState<string[]>(SIERRA_LEONE_DISTRICTS)
+  
+  // Effect to filter districts by region
+  useEffect(() => {
+    if (selectedRegion) {
+      setFilteredDistricts(SIERRA_LEONE_REGIONS[selectedRegion])
+      // Clear district if not in new region
+      if (formData.district && !SIERRA_LEONE_REGIONS[selectedRegion].includes(formData.district)) {
+        updateFormData({ district: '', city: '' })
+      }
+    } else {
+      setFilteredDistricts(SIERRA_LEONE_DISTRICTS)
+    }
+  }, [selectedRegion, formData.district, updateFormData])
   
   // Update available cities when district changes
   useEffect(() => {
@@ -101,7 +139,7 @@ export function LocationStep({ formData, updateFormData }: LocationStepProps) {
       if (!mapElement) return
       
       // Create the map
-      const map = new google.maps.Map(mapElement, {
+      const map = new window.google.maps.Map(mapElement, {
         center: { lat, lng },
         zoom: 15,
         mapTypeControl: false,
@@ -109,7 +147,7 @@ export function LocationStep({ formData, updateFormData }: LocationStepProps) {
       })
       
       // Add a marker
-      const marker = new google.maps.Marker({
+      const marker = new window.google.maps.Marker({
         position: { lat, lng },
         map,
         draggable: true,
@@ -117,7 +155,7 @@ export function LocationStep({ formData, updateFormData }: LocationStepProps) {
       })
       
       // Update coordinates when marker is dragged
-      google.maps.event.addListener(marker, 'dragend', function() {
+      window.google.maps.event.addListener(marker, 'dragend', function() {
         const position = marker.getPosition()
         if (position) {
           updateFormData({
@@ -172,9 +210,9 @@ export function LocationStep({ formData, updateFormData }: LocationStepProps) {
   // Reverse geocode coordinates to get address
   const reverseGeocode = (lat: number, lng: number) => {
     if (typeof window !== 'undefined' && window.google && window.google.maps) {
-      const geocoder = new google.maps.Geocoder()
+      const geocoder = new window.google.maps.Geocoder()
       
-      geocoder.geocode({ location: { lat, lng } }, (results, status) => {
+      geocoder.geocode({ location: { lat, lng } }, (results: any, status: string) => {
         if (status === 'OK' && results && results[0]) {
           const addressComponents = results[0].address_components
           
@@ -184,7 +222,7 @@ export function LocationStep({ formData, updateFormData }: LocationStepProps) {
           let district = ''
           let postalCode = ''
           
-          addressComponents.forEach(component => {
+          addressComponents.forEach((component: any) => {
             const types = component.types
             
             if (types.includes('route')) {
@@ -236,6 +274,27 @@ export function LocationStep({ formData, updateFormData }: LocationStepProps) {
         />
       </div>
       
+      <div className="space-y-2">
+        <Label htmlFor="region">Region of Sierra Leone</Label>
+        <Select
+          value={selectedRegion}
+          onValueChange={(value) => setSelectedRegion(value as RegionKey | "")}
+        >
+          <SelectTrigger id="region">
+            <SelectValue placeholder="All Regions" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="">All Regions</SelectItem>
+            {Object.keys(SIERRA_LEONE_REGIONS).map((region) => (
+              <SelectItem key={region} value={region}>
+                {region} Region
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <p className="text-xs text-muted-foreground mt-1">Select a region to filter districts</p>
+      </div>
+      
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="district">District</Label>
@@ -247,7 +306,7 @@ export function LocationStep({ formData, updateFormData }: LocationStepProps) {
               <SelectValue placeholder="Select district" />
             </SelectTrigger>
             <SelectContent>
-              {SIERRA_LEONE_DISTRICTS.map((district) => (
+              {filteredDistricts.map((district) => (
                 <SelectItem key={district} value={district}>
                   {district}
                 </SelectItem>

@@ -41,10 +41,10 @@ export function LandingHeader() {
 
         <div className="flex items-center space-x-2 ml-auto">
           <Button variant="ghost" asChild className="hidden md:inline-flex">
-            <Link href="/auth/login">Sign In</Link>
+            <Link href="/">Sign In</Link>
           </Button>
           <Button asChild>
-            <Link href="/auth/signup">Get Started</Link>
+            <Link href="/register">Register as Patient</Link>
           </Button>
 
           {/* Mobile Navigation */}
