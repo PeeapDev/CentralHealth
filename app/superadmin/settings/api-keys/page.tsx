@@ -16,6 +16,11 @@ import Link from "next/link"
 
 export default function ApiKeysPage() {
   const [showKeys, setShowKeys] = useState<{ [key: string]: boolean }>({})
+  const [verificationSettings, setVerificationSettings] = useState({
+    enableSmtpVerification: true,
+    enableSmsVerification: true,
+    requireBothVerifications: false
+  })
   const [apiKeys, setApiKeys] = useState({
     // FHIR Integration
     fhirServerUrl: "https://hapi.fhir.org/baseR4",
@@ -116,7 +121,7 @@ export default function ApiKeysPage() {
       />
 
       <Tabs defaultValue="fhir" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="fhir">
             <Activity className="w-4 h-4 mr-2" />
             FHIR
@@ -128,6 +133,10 @@ export default function ApiKeysPage() {
           <TabsTrigger value="payment">
             <CreditCard className="w-4 h-4 mr-2" />
             Payment
+          </TabsTrigger>
+          <TabsTrigger value="verification">
+            <Key className="w-4 h-4 mr-2" />
+            Verification
           </TabsTrigger>
           <TabsTrigger value="email">Email/SMTP</TabsTrigger>
           <TabsTrigger value="other">Other APIs</TabsTrigger>
@@ -340,6 +349,113 @@ export default function ApiKeysPage() {
                         <SelectItem value="none">None</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="verification">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Key className="w-5 h-5" />
+                    Verification Settings
+                  </CardTitle>
+                  <CardDescription>
+                    Configure patient verification methods during registration
+                  </CardDescription>
+                </div>
+                <Badge variant="outline">
+                  Patient Registration
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between border p-4 rounded-lg">
+                  <div className="space-y-0.5">
+                    <div className="font-medium">Email Verification (SMTP)</div>
+                    <div className="text-sm text-muted-foreground">
+                      Send verification codes via email during patient registration
+                    </div>
+                  </div>
+                  <Switch
+                    checked={verificationSettings.enableSmtpVerification}
+                    onCheckedChange={(checked) => {
+                      setVerificationSettings(prev => ({
+                        ...prev,
+                        enableSmtpVerification: checked,
+                        // If both are false, requireBoth should be false
+                        requireBothVerifications: checked && prev.enableSmsVerification ? prev.requireBothVerifications : false
+                      }))
+                    }}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between border p-4 rounded-lg">
+                  <div className="space-y-0.5">
+                    <div className="font-medium">Phone Verification (SMS)</div>
+                    <div className="text-sm text-muted-foreground">
+                      Send verification codes via SMS during patient registration
+                    </div>
+                  </div>
+                  <Switch
+                    checked={verificationSettings.enableSmsVerification}
+                    onCheckedChange={(checked) => {
+                      setVerificationSettings(prev => ({
+                        ...prev,
+                        enableSmsVerification: checked,
+                        // If both are false, requireBoth should be false
+                        requireBothVerifications: checked && prev.enableSmtpVerification ? prev.requireBothVerifications : false
+                      }))
+                    }}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between border p-4 rounded-lg">
+                  <div className="space-y-0.5">
+                    <div className="font-medium">Require Both Verifications</div>
+                    <div className="text-sm text-muted-foreground">
+                      Patients must verify both email and phone number before proceeding
+                    </div>
+                  </div>
+                  <Switch
+                    checked={verificationSettings.requireBothVerifications}
+                    onCheckedChange={(checked) => {
+                      setVerificationSettings(prev => ({
+                        ...prev,
+                        requireBothVerifications: checked
+                      }))
+                    }}
+                    disabled={!verificationSettings.enableSmtpVerification || !verificationSettings.enableSmsVerification}
+                  />
+                </div>
+              </div>
+              
+              <div className="p-4 border rounded-lg bg-muted/50">
+                <h3 className="font-medium mb-2">Verification Status</h3>
+                <div className="space-y-1">
+                  <div className="text-sm flex items-center justify-between">
+                    <span>Email Verification:</span>
+                    <Badge variant={verificationSettings.enableSmtpVerification ? "default" : "outline"}>
+                      {verificationSettings.enableSmtpVerification ? "Active" : "Inactive"}
+                    </Badge>
+                  </div>
+                  <div className="text-sm flex items-center justify-between">
+                    <span>SMS Verification:</span>
+                    <Badge variant={verificationSettings.enableSmsVerification ? "default" : "outline"}>
+                      {verificationSettings.enableSmsVerification ? "Active" : "Inactive"}
+                    </Badge>
+                  </div>
+                  <div className="text-sm flex items-center justify-between">
+                    <span>Both Required:</span>
+                    <Badge variant={verificationSettings.requireBothVerifications ? "default" : "outline"}>
+                      {verificationSettings.requireBothVerifications ? "Yes" : "No"}
+                    </Badge>
                   </div>
                 </div>
               </div>

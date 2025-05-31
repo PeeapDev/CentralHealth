@@ -36,23 +36,51 @@ export async function GET(
       id: hospital.id,
       name: hospital.name,
       subdomain: hospital.subdomain,
-      description: hospital.description,
+      description: hospital.description || 'A modern healthcare facility committed to providing excellent medical care',
+      tagline: branding?.tagline || 'Your Health, Our Priority',
+      logo: branding?.logo || '/placeholder.svg?height=80&width=80',
       email: settings?.admin_email || '',
       phone: settings?.phone || '',
       address: settings?.address || '',
       city: settings?.city || '',
       state: settings?.state || '',
-      country: settings?.country || '',
+      country: settings?.country || 'Sierra Leone',
       zip: settings?.zip || '',
       status: settings?.status || 'Active',
       package: settings?.package || 'Basic',
       website: settings?.website || '',
       modules: settings?.modules || ['billing', 'appointment'],
-      admin_email: settings?.admin_email || '',
+      // Additional fields for the hospital home page
+      established: settings?.established || '2020',
+      beds: settings?.beds || '100+',
+      doctors: settings?.doctors || '25+',
+      departments: settings?.departments || '10+',
+      rating: settings?.rating || 4.5,
+      accreditation: settings?.accreditation || ['MOH Certified', 'ISO 9001:2015'],
+      specialties: settings?.specialties || [
+        'General Medicine', 
+        'Pediatrics', 
+        'Obstetrics', 
+        'Surgery', 
+        'Radiology', 
+        'Pathology'
+      ],
+      services: [
+        { name: 'OPD Services', description: 'Comprehensive outpatient care' },
+        { name: 'IPD Services', description: '24/7 inpatient care' },
+        { name: 'Pharmacy', description: 'Full-service pharmacy' },
+        { name: 'Laboratory', description: 'Advanced diagnostic tests' },
+        { name: 'Radiology', description: 'Digital imaging services' },
+        { name: 'Emergency', description: '24/7 emergency services' },
+      ],
+      hours: {
+        emergency: '24/7',
+        opd: settings?.opd_hours || '8:00 AM - 8:00 PM',
+        pharmacy: settings?.pharmacy_hours || '8:00 AM - 10:00 PM',
+      },
       branches: settings?.branches || [],
       created_at: hospital.createdAt.toISOString(),
-      updated_at: hospital.updatedAt.toISOString(),
-      logo: branding?.logo || '/placeholder.svg?height=40&width=40'
+      updated_at: hospital.updatedAt.toISOString()
     };
 
     return NextResponse.json(formattedHospital);

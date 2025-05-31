@@ -85,23 +85,23 @@ export function PersonalInfoStep({ formData, updateFormData }: PersonalInfoStepP
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="givenName">First Name</Label>
+          <Label htmlFor="firstName">First Name</Label>
           <Input
-            id="givenName"
+            id="firstName"
             placeholder="Enter your first name"
-            value={formData.givenName}
-            onChange={(e) => updateFormData({ givenName: e.target.value })}
+            value={formData.firstName || ''}
+            onChange={(e) => updateFormData({ firstName: e.target.value })}
             required
           />
         </div>
         
         <div className="space-y-2">
-          <Label htmlFor="familyName">Last Name</Label>
+          <Label htmlFor="lastName">Last Name</Label>
           <Input
-            id="familyName"
+            id="lastName"
             placeholder="Enter your last name"
-            value={formData.familyName}
-            onChange={(e) => updateFormData({ familyName: e.target.value })}
+            value={formData.lastName || ''}
+            onChange={(e) => updateFormData({ lastName: e.target.value })}
             required
           />
         </div>
@@ -126,30 +126,27 @@ export function PersonalInfoStep({ formData, updateFormData }: PersonalInfoStepP
         </div>
         
         <div className="space-y-2">
-          <Label htmlFor="birthDate">Date of Birth</Label>
-          <Popover>
-            <PopoverTrigger asChild>
-              <Button
-                variant="outline"
-                className={cn(
-                  "w-full justify-start text-left font-normal",
-                  !formData.birthDate && "text-muted-foreground"
-                )}
-              >
-                <CalendarIcon className="mr-2 h-4 w-4" />
-                {formData.birthDate ? format(new Date(formData.birthDate), "PPP") : "Select date"}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent className="w-auto p-0">
-              <Calendar
-                mode="single"
-                selected={formData.birthDate ? new Date(formData.birthDate) : undefined}
-                onSelect={(date) => updateFormData({ birthDate: date ? date.toISOString() : '' })}
-                disabled={(date) => date > new Date() || date < new Date("1900-01-01")}
-                initialFocus
-              />
-            </PopoverContent>
-          </Popover>
+          <Label htmlFor="dateOfBirth">Date of Birth</Label>
+          <Input
+            id="dateOfBirth"
+            type="date"
+            value={formData.dateOfBirth ? formData.dateOfBirth.split('T')[0] : ''}
+            onChange={(e) => {
+              const date = e.target.value;
+              if (date) {
+                // Convert to ISO string but preserve local date
+                const dateObj = new Date(date + 'T00:00:00');
+                updateFormData({ dateOfBirth: dateObj.toISOString() });
+              } else {
+                updateFormData({ dateOfBirth: '' });
+              }
+            }}
+            min="1900-01-01"
+            max={new Date().toISOString().split('T')[0]}
+            className="w-full"
+            required
+          />
+          <p className="text-xs text-muted-foreground">Please select your date of birth</p>
         </div>
       </div>
       

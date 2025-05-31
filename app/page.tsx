@@ -194,15 +194,16 @@ export default async function HomePage() {
               Comprehensive tools designed specifically for modern healthcare facilities
             </p>
           </div>
-          <div className="grid gap-6 lg:grid-cols-3 lg:gap-12">
+          <div className="grid gap-6 lg:grid-cols-3 lg:gap-8">
             {features.map((feature, index) => (
-              <Card key={index} className="relative overflow-hidden">
+              <Card key={index} className="relative overflow-hidden group transition-all duration-300">
+                <div className="absolute bottom-0 left-0 h-1 w-0 bg-gradient-to-r from-blue-500 to-green-500 group-hover:w-full transition-all duration-300" />
                 <CardHeader>
-                  <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center mb-4">
-                    <feature.icon className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                  <div className="w-14 h-14 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300">
+                    <feature.icon className="w-7 h-7 text-blue-600 dark:text-blue-400" />
                   </div>
-                  <CardTitle>{feature.title}</CardTitle>
-                  <CardDescription>{feature.description}</CardDescription>
+                  <CardTitle className="group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-300">{feature.title}</CardTitle>
+                  <CardDescription className="line-clamp-2">{feature.description}</CardDescription>
                 </CardHeader>
               </Card>
             ))}

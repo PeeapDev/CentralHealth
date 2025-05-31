@@ -5,6 +5,7 @@ import { PatientFormData } from "../multi-step-form"
 import { 
   Card, 
   CardContent,
+  CardDescription,
   CardFooter,
   CardHeader, 
   CardTitle 
@@ -12,19 +13,25 @@ import {
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Separator } from "@/components/ui/separator"
 import { 
-  CalendarDays, 
-  User, 
-  Phone, 
+  AlertCircle, 
+  CheckCircle2, 
+  ChevronRight, 
+  CreditCard, 
+  Home, 
+  Loader2, 
   Mail, 
   MapPin, 
-  CreditCard, 
-  Users, 
-  CheckCircle2, 
-  AlertTriangle, 
-  Loader2
+  Phone, 
+  User, 
+  Users,
+  CalendarClock
 } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { HealthCard } from "../health-card"
+import { GoToDashboard } from "../go-to-dashboard"
 import { toast } from "sonner"
 
 interface ReviewStepProps {
@@ -100,9 +107,11 @@ export function ReviewStep({ formData, updateFormData, onSubmit }: ReviewStepPro
 
   return (
     <div className="space-y-6">
+      {/* Patient Card Preview */}
+      <HealthCard formData={formData} />
+      
       <Alert className="bg-blue-50 border-blue-200">
         <CheckCircle2 className="h-4 w-4 text-blue-600" />
-        <AlertTitle>Almost done!</AlertTitle>
         <AlertDescription>
           Please review your information below before submitting. You can go back to any step to make changes.
         </AlertDescription>
@@ -115,7 +124,7 @@ export function ReviewStep({ formData, updateFormData, onSubmit }: ReviewStepPro
             <User className="mr-2 h-4 w-4" />
             Personal Information
             {!isPersonalInfoComplete && (
-              <AlertTriangle className="ml-2 h-4 w-4 text-amber-500" />
+              <AlertCircle className="ml-2 h-4 w-4 text-amber-500" />
             )}
           </CardTitle>
         </CardHeader>
@@ -131,7 +140,7 @@ export function ReviewStep({ formData, updateFormData, onSubmit }: ReviewStepPro
           <div>
             <p className="text-muted-foreground">Date of Birth</p>
             <p className="font-medium flex items-center">
-              <CalendarDays className="mr-1 h-3 w-3 text-muted-foreground" />
+              <CalendarClock className="mr-1 h-3 w-3 text-muted-foreground" />
               {formatDate(formData.dateOfBirth) || "Not provided"}
             </p>
           </div>
@@ -165,7 +174,7 @@ export function ReviewStep({ formData, updateFormData, onSubmit }: ReviewStepPro
             <MapPin className="mr-2 h-4 w-4" />
             Location Information
             {!isLocationComplete && (
-              <AlertTriangle className="ml-2 h-4 w-4 text-amber-500" />
+              <AlertCircle className="ml-2 h-4 w-4 text-amber-500" />
             )}
           </CardTitle>
         </CardHeader>
@@ -302,7 +311,7 @@ export function ReviewStep({ formData, updateFormData, onSubmit }: ReviewStepPro
             </div>
           </div>
         </CardContent>
-        <CardFooter>
+        <CardFooter className="flex flex-col space-y-3">
           <Button 
             onClick={handleSubmit}
             disabled={isSubmitting || !termsAccepted || !dataShareConsent || !isPersonalInfoComplete || !isLocationComplete || !isVerificationComplete}
@@ -317,6 +326,131 @@ export function ReviewStep({ formData, updateFormData, onSubmit }: ReviewStepPro
               "Complete Registration"
             )}
           </Button>
+
+          {formData.isRegistered && formData.medicalNumber && (
+            <div className="flex flex-col md:flex-row gap-3 w-full mt-3">
+              <GoToDashboard formData={formData} />
+              
+              <Button 
+                variant="secondary" 
+                className="flex-1"
+                onClick={() => {
+                  try {
+                    // Dynamically import jsPDF to create PDF document
+                    import('jspdf').then(({ default: JsPDF }) => {
+                      // Create a new PDF document
+                      const doc = new JsPDF();
+                      const pageWidth = doc.internal.pageSize.getWidth();
+                      
+                      // Add hospital logo/header
+                      doc.setFontSize(18);
+                      doc.setFont('helvetica', 'bold');
+                      doc.text('Sierra Leone National Health Service', pageWidth / 2, 20, { align: 'center' });
+                      
+                      doc.setFontSize(14);
+                      doc.text('Patient Registration Confirmation', pageWidth / 2, 30, { align: 'center' });
+                      
+                      // Add horizontal line
+                      doc.setDrawColor(0, 0, 0);
+                      doc.line(20, 35, pageWidth - 20, 35);
+                      
+                      // Add medical number and registration date
+                      doc.setFontSize(12);
+                      doc.setFont('helvetica', 'bold');
+                      doc.text(`Medical Number: ${formData.medicalNumber}`, 20, 45);
+                      doc.text(`Registration Date: ${new Date().toLocaleDateString()}`, 20, 55);
+                      
+                      // Create a patient health card
+                      const cardY = 190;
+                      const cardWidth = 150;
+                      const cardHeight = 85;
+                      const cardX = (pageWidth - cardWidth) / 2;
+                      
+                      // Draw card outline
+                      doc.setFillColor(240, 240, 240);
+                      doc.setDrawColor(0, 128, 0); // Green border
+                      doc.setLineWidth(0.5);
+                      doc.roundedRect(cardX, cardY, cardWidth, cardHeight, 5, 5, 'FD');
+                      
+                      // Add Sierra Leone crest or logo position
+                      doc.setFillColor(0, 128, 0); // Green background for logo area
+                      doc.rect(cardX + 5, cardY + 5, 25, 25, 'F');
+                      doc.setTextColor(255, 255, 255);
+                      doc.setFontSize(12);
+                      doc.setFont('helvetica', 'bold');
+                      doc.text("SL", cardX + 17.5, cardY + 20, { align: 'center' });
+                      
+                      // Reset text color
+                      doc.setTextColor(0, 0, 0);
+                      
+                      // Add card title
+                      doc.setFontSize(12);
+                      doc.setFont('helvetica', 'bold');
+                      doc.text("SIERRA LEONE HEALTH CARD", cardX + cardWidth/2, cardY + 15, { align: 'center' });
+                      
+                      // Add patient details
+                      doc.setFontSize(10);
+                      doc.setFont('helvetica', 'normal');
+                      doc.text(`Name: ${formData.firstName} ${formData.lastName}`, cardX + 35, cardY + 30);
+                      doc.text(`Med #: ${formData.medicalNumber}`, cardX + 35, cardY + 40);
+                      doc.text(`DOB: ${new Date(formData.dateOfBirth).toLocaleDateString()}`, cardX + 35, cardY + 50);
+                      doc.text(`Gender: ${formData.gender}`, cardX + 35, cardY + 60);
+                      
+                      // Add website
+                      doc.setFontSize(8);
+                      doc.setFont('helvetica', 'italic');
+                      doc.text("https://mohs.gov.sl/", cardX + cardWidth/2, cardY + cardHeight - 5, { align: 'center' });
+                      
+                      // Personal Information section
+                      doc.setFontSize(14);
+                      doc.setFont('helvetica', 'bold');
+                      doc.text('Personal Information', 20, 70);
+                      doc.setFontSize(12);
+                      doc.setFont('helvetica', 'normal');
+                      doc.text(`Full Name: ${formData.firstName} ${formData.lastName}`, 25, 80);
+                      doc.text(`Gender: ${formData.gender}`, 25, 90);
+                      doc.text(`Date of Birth: ${new Date(formData.dateOfBirth).toLocaleDateString()}`, 25, 100);
+                      doc.text(`Email: ${formData.email}`, 25, 110);
+                      doc.text(`Phone: ${formData.phone}`, 25, 120);
+                      
+                      // Address section
+                      doc.setFontSize(14);
+                      doc.setFont('helvetica', 'bold');
+                      doc.text('Address Information', 20, 135);
+                      doc.setFontSize(12);
+                      doc.setFont('helvetica', 'normal');
+                      doc.text(`Address: ${formData.addressLine}`, 25, 145);
+                      doc.text(`City: ${formData.city}`, 25, 155);
+                      doc.text(`District: ${formData.district}`, 25, 165);
+                      if (formData.postalCode) {
+                        doc.text(`Postal Code: ${formData.postalCode}`, 25, 175);
+                      }
+                      
+                      // Footer with disclaimer
+                      doc.setFontSize(10);
+                      doc.setFont('helvetica', 'italic');
+                      doc.text('This document serves as proof of registration with the Sierra Leone National Health Service.', 20, 260);
+                      doc.text('Please keep this document for your records and bring it to your first appointment.', 20, 270);
+                      doc.text('For more information, visit: https://mohs.gov.sl/', 20, 280);
+                      
+                      // Save the PDF
+                      doc.save(`patient-registration-${formData.medicalNumber}.pdf`);
+                      toast.success("Application PDF downloaded successfully");
+                    }).catch(error => {
+                      console.error('Error generating PDF:', error);
+                      toast.error("Failed to generate PDF. Please try again.");
+                    });
+                  } catch (error) {
+                    console.error('Error in PDF generation:', error);
+                    toast.error("Could not generate PDF. Please try again later.");
+                  }
+                }}
+              >
+                <CalendarClock className="mr-2 h-4 w-4" />
+                Download My Application
+              </Button>
+            </div>
+          )}
         </CardFooter>
       </Card>
     </div>

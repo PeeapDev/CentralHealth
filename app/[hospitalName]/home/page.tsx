@@ -1,5 +1,6 @@
 "use client"
 
+import React, { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -151,18 +152,98 @@ const hospitalData = {
   },
 }
 
-export default function HospitalHomePage() {
-  const params = useParams()
-  const hospitalSlug = params.hospitalName as string
-  const hospital = hospitalData[hospitalSlug as keyof typeof hospitalData]
+// Define types for hospital data
+interface HospitalService {
+  icon: any
+  name: string
+  description: string
+}
 
-  if (!hospital) {
+interface HospitalData {
+  name: string
+  tagline: string
+  description: string
+  logo: string
+  address: string
+  phone: string
+  email: string
+  website: string
+  established: string
+  beds: string
+  doctors: string
+  departments: string
+  rating: number
+  accreditation: string[]
+  specialties: string[]
+  services: HospitalService[]
+  hours: {
+    emergency: string
+    opd: string
+    pharmacy: string
+  }
+}
+
+export default function HospitalHomePage() {
+  const params = useParams() || {}
+  const hospitalSlug = (params.hospitalName as string) || ''
+  const [hospital, setHospital] = useState<HospitalData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+  
+  // Fetch hospital data from the API
+  useEffect(() => {
+    async function fetchHospitalData() {
+      try {
+        setLoading(true)
+        const response = await fetch(`/api/hospitals/${hospitalSlug}`)
+        
+        if (!response.ok) {
+          throw new Error('Hospital not found')
+        }
+        
+        const data = await response.json()
+        setHospital(data)
+        setError(false)
+      } catch (err) {
+        console.error('Error fetching hospital data:', err)
+        setError(true)
+        
+        // Fall back to demo data if available
+        const demoHospital = hospitalData[hospitalSlug as keyof typeof hospitalData]
+        if (demoHospital) {
+          setHospital(demoHospital)
+          setError(false)
+        }
+      } finally {
+        setLoading(false)
+      }
+    }
+    
+    fetchHospitalData()
+  }, [hospitalSlug])
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="h-16 w-16 mx-auto mb-4 rounded-full border-4 border-primary border-t-transparent animate-spin"></div>
+          <h1 className="text-2xl font-bold mb-2">Loading Hospital Information</h1>
+          <p className="text-muted-foreground">Please wait while we retrieve the hospital details...</p>
+        </div>
+      </div>
+    )
+  }
+  
+  if (error || !hospital) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <Building2 className="h-16 w-16 mx-auto mb-4 text-muted-foreground" />
           <h1 className="text-2xl font-bold mb-2">Hospital Not Found</h1>
           <p className="text-muted-foreground">The requested hospital could not be found.</p>
+          <Button asChild className="mt-4">
+            <Link href="/">Return to Home</Link>
+          </Button>
         </div>
       </div>
     )
@@ -252,18 +333,18 @@ export default function HospitalHomePage() {
             <p className="text-lg text-gray-600">Comprehensive healthcare services for all your medical needs</p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {hospital.services.map((service, index) => (
-              <Card key={index} className="hover:shadow-lg transition-shadow">
-                <CardHeader>
+            {hospital.services.map((service: HospitalService, index: number) => (
+              <Card key={index} className="overflow-hidden">
+                <CardHeader className="pb-2">
                   <div className="flex items-center space-x-3">
-                    <div className="p-2 bg-blue-100 rounded-lg">
-                      <service.icon className="h-6 w-6 text-blue-600" />
+                    <div className="bg-primary/10 p-2 rounded-lg">
+                      <Stethoscope className="h-5 w-5 text-primary" />
                     </div>
                     <CardTitle className="text-lg">{service.name}</CardTitle>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <CardDescription>{service.description}</CardDescription>
+                  <p className="text-muted-foreground">{service.description}</p>
                 </CardContent>
               </Card>
             ))}
@@ -279,8 +360,8 @@ export default function HospitalHomePage() {
             <p className="text-lg text-gray-600">Expert care across multiple medical disciplines</p>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {hospital.specialties.map((specialty, index) => (
-              <Badge key={index} variant="secondary" className="p-3 text-center justify-center">
+            {hospital.specialties.map((specialty: string, index: number) => (
+              <Badge key={index} variant="outline" className="p-2">
                 {specialty}
               </Badge>
             ))}
@@ -296,9 +377,9 @@ export default function HospitalHomePage() {
             <p className="text-lg text-gray-600">Recognized for excellence in healthcare quality and safety</p>
           </div>
           <div className="flex flex-wrap justify-center gap-4">
-            {hospital.accreditation.map((cert, index) => (
-              <Badge key={index} variant="outline" className="p-3 text-sm">
-                <Award className="h-4 w-4 mr-2" />
+            {hospital.accreditation.map((cert: string, index: number) => (
+              <Badge key={index} className="bg-green-100 text-green-800 hover:bg-green-200">
+                <Award className="mr-1 h-3 w-3" />
                 {cert}
               </Badge>
             ))}

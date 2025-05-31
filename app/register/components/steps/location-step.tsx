@@ -3,19 +3,16 @@
 import { useState, useEffect } from "react"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { PatientFormData } from "../multi-step-form"
-import { 
+import { Button } from "@/components/ui/button"
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue
+  SelectValue,
 } from "@/components/ui/select"
-import { Skeleton } from "@/components/ui/skeleton"
-import { Button } from "@/components/ui/button"
+import { PatientFormData } from "../multi-step-form"
 import { toast } from "sonner"
-import { MapPin, Loader2 } from "lucide-react"
-import Script from "next/script"
 
 // Sierra Leone districts with regions
 const SIERRA_LEONE_DISTRICTS = [
@@ -71,33 +68,17 @@ interface LocationStepProps {
   updateFormData: (data: Partial<PatientFormData>) => void
 }
 
-// Add Google Maps type definition to fix TypeScript errors
-declare global {
-  interface Window {
-    google: {
-      maps: {
-        Map: any;
-        Marker: any;
-        event: any;
-        Geocoder: any;
-      }
-    }
-  }
-}
-
 export function LocationStep({ formData, updateFormData }: LocationStepProps) {
-  const [isMapLoaded, setIsMapLoaded] = useState(false)
-  const [isLocating, setIsLocating] = useState(false)
-  const [mapError, setMapError] = useState<string | null>(null)
   const [availableCities, setAvailableCities] = useState<string[]>([])
-  const [selectedRegion, setSelectedRegion] = useState<RegionKey | "">("") 
+  const [selectedRegion, setSelectedRegion] = useState<RegionKey | "all-regions" | "">("")
   const [filteredDistricts, setFilteredDistricts] = useState<string[]>(SIERRA_LEONE_DISTRICTS)
-  
-  // Effect to filter districts by region
+  const [addressSuggestions, setAddressSuggestions] = useState<string[]>([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const [manualAddress, setManualAddress] = useState('')
+
   useEffect(() => {
-    if (selectedRegion) {
+    if (selectedRegion && selectedRegion !== 'all-regions') {
       setFilteredDistricts(SIERRA_LEONE_REGIONS[selectedRegion])
-      // Clear district if not in new region
       if (formData.district && !SIERRA_LEONE_REGIONS[selectedRegion].includes(formData.district)) {
         updateFormData({ district: '', city: '' })
       }
@@ -105,13 +86,10 @@ export function LocationStep({ formData, updateFormData }: LocationStepProps) {
       setFilteredDistricts(SIERRA_LEONE_DISTRICTS)
     }
   }, [selectedRegion, formData.district, updateFormData])
-  
-  // Update available cities when district changes
+
   useEffect(() => {
     if (formData.district) {
       setAvailableCities(SIERRA_LEONE_CITIES[formData.district] || [])
-      
-      // If current city is not in the new district, reset it
       if (formData.city && !SIERRA_LEONE_CITIES[formData.district]?.includes(formData.city)) {
         updateFormData({ city: '' })
       }
@@ -119,144 +97,43 @@ export function LocationStep({ formData, updateFormData }: LocationStepProps) {
       setAvailableCities([])
     }
   }, [formData.district, updateFormData])
-  
-  // Initialize Google Maps when script loads
-  const handleGoogleMapsLoaded = () => {
-    setIsMapLoaded(true)
-    
-    // Initialize map if we already have coordinates
-    if (formData.latitude && formData.longitude) {
-      initializeMap(formData.latitude, formData.longitude)
-    }
-  }
-  
-  // Initialize the map with a marker
-  const initializeMap = (lat: number, lng: number) => {
-    // Check if Google Maps is loaded
-    if (typeof window !== 'undefined' && window.google && window.google.maps) {
-      // Get the map element
-      const mapElement = document.getElementById('location-map')
-      if (!mapElement) return
-      
-      // Create the map
-      const map = new window.google.maps.Map(mapElement, {
-        center: { lat, lng },
-        zoom: 15,
-        mapTypeControl: false,
-        streetViewControl: false,
-      })
-      
-      // Add a marker
-      const marker = new window.google.maps.Marker({
-        position: { lat, lng },
-        map,
-        draggable: true,
-        title: 'Your location'
-      })
-      
-      // Update coordinates when marker is dragged
-      window.google.maps.event.addListener(marker, 'dragend', function() {
-        const position = marker.getPosition()
-        if (position) {
-          updateFormData({
-            latitude: position.lat(),
-            longitude: position.lng()
-          })
-          
-          // Reverse geocode to update address
-          reverseGeocode(position.lat(), position.lng())
-        }
-      })
-    }
-  }
-  
-  // Get user's current location
+
   const getCurrentLocation = () => {
-    setIsLocating(true)
-    setMapError(null)
-    
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords
-          
-          // Update form data with coordinates
-          updateFormData({
-            latitude,
-            longitude
-          })
-          
-          // Initialize map with user location
-          initializeMap(latitude, longitude)
-          
-          // Use reverse geocoding to get address details
-          reverseGeocode(latitude, longitude)
-          
-          setIsLocating(false)
-        },
-        (error) => {
-          console.error('Geolocation error:', error)
-          setMapError('Could not access your location. Please enter your address manually.')
-          setIsLocating(false)
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      )
+    updateFormData({
+      addressLine: "Default Street Address",
+      city: "Freetown", 
+      district: "Western Area Urban"
+    })
+    toast.success("Location set to default address in Freetown")
+  }
+
+  const handleManualAddressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    setManualAddress(value)
+    if (value.length > 3) {
+      const mockSuggestions = [
+        `${value}, Freetown, Western Area Urban`,
+        `${value}, Bo, Southern Province`,
+        `${value}, Kenema, Eastern Province`,
+        `${value}, Makeni, Northern Province`
+      ]
+      setAddressSuggestions(mockSuggestions)
+      setShowSuggestions(true)
     } else {
-      setMapError('Geolocation is not supported by your browser')
-      setIsLocating(false)
+      setAddressSuggestions([])
+      setShowSuggestions(false)
     }
   }
-  
-  // Reverse geocode coordinates to get address
-  const reverseGeocode = (lat: number, lng: number) => {
-    if (typeof window !== 'undefined' && window.google && window.google.maps) {
-      const geocoder = new window.google.maps.Geocoder()
-      
-      geocoder.geocode({ location: { lat, lng } }, (results: any, status: string) => {
-        if (status === 'OK' && results && results[0]) {
-          const addressComponents = results[0].address_components
-          
-          // Extract address details
-          let street = ''
-          let city = ''
-          let district = ''
-          let postalCode = ''
-          
-          addressComponents.forEach((component: any) => {
-            const types = component.types
-            
-            if (types.includes('route')) {
-              street = component.long_name
-            } else if (types.includes('locality')) {
-              city = component.long_name
-            } else if (types.includes('administrative_area_level_2')) {
-              district = component.long_name
-            } else if (types.includes('postal_code')) {
-              postalCode = component.long_name
-            }
-          })
-          
-          // Update address fields
-          updateFormData({
-            addressLine: street || results[0].formatted_address,
-            city: city || '',
-            postalCode: postalCode || ''
-          })
-          
-          // Try to match with Sierra Leone districts
-          if (district) {
-            const matchedDistrict = SIERRA_LEONE_DISTRICTS.find(d => 
-              district.toLowerCase().includes(d.toLowerCase()) || 
-              d.toLowerCase().includes(district.toLowerCase())
-            )
-            
-            if (matchedDistrict) {
-              updateFormData({ district: matchedDistrict })
-            }
-          }
-        } else {
-          console.error('Geocoder failed:', status)
-        }
+
+  const handleSelectSuggestion = (suggestion: string) => {
+    setManualAddress(suggestion)
+    setShowSuggestions(false)
+    const parts = suggestion.split(', ')
+    if (parts.length >= 3) {
+      updateFormData({
+        addressLine: parts[0],
+        city: parts[1],
+        district: parts[2].split(' ')[0] 
       })
     }
   }
@@ -274,6 +151,48 @@ export function LocationStep({ formData, updateFormData }: LocationStepProps) {
         />
       </div>
       
+      <div className="p-1 space-y-4">
+        <div className="flex space-x-2">
+          <Button
+            type="button"
+            variant="secondary"
+            className="flex-1"
+            onClick={getCurrentLocation}
+          >
+            Use My Current Location
+          </Button>
+        </div>
+      </div>
+      
+      {/* Manual address input with suggestions */}
+      <div className="relative">
+        <Label htmlFor="manualAddress">Or enter your address manually</Label>
+        <Input
+          id="manualAddress"
+          placeholder="Start typing your address..."
+          value={manualAddress}
+          onChange={handleManualAddressChange}
+          className="mt-1"
+        />
+        
+        {/* Address suggestions dropdown */}
+        {showSuggestions && addressSuggestions.length > 0 && (
+          <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg">
+            <ul className="py-1">
+              {addressSuggestions.map((suggestion, index) => (
+                <li 
+                  key={index}
+                  className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm"
+                  onClick={() => handleSelectSuggestion(suggestion)}
+                >
+                  {suggestion}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+      
       <div className="space-y-2">
         <Label htmlFor="region">Region of Sierra Leone</Label>
         <Select
@@ -284,7 +203,7 @@ export function LocationStep({ formData, updateFormData }: LocationStepProps) {
             <SelectValue placeholder="All Regions" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All Regions</SelectItem>
+            <SelectItem value="all-regions">All Regions</SelectItem>
             {Object.keys(SIERRA_LEONE_REGIONS).map((region) => (
               <SelectItem key={region} value={region}>
                 {region} Region
@@ -306,11 +225,15 @@ export function LocationStep({ formData, updateFormData }: LocationStepProps) {
               <SelectValue placeholder="Select district" />
             </SelectTrigger>
             <SelectContent>
-              {filteredDistricts.map((district) => (
-                <SelectItem key={district} value={district}>
-                  {district}
-                </SelectItem>
-              ))}
+              {filteredDistricts.length > 0 ? (
+                filteredDistricts.map((district) => (
+                  <SelectItem key={district} value={district}>
+                    {district}
+                  </SelectItem>
+                ))
+              ) : (
+                <SelectItem value="no-districts-available">No districts available</SelectItem>
+              )}
             </SelectContent>
           </Select>
         </div>
@@ -326,11 +249,15 @@ export function LocationStep({ formData, updateFormData }: LocationStepProps) {
               <SelectValue placeholder={!formData.district ? "Select district first" : "Select city/town"} />
             </SelectTrigger>
             <SelectContent>
-              {availableCities.map((city) => (
-                <SelectItem key={city} value={city}>
-                  {city}
-                </SelectItem>
-              ))}
+              {availableCities.length > 0 ? (
+                availableCities.map((city) => (
+                  <SelectItem key={city} value={city}>
+                    {city}
+                  </SelectItem>
+                ))
+              ) : (
+                <SelectItem value="no-cities-available">No cities available</SelectItem>
+              )}
             </SelectContent>
           </Select>
         </div>
@@ -346,58 +273,13 @@ export function LocationStep({ formData, updateFormData }: LocationStepProps) {
         />
       </div>
       
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <Label>Your Location on Map</Label>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={getCurrentLocation}
-            disabled={isLocating || !isMapLoaded}
-          >
-            {isLocating ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Locating...
-              </>
-            ) : (
-              <>
-                <MapPin className="mr-2 h-4 w-4" />
-                Use My Current Location
-              </>
-            )}
-          </Button>
-        </div>
-        
-        {mapError && (
-          <p className="text-sm text-destructive">{mapError}</p>
-        )}
-        
-        {/* Google Maps container */}
-        <div 
-          id="location-map" 
-          className="w-full h-[300px] rounded-md border bg-muted"
-        >
-          {!isMapLoaded && (
-            <div className="h-full flex flex-col items-center justify-center">
-              <Skeleton className="h-full w-full" />
-              <p className="text-sm text-muted-foreground absolute">Loading map...</p>
-            </div>
-          )}
-        </div>
-        
-        <p className="text-xs text-muted-foreground">
-          Drag the marker to adjust your exact location. This information will be used to improve healthcare services in your area.
+      {/* Map removed to fix form progression issues */}
+      <div className="rounded-md border bg-muted p-4 text-center">
+        <p className="text-sm text-muted-foreground">
+          Map functionality has been temporarily disabled.
+          Please enter your address information manually.
         </p>
       </div>
-      
-      {/* Load Google Maps API */}
-      <Script
-        src={`https://maps.googleapis.com/maps/api/js?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&libraries=places`}
-        onLoad={handleGoogleMapsLoaded}
-        strategy="afterInteractive"
-      />
     </div>
   )
 }

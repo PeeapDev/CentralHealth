@@ -35,168 +35,154 @@ export function VerificationStep({ formData, updateFormData }: VerificationStepP
   // Send phone verification OTP
   const sendPhoneOtp = async () => {
     if (!formData.phone) {
-      toast.error("Please provide a valid phone number")
-      return
+      toast.error("Please provide a valid phone number");
+      return;
     }
     
-    setIsSendingPhoneOtp(true)
+    setIsSendingPhoneOtp(true);
     
     try {
-      // Simulate API call to send OTP
-      await new Promise(resolve => setTimeout(resolve, 1500))
+      const response = await fetch('/api/patients/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          type: 'phone', 
+          value: formData.phone 
+        }),
+      });
       
-      // For demo, we'll simulate success
-      setPhoneVerificationSent(true)
-      toast.success("Verification code sent to your phone")
+      const data = await response.json();
       
-      // In production, we would call the actual API
-      // const response = await fetch('/api/patients/send-phone-otp', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ phone: formData.phone }),
-      // })
-      // 
-      // if (response.ok) {
-      //   setPhoneVerificationSent(true)
-      //   toast.success("Verification code sent to your phone")
-      // } else {
-      //   const data = await response.json()
-      //   toast.error(data.error || "Failed to send verification code")
-      // }
-      
+      if (response.ok) {
+        setPhoneVerificationSent(true);
+        toast.success(data.message || "Verification code sent to your phone");
+        
+        // For demo purposes, display the OTP if in development
+        if (data.demo_otp) {
+          toast.info(`Demo OTP: ${data.demo_otp}`, {
+            duration: 10000
+          });
+        }
+      } else {
+        toast.error(data.error || "Failed to send verification code");
+      }
     } catch (error) {
-      console.error('Error sending phone OTP:', error)
-      toast.error("Failed to send verification code")
+      console.error('Error sending phone OTP:', error);
+      toast.error("Failed to send verification code");
     } finally {
-      setIsSendingPhoneOtp(false)
+      setIsSendingPhoneOtp(false);
     }
   }
   
   // Send email verification OTP
   const sendEmailOtp = async () => {
     if (!formData.email) {
-      toast.error("Please provide a valid email address")
-      return
+      toast.error("Please provide a valid email address");
+      return;
     }
     
-    setIsSendingEmailOtp(true)
+    setIsSendingEmailOtp(true);
     
     try {
-      // Simulate API call to send OTP
-      await new Promise(resolve => setTimeout(resolve, 1500))
+      const response = await fetch('/api/patients/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          type: 'email', 
+          value: formData.email 
+        }),
+      });
       
-      // For demo, we'll simulate success
-      setEmailVerificationSent(true)
-      toast.success("Verification code sent to your email")
+      const data = await response.json();
       
-      // In production, we would call the actual API
-      // const response = await fetch('/api/patients/send-email-otp', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ email: formData.email }),
-      // })
-      // 
-      // if (response.ok) {
-      //   setEmailVerificationSent(true)
-      //   toast.success("Verification code sent to your email")
-      // } else {
-      //   const data = await response.json()
-      //   toast.error(data.error || "Failed to send verification code")
-      // }
-      
+      if (response.ok) {
+        setEmailVerificationSent(true);
+        toast.success(data.message || "Verification code sent to your email");
+        
+        // For demo purposes, display the OTP if in development
+        if (data.demo_otp) {
+          toast.info(`Demo OTP: ${data.demo_otp}`, {
+            duration: 10000
+          });
+        }
+      } else {
+        toast.error(data.error || "Failed to send verification code");
+      }
     } catch (error) {
-      console.error('Error sending email OTP:', error)
-      toast.error("Failed to send verification code")
+      console.error('Error sending email OTP:', error);
+      toast.error("Failed to send verification code");
     } finally {
-      setIsSendingEmailOtp(false)
+      setIsSendingEmailOtp(false);
     }
   }
   
   // Verify phone OTP
   const verifyPhoneOtp = async () => {
     if (!phoneOtp) {
-      toast.error("Please enter the verification code")
-      return
+      toast.error("Please enter the verification code");
+      return;
     }
     
-    setIsVerifyingPhone(true)
+    setIsVerifyingPhone(true);
     
     try {
-      // Simulate API call to verify OTP
-      await new Promise(resolve => setTimeout(resolve, 1500))
+      const response = await fetch('/api/patients/verify-phone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          phone: formData.phone, 
+          otp: phoneOtp 
+        }),
+      });
       
-      // For demo, we'll just check if OTP is "123456"
-      if (phoneOtp === "123456") {
-        updateFormData({ phoneVerified: true })
-        toast.success("Phone number verified successfully")
+      const data = await response.json();
+      
+      if (response.ok) {
+        updateFormData({ phoneVerified: true });
+        toast.success(data.message || "Phone number verified successfully");
       } else {
-        toast.error("Invalid verification code")
+        toast.error(data.error || "Failed to verify code");
       }
-      
-      // In production, we would call the actual API
-      // const response = await fetch('/api/patients/verify-phone-otp', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ phone: formData.phone, otp: phoneOtp }),
-      // })
-      // 
-      // if (response.ok) {
-      //   updateFormData({ phoneVerified: true })
-      //   toast.success("Phone number verified successfully")
-      // } else {
-      //   const data = await response.json()
-      //   toast.error(data.error || "Failed to verify code")
-      // }
-      
     } catch (error) {
-      console.error('Error verifying phone OTP:', error)
-      toast.error("Failed to verify code")
+      console.error('Error verifying phone OTP:', error);
+      toast.error("Failed to verify code");
     } finally {
-      setIsVerifyingPhone(false)
+      setIsVerifyingPhone(false);
     }
   }
   
   // Verify email OTP
   const verifyEmailOtp = async () => {
     if (!emailOtp) {
-      toast.error("Please enter the verification code")
-      return
+      toast.error("Please enter the verification code");
+      return;
     }
     
-    setIsVerifyingEmail(true)
+    setIsVerifyingEmail(true);
     
     try {
-      // Simulate API call to verify OTP
-      await new Promise(resolve => setTimeout(resolve, 1500))
+      const response = await fetch('/api/patients/verify-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          email: formData.email, 
+          otp: emailOtp 
+        }),
+      });
       
-      // For demo, we'll just check if OTP is "123456"
-      if (emailOtp === "123456") {
-        updateFormData({ emailVerified: true })
-        toast.success("Email address verified successfully")
+      const data = await response.json();
+      
+      if (response.ok) {
+        updateFormData({ emailVerified: true });
+        toast.success(data.message || "Email address verified successfully");
       } else {
-        toast.error("Invalid verification code")
+        toast.error(data.error || "Failed to verify code");
       }
-      
-      // In production, we would call the actual API
-      // const response = await fetch('/api/patients/verify-email-otp', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ email: formData.email, otp: emailOtp }),
-      // })
-      // 
-      // if (response.ok) {
-      //   updateFormData({ emailVerified: true })
-      //   toast.success("Email address verified successfully")
-      // } else {
-      //   const data = await response.json()
-      //   toast.error(data.error || "Failed to verify code")
-      // }
-      
     } catch (error) {
-      console.error('Error verifying email OTP:', error)
-      toast.error("Failed to verify code")
+      console.error('Error verifying email OTP:', error);
+      toast.error("Failed to verify code");
     } finally {
-      setIsVerifyingEmail(false)
+      setIsVerifyingEmail(false);
     }
   }
 

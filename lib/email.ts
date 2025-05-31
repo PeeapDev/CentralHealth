@@ -152,6 +152,85 @@ export async function getStoredSmtpSettings() {
     const data = await fs.readFile(SMTP_SETTINGS_FILE, 'utf8')
     return JSON.parse(data)
   } catch (error) {
+    console.error('Error reading SMTP settings:', error)
     return DEFAULT_SMTP_SETTINGS
+  }
+}
+
+// Send email verification code to patient
+export async function sendVerificationEmail({
+  patientEmail,
+  patientName,
+  verificationCode,
+  medicalNumber
+}: {
+  patientEmail: string
+  patientName: string
+  verificationCode: string
+  medicalNumber: string
+}) {
+  try {
+    const { fromEmail, fromName } = await getSmtpSettings()
+    const transporter = await createTransporter()
+
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const verificationUrl = `${baseUrl}/verify-email?code=${verificationCode}&email=${encodeURIComponent(patientEmail)}`
+
+    await transporter.sendMail({
+      from: `"${fromName}" <${fromEmail}>`,
+      to: patientEmail,
+      subject: `Verify Your Email Address`,
+      text: `
+Dear ${patientName},
+
+Thank you for registering with the Sierra Leone National Health Service.
+
+Your medical number is: ${medicalNumber}
+
+Please verify your email address by entering the following verification code:
+${verificationCode}
+
+Or click the link below to verify your email directly:
+${verificationUrl}
+
+This code is valid for 24 hours.
+
+If you did not register for an account, please ignore this email.
+
+Regards,
+Sierra Leone National Health Service
+      `,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #3b82f6;">Sierra Leone National Health Service</h2>
+          <p>Dear ${patientName},</p>
+          <p>Thank you for registering with the Sierra Leone National Health Service.</p>
+          
+          <div style="margin: 20px 0; padding: 15px; background-color: #f3f4f6; border-radius: 5px;">
+            <h3 style="margin-top: 0;">Your Medical Number</h3>
+            <p style="font-size: 18px; font-weight: bold;">${medicalNumber}</p>
+          </div>
+          
+          <p>Please verify your email address by entering the verification code below:</p>
+          
+          <div style="text-align: center; margin: 25px 0;">
+            <div style="font-size: 24px; letter-spacing: 5px; font-weight: bold; padding: 15px; background-color: #e5e7eb; border-radius: 5px;">
+              ${verificationCode}
+            </div>
+          </div>
+          
+          <p>Or <a href="${verificationUrl}" style="color: #3b82f6;">click here</a> to verify your email directly.</p>
+          
+          <p><em>This code is valid for 24 hours. If you did not register for an account, please ignore this email.</em></p>
+          
+          <p>Regards,<br>Sierra Leone National Health Service</p>
+        </div>
+      `,
+    })
+
+    return { success: true }
+  } catch (error) {
+    console.error('Error sending verification email:', error)
+    throw error
   }
 }

@@ -141,11 +141,13 @@ export function MultiStepForm() {
         return
       }
     } else if (step === 2) {
-      // Validate location info
-      if (!formData.addressLine || !formData.district || !formData.city) {
-        toast.error("Please fill in all required location fields")
+      // Validate location info - only require address line
+      if (!formData.addressLine) {
+        toast.error("Please enter your street address")
         return
       }
+      // Make district and city optional
+      // This allows users to proceed even if they can't select these fields
     }
     // Steps 3 and 4 are optional
     else if (step === 5) {

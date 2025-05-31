@@ -15,7 +15,7 @@ datasource db {
 }
 
 model Hospital {
-  id          String    @id @default(cuid())
+  id          String    @id @default(uuid())
   name        String
   subdomain   String    @unique
   description String?
@@ -28,7 +28,7 @@ model Hospital {
 }
 
 model User {
-  id          String    @id @default(cuid())
+  id          String    @id @default(uuid())
   email       String    @unique
   password    String
   name        String?
@@ -36,9 +36,9 @@ model User {
   profileImage String?   // URL or base64 of profile image
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
-  hospitalId  String
-  hospital    Hospital  @relation(fields: [hospitalId], references: [id])
-  patients    Patient[] @relation("DoctorPatients")
+  hospitalId  String?
+  hospital    Hospital? @relation(fields: [hospitalId], references: [id])
+  // Doctor-Patient relation will be handled through a separate table in PostgreSQL
   appointments Appointment[]
   medicalRecords MedicalRecord[]
   chatParticipations ChatParticipant[]
@@ -46,9 +46,9 @@ model User {
 }
 
 model Patient {
-  id              String    @id @default(cuid())
+  id              String    @id @default(uuid())
   medicalNumber   String    @unique // 10-digit identifier
-  mrn             String?   @unique // Optional hospital-specific medical record number
+  mrn             String?   // Optional hospital-specific medical record number
   resourceType    String    @default("Patient") // FHIR resource type
   active          Boolean   @default(true)
   
@@ -73,8 +73,14 @@ model Patient {
   
   // Patient account data
   managingOrganization String? // Reference to hospital/organization
-  email           String?   @unique // Email for patient portal access
+  email           String?   // Email for patient portal access
+  phone           String?   // Phone number with country code
   password        String?   // Hashed password for patient portal access
+  resetCode       String?   // Password reset code
+  resetExpiration DateTime? // Reset code expiration time
+  verificationCode String?  // Email verification code
+  verificationExpiry DateTime? // Verification code expiration time
+  isVerified      Boolean   @default(false) // Whether email has been verified
   
   // Clinical Information
   generalPractitioner Json?  // FHIR Reference to care providers
@@ -88,15 +94,15 @@ model Patient {
   extension       Json?     // Additional FHIR extension fields
   
   // Relationships
-  hospitalId      String?   // Can be null for centralized patients
-  hospital        Hospital?  @relation(fields: [hospitalId], references: [id])
-  doctors         User[]    @relation("DoctorPatients")
+  hospitalId      String?
+  hospital        Hospital? @relation(fields: [hospitalId], references: [id])
+  // Doctor-Patient relationship managed through a join table in PostgreSQL
   appointments    Appointment[]
   records         MedicalRecord[]
 }
 
 model Appointment {
-  id              String    @id @default(cuid())
+  id              String    @id @default(uuid())
   resourceType    String    @default("Appointment") // FHIR resource type
   patientId       String
   patient         Patient   @relation(fields: [patientId], references: [id])
@@ -120,7 +126,7 @@ model Appointment {
 }
 
 model MedicalRecord {
-  id              String    @id @default(cuid())
+  id              String    @id @default(uuid())
   resourceType    String    // FHIR resource type (Observation, Condition, Procedure, etc.)
   patientId       String
   patient         Patient   @relation(fields: [patientId], references: [id])
@@ -157,15 +163,15 @@ model MedicalRecord {
 }
 
 model SystemSettings {
-  id        String   @id @default(cuid())
+  id        String   @id @default(uuid())
   key       String   @unique
-  value     String   @db.Text
+  value     String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model Chat {
-  id            String    @id @default(cuid())
+  id            String    @id @default(uuid())
   name          String?   // Optional name for group chats
   type          String    // 'direct', 'group', 'broadcast'
   createdAt     DateTime  @default(now())
@@ -175,7 +181,7 @@ model Chat {
 }
 
 model ChatParticipant {
-  id        String   @id @default(cuid())
+  id        String   @id @default(uuid())
   chatId    String
   userId    String
   chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
@@ -188,10 +194,10 @@ model ChatParticipant {
 }
 
 model Message {
-  id          String    @id @default(cuid())
+  id          String    @id @default(uuid())
   chatId      String
   senderId    String
-  content     String    @db.Text
+  content     String
   isRead      Boolean   @default(false)
   readBy      Json?     // Array of user IDs who have read the message
   sentAt      DateTime  @default(now())

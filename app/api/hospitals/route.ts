@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
     });
 
     console.log(`Returning ${formattedHospitals.length} hospitals from database`);
-    return NextResponse.json({ hospitals: formattedHospitals });
+    return NextResponse.json({ hospitals: formattedHospitals }, { status: 200 });
   } catch (error) {
     console.error('Get hospitals error:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });

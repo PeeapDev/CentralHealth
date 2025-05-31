@@ -119,26 +119,47 @@ export default function PatientManagementPage() {
   const [filteredPatients, setFilteredPatients] = useState<FHIRPatient[]>([]);
   const [activeTab, setActiveTab] = useState<string>("all-patients");
   
-  // Fetch patients data
+  // Fetch patients data with enhanced debugging
   useEffect(() => {
     async function fetchPatients() {
       try {
         setLoading(true);
-        const response = await fetch("/api/patients");
+        console.log('Fetching patients from API...');
+        
+        const response = await fetch("/api/patients", {
+          // Add cache: 'no-store' to prevent caching
+          cache: 'no-store',
+          headers: {
+            'Content-Type': 'application/json',
+            // Add a timestamp to avoid browser caching
+            'Pragma': 'no-cache'
+          }
+        });
+        
+        console.log('API response status:', response.status);
         
         // Even if response is not OK, we'll handle it gracefully
         const data = await response.json();
+        console.log('API response data:', data);
         
         // If we have patients data, set it, otherwise use an empty array
         if (data && Array.isArray(data.patients)) {
+          console.log(`Found ${data.patients.length} patients`);
           setPatients(data.patients);
+          
+          // Log first patient for debugging
+          if (data.patients.length > 0) {
+            console.log('First patient:', {
+              id: data.patients[0].id,
+              medicalNumber: data.patients[0].medicalNumber
+            });
+          }
         } else {
           console.log("No patients data available or invalid format", data);
           setPatients([]);
         }
       } catch (error) {
         console.error("Error fetching patients:", error);
-        // Don't show error toast to user, just set empty array
         setPatients([]);
       } finally {
         setLoading(false);
@@ -146,21 +167,50 @@ export default function PatientManagementPage() {
     }
     
     fetchPatients();
-  }, []);
+  }, []); // Empty dependency array - fetch only once on component mount
   
-  // Function to refresh data
+  // Function to refresh data with cache clearing
   const refreshData = async () => {
     try {
       setLoading(true);
-      const response = await fetch("/api/patients");
+      
+      // First clear the cache to ensure fresh data
+      try {
+        console.log('Clearing cache before fetching patients...');
+        await fetch('/api/debug/clear-cache');
+      } catch (cacheError) {
+        console.error('Error clearing cache:', cacheError);
+        // Continue anyway, even if cache clearing fails
+      }
+      
+      // Then fetch patients with cache busting parameters
+      const timestamp = new Date().getTime();
+      const response = await fetch(`/api/patients?t=${timestamp}`, {
+        cache: 'no-store',
+        headers: {
+          'Pragma': 'no-cache'
+        }
+      });
+      
+      console.log('Refresh API response status:', response.status);
       
       // Even if response is not OK, we'll handle it gracefully
       const data = await response.json();
+      console.log('Refresh API response data:', data);
       
       // If we have patients data, set it, otherwise use an empty array
       if (data && Array.isArray(data.patients)) {
+        console.log(`Refresh found ${data.patients.length} patients`);
         setPatients(data.patients);
-        toast.success("Patient data refreshed");
+        toast.success(`Found ${data.patients.length} patients`);
+        
+        // Log first patient for debugging
+        if (data.patients.length > 0) {
+          console.log('First patient in refresh:', {
+            id: data.patients[0].id,
+            medicalNumber: data.patients[0].medicalNumber
+          });
+        }
       } else {
         console.log("No patients data available or invalid format", data);
         setPatients([]);
@@ -183,14 +233,18 @@ export default function PatientManagementPage() {
     } else {
       const lowercasedSearch = searchTerm.toLowerCase();
       const filtered = patients.filter(patient => {
-        // Search in name
-        const nameMatch = patient.name && formatFhirName(patient.name).toLowerCase().includes(lowercasedSearch);
+        // Search in name (display name if available)
+        const nameMatch = patient.displayName ? 
+          patient.displayName.toLowerCase().includes(lowercasedSearch) :
+          (patient.name && formatFhirName(patient.name).toLowerCase().includes(lowercasedSearch));
         
         // Search in medical number
-        const medicalNumberMatch = patient.medicalNumber && patient.medicalNumber.toLowerCase().includes(lowercasedSearch);
+        const medicalNumberMatch = patient.medicalNumber && 
+          patient.medicalNumber.toLowerCase().includes(lowercasedSearch);
         
         // Search in email
-        const emailMatch = patient.email && patient.email.toLowerCase().includes(lowercasedSearch);
+        const emailMatch = patient.email && 
+          patient.email.toLowerCase().includes(lowercasedSearch);
         
         return nameMatch || medicalNumberMatch || emailMatch;
       });
@@ -501,43 +555,72 @@ export default function PatientManagementPage() {
                         const patientAge = patient.birthDate ? calculateAge(patient.birthDate) : '--';
                         const formattedDate = new Date(patient.createdAt).toLocaleDateString();
                         
+                        // Extract phone number from telecom
+                        let phoneNumber = '';
+                        if (patient.telecom && Array.isArray(patient.telecom)) {
+                          const phoneEntry = patient.telecom.find(entry => entry.system === 'phone');
+                          if (phoneEntry) {
+                            phoneNumber = phoneEntry.value;
+                          }
+                        }
+                        
+                        // Get registration date
+                        const registrationDate = patient.createdAt 
+                          ? new Date(patient.createdAt).toLocaleDateString() 
+                          : 'Unknown';
+                        
                         return (
                           <TableRow key={patient.id}>
                             <TableCell>
-                              <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-4">
                                 <Avatar>
-                                  {patient.photo ? (
-                                    <AvatarImage src={patient.photo} alt={patientName} />
-                                  ) : (
-                                    <AvatarFallback>{patientInitials}</AvatarFallback>
-                                  )}
+                                  <AvatarImage src={patient.photo || ''} alt={formatFhirName(patient.name)} />
+                                  <AvatarFallback>{getInitialsFromFhirName(patient.name)}</AvatarFallback>
                                 </Avatar>
                                 <div>
-                                  <div className="font-medium">{patientName}</div>
-                                  <div className="text-sm text-muted-foreground">{patient.email}</div>
+                                  <div className="font-semibold">{formatFhirName(patient.name)}</div>
+                                  <div className="text-xs text-gray-500">Registered: {registrationDate}</div>
                                 </div>
                               </div>
                             </TableCell>
-                            <TableCell className="font-mono text-sm">{patient.medicalNumber}</TableCell>
-                            <TableCell>{patient.gender}</TableCell>
+                            <TableCell>
+                              <div className="font-medium">{patient.medicalNumber || patient.mrn || 'N/A'}</div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex flex-col gap-1">
+                                {patient.email && (
+                                  <div className="text-sm">
+                                    <span className="text-gray-500">Email:</span> {patient.email}
+                                  </div>
+                                )}
+                                {phoneNumber && (
+                                  <div className="text-sm">
+                                    <span className="text-gray-500">Phone:</span> {phoneNumber}
+                                  </div>
+                                )}
+                                {!patient.email && !phoneNumber && (
+                                  <div className="text-sm text-gray-500">No contact info</div>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell>{patient.gender || 'Unknown'}</TableCell>
                             <TableCell>{patientAge}</TableCell>
                             <TableCell>
-                              <Badge variant={patient.active ? "default" : "secondary"}>
-                                {patient.active ? "Active" : "Inactive"}
+                              <Badge variant={patient.active ? "default" : "destructive"}>
+                                {patient.active ? 'Active' : 'Inactive'}
                               </Badge>
                             </TableCell>
-                            <TableCell>{formattedDate}</TableCell>
                             <TableCell>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                asChild
-                              >
-                                <Link href={`/superadmin/users/patient/${patient.id}`}>
-                                  <FileText className="h-4 w-4" />
-                                  <span className="sr-only">View patient record</span>
-                                </Link>
-                              </Button>
+                              <div className="flex items-center gap-2">
+                                <Button variant="ghost" size="icon" asChild>
+                                  <Link href={`/superadmin/users/patient/${patient.id}`}>
+                                    <FileText className="h-4 w-4" />
+                                  </Link>
+                                </Button>
+                                <Button variant="ghost" size="icon">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </div>
                             </TableCell>
                           </TableRow>
                         );

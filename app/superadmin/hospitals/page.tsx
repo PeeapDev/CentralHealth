@@ -895,20 +895,36 @@ export default function HospitalsPage() {
     try {
       setIsLoading(true)
       setError(null)
+      
+      // Fetch hospitals with error handling
+      console.log('Fetching hospitals...')
       const response = await fetch('/api/hospitals')
       
-      if (!response.ok) {
-        throw new Error('Failed to fetch hospitals')
+      // Parse the response data safely
+      let data
+      try {
+        data = await response.json()
+        console.log('Fetched hospitals response:', data)
+      } catch (parseError) {
+        console.error('Error parsing hospital response:', parseError)
+        throw new Error('Invalid response format from server')
       }
       
-      const data = await response.json()
-      console.log('Fetched hospitals:', data)
-
-      // Check if the data is in the expected format
-      if (data.hospitals) {
+      // Handle response data - we'll handle errors more gracefully
+      if (!response.ok) {
+        console.error('Hospitals API error:', data)
+        // Don't throw - this causes the page to crash
+        setHospitals([])
+      } else if (data && data.hospitals && Array.isArray(data.hospitals)) {
+        // Successful case - we have hospitals data
         setHospitals(data.hospitals)
-      } else {
+      } else if (Array.isArray(data)) {
+        // Legacy API format - direct array
         setHospitals(data)
+      } else {
+        // Unknown data format
+        console.error('Unexpected hospital data format:', data)
+        setHospitals([])
       }
     } catch (error) {
       console.error('Error fetching hospitals:', error)

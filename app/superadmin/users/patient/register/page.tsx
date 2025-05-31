@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
@@ -11,7 +11,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { Checkbox } from "@/components/ui/checkbox"
 import { toast } from "sonner"
-import { ArrowLeft, Loader2 } from "lucide-react"
+import { ArrowLeft, Loader2, Calendar as CalendarIcon } from "lucide-react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar } from "@/components/ui/calendar"
+import { format } from "date-fns"
+import { cn } from "@/lib/utils"
 
 export default function PatientRegistrationPage() {
   const router = useRouter()
@@ -42,6 +46,17 @@ export default function PatientRegistrationPage() {
     // Clear error when user types
     if (errors[name]) {
       setErrors({ ...errors, [name]: "" })
+    }
+  }
+  
+  // Handle date change
+  const handleDateChange = (date: Date | undefined) => {
+    if (date) {
+      const dateString = format(date, 'yyyy-MM-dd')
+      setFormData({ ...formData, birthDate: dateString })
+      if (errors.birthDate) {
+        setErrors({ ...errors, birthDate: "" })
+      }
     }
   }
   
@@ -251,15 +266,31 @@ export default function PatientRegistrationPage() {
                 
                 <div className="space-y-2">
                   <Label htmlFor="birthDate">Date of Birth <span className="text-red-500">*</span></Label>
-                  <Input
-                    id="birthDate"
-                    name="birthDate"
-                    type="date"
-                    value={formData.birthDate}
-                    onChange={handleChange}
-                    max={new Date().toISOString().split('T')[0]}
-                    className={errors.birthDate ? "border-red-500" : ""}
-                  />
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        id="birthDate"
+                        variant={"outline"}
+                        className={cn(
+                          "w-full justify-start text-left font-normal",
+                          !formData.birthDate && "text-muted-foreground",
+                          errors.birthDate && "border-red-500"
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {formData.birthDate ? format(new Date(formData.birthDate), "PPP") : <span>Select date</span>}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={formData.birthDate ? new Date(formData.birthDate) : undefined}
+                        onSelect={handleDateChange}
+                        disabled={(date) => date > new Date() || date < new Date("1900-01-01")}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
                   {errors.birthDate && (
                     <p className="text-sm text-red-500">{errors.birthDate}</p>
                   )}

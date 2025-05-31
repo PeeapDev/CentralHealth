@@ -41,7 +41,7 @@ export function LandingHeader() {
 
         <div className="flex items-center space-x-2 ml-auto">
           <Button variant="ghost" asChild className="hidden md:inline-flex">
-            <Link href="/">Sign In</Link>
+            <Link href="/auth/login">Patient Sign In</Link>
           </Button>
           <Button asChild>
             <Link href="/register">Register as Patient</Link>

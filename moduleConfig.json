@@ -1,0 +1,19 @@
+{
+  "modules": [
+    {
+      "name": "billing",
+      "enabled": true,
+      "description": "Hospital billing and invoicing system"
+    },
+    {
+      "name": "pharmacy",
+      "enabled": true,
+      "description": "Pharmacy management system"
+    },
+    {
+      "name": "PatientScheduler",
+      "enabled": true,
+      "description": "Patient appointment scheduling system"
+    }
+  ]
+}

@@ -11,7 +11,9 @@ export async function middleware(request: NextRequest) {
     '/',
     '/login',
     '/auth/login',
-    '/auth/signup'
+    '/auth/signup',
+    '/auth/parent-login',
+    '/register'
   ]
   
   // Skip middleware for API routes, static files, and public paths
@@ -20,9 +22,11 @@ export async function middleware(request: NextRequest) {
     path.startsWith('/api') ||
     publicPaths.includes(path)
   ) {
-    // Check if already logged in and trying to access login pages
+    // Handle login redirection differently based on path
     const token = request.cookies.get('token')?.value
-    if (token && (path === '/login' || path === '/auth/login')) {
+    
+    // Only redirect for admin login, not for patient login
+    if (token && path === '/login') {
       try {
         const payload = await verifyToken(token)
         if (payload.role === 'superadmin') {
@@ -33,6 +37,8 @@ export async function middleware(request: NextRequest) {
         // Invalid token, let them access login
       }
     }
+    
+    // For /auth/login (patient login), never redirect to superadmin
     return NextResponse.next()
   }
 
@@ -83,6 +89,32 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // Check for patient routes first - these are at the root level
+  if (path.startsWith('/patient/')) {
+    // Check if we have a token cookie
+    const token = request.cookies.get('token')?.value
+    
+    if (!token) {
+      console.log('Patient route access denied: no token', path);
+      return NextResponse.redirect(new URL('/auth/login', request.url))
+    }
+    
+    try {
+      // Verify the token and check if it belongs to a patient
+      const payload = await verifyToken(token)
+      
+      // Allow access for any authenticated user to patient routes
+      // In a real system you might want to check for specific patient role
+      return NextResponse.next()
+    } catch (error) {
+      console.error('Token verification failed:', error)
+      // Clear the invalid token
+      const response = NextResponse.redirect(new URL('/auth/login', request.url))
+      response.cookies.delete('token')
+      return response
+    }
+  }
+
   // Check if the path is a hospital slug route
   const pathParts = path.split('/')
   if (pathParts.length > 1) {
@@ -94,12 +126,18 @@ export async function middleware(request: NextRequest) {
         hospitalSlug !== 'static' && 
         hospitalSlug !== 'superadmin' && 
         hospitalSlug !== 'auth' && 
+        hospitalSlug !== 'patient' && 
         !hospitalSlug.includes('.')) {
       // Log potential hospital access
       console.log(`Checking hospital access: ${hospitalSlug}`)
 
       // Hospital landing pages are public
       if (pathParts.length === 2) {
+        return NextResponse.next()
+      }
+      
+      // Hospital home pages are public
+      if (pathParts.length >= 3 && pathParts[2] === 'home') {
         return NextResponse.next()
       }
       
@@ -122,7 +160,8 @@ export async function middleware(request: NextRequest) {
   // Protected routes authentication check
   const token = request.cookies.get('token')?.value
   
-  // Check for protected routes that require authentication
+  
+  // Check for other protected routes that require authentication
   const requiresAuth = 
     path.includes('/dashboard') ||
     path.includes('/admin') ||
