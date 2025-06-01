@@ -85,7 +85,6 @@ export default function PatientDashboard() {
   const [activeTab, setActiveTab] = useState<"overview" | "appointments" | "medications" | "vaccinations" | "medical-records">("overview");
 
   useEffect(() => {
-    console.log('Dashboard component mounted, checking authentication...');
     // Check if user is logged in as a patient using session auth
     const checkAuth = async () => {
       try {
@@ -104,34 +103,93 @@ export default function PatientDashboard() {
         
         // Debug response before trying to parse
         console.log('API Response status:', response.status);
+        const responseText = await response.text();
         
-        if (!response.ok) {
-          // Handle non-2xx responses
-          if (response.status === 401) {
-            console.log('Not authenticated, redirecting to login page');
-            setIsAuthenticated(false);
-            // Use the correct login page path
-            router.push('/auth/login');
-            return;
-          }
+        try {
+          // Attempt to parse response as JSON
+          const data = JSON.parse(responseText);
+          console.log('Authenticated via session', data);
           
-          throw new Error(`API responded with status: ${response.status}`);
-        }
-        
-        // Safe to parse JSON only if response was ok
-        const data = await response.json();
-        console.log('Authenticated via session', data);
-        
-        if (data.authenticated && data.patient) {
-          setIsAuthenticated(true);
-          setPatientData(data.patient);
-          
+          if (data.authenticated) {
+            const data = await response.json();
+            console.log('Authenticated via session', data);
+            setIsAuthenticated(true);
+            setPatientData(data.patient);
+            
+            // Use real patient data from session
+            const patientInfo = data.patient || {};
+            
+            // Create patient data object using available data
+            const populatedPatientData: PatientData = {
+              id: patientInfo.id || "p12345",
+              name: patientInfo.name || (patientInfo.firstName && patientInfo.lastName ? 
+                `${patientInfo.firstName} ${patientInfo.lastName}` : "John Doe"),
+              email: patientInfo.email || "patient@example.com",
+              medicalNumber: patientInfo.medicalNumber || "MRN12345",
+              age: 35,
+              gender: patientInfo.gender || "Not specified",
+              bloodType: "O+",
+              appointments: [
+                {
+                  id: "apt-1",
+                  doctor: "Dr. Sarah Johnson",
+                  specialty: "Cardiology",
+                  date: "June 15, 2023",
+                  time: "10:30 AM",
+                  status: "scheduled"
+                },
+                {
+                  id: "apt-2",
+                  doctor: "Dr. Michael Chen",
+                  specialty: "General Practice",
+                  date: "July 2, 2023",
+                  time: "2:00 PM",
+                  status: "scheduled"
+                }
+              ],
+              medications: [
+                {
+                  id: "med-1",
+                  name: "Lisinopril",
+                  dosage: "10mg",
+                  frequency: "Once daily",
+                  refillDate: "August 15, 2023",
+                  status: "active"
+                },
+                {
+                  id: "med-2",
+                  name: "Metformin",
+                  dosage: "500mg",
+                  frequency: "Twice daily",
+                  refillDate: "July 30, 2023",
+                  status: "active"
+                }
+              ],
+              vaccinations: [
+                {
+                  id: "vac-1",
+                  name: "Influenza",
+                  date: "November 10, 2022",
+                  status: "completed"
+                },
+                {
+                  id: "vac-2",
+                  name: "COVID-19",
+                  date: "March 15, 2022",
+                  status: "completed"
+                }
+              ],
+              vitalSigns: {
+                lastChecked: "May 20, 2023",
+                bloodPressure: "128/85",
+                heartRate: 72,
+                temperature: "98.6°F",
+                oxygenLevel: 98
           // Use real patient data from session
           const patientInfo = data.patient || {};
           
-          // Create sample patient data object using available data from the session
-          // with fallback to dummy data where needed
-          const sampleData: PatientData = {
+          // Create patient data object using available data
+          const populatedPatientData: PatientData = {
             id: patientInfo.id || "p12345",
             name: patientInfo.name || (patientInfo.firstName && patientInfo.lastName ? 
               `${patientInfo.firstName} ${patientInfo.lastName}` : "John Doe"),
@@ -199,23 +257,18 @@ export default function PatientDashboard() {
             }
           };
           
-          // Update the patient data state with our sample data
-          setPatientData((prev: any) => ({ ...sampleData, ...prev }));
-          setError(null);
-          // Important: Set loading to false after successful authentication
+          // Update patient state with populated data
+          setPatient(populatedPatientData);
           setLoading(false);
         } else {
-          // User is not authenticated
+          // Not authenticated or session expired
           console.log('Not authenticated via session');
-          // Use the correct login page path
           router.push('/auth/login');
-          setLoading(false);
         }
       } catch (err) {
         console.error('Error checking auth:', err);
         setError('Authentication error. Please try logging in again.');
         setLoading(false);
-        // Use the correct login page path
         router.push('/auth/login');
       }
     };
@@ -327,33 +380,11 @@ export default function PatientDashboard() {
         </nav>
         
         <div className="p-4 border-t border-gray-200">
-          <Button 
-            variant="outline" 
-            className="w-full justify-start" 
-            onClick={async () => {
-              try {
-                const response = await fetch('/api/patients/session/logout', {
-                  method: 'POST',
-                  credentials: 'include',
-                  headers: {
-                    'Content-Type': 'application/json'
-                  }
-                });
-                
-                if (response.ok) {
-                  console.log('Logged out successfully');
-                  // Redirect to login page after successful logout
-                  router.push('/auth/login');
-                } else {
-                  console.error('Logout failed');
-                }
-              } catch (error) {
-                console.error('Error during logout:', error);
-              }
-            }}
-          >
-            <LogOut className="mr-2 h-4 w-4" />
-            Logout
+          <Button variant="outline" className="w-full justify-start" asChild>
+            <Link href="/logout">
+              <LogOut className="mr-2 h-4 w-4" />
+              Logout
+            </Link>
           </Button>
         </div>
       </div>

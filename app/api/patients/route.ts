@@ -19,10 +19,12 @@ export async function GET(request: NextRequest) {
     // Build the where clause for the search
     const whereClause: any = {
       // Default filter is empty to return all patients
-      // Ensure we only get records with resourceType = 'Patient'
-      resourceType: 'Patient',
-      active: true // Only show active patients
+      // Ensure we only get records with resourceType = 'Patient' if needed
+      // but for now we'll just get all patients regardless of resource type
+      // and activity status to see what's available
     };
+    
+    console.log('Initial query will retrieve all patients in the database');
     
     console.log('Executing query with where clause:', whereClause);
     
@@ -94,40 +96,46 @@ export async function GET(request: NextRequest) {
     // But we'll use standard Prisma queries instead due to connection configuration
     
     // Fetch patients from the database with more relaxed conditions
-    const [patients, total] = await Promise.all([
-      prisma.patient.findMany({
-        where: whereClause,
-        // Include all fields except password for security
-        select: {
-          id: true,
-          medicalNumber: true,
-          mrn: true,
-          resourceType: true,
-          active: true,
-          name: true,
-          telecom: true,
-          gender: true,
-          birthDate: true,
-          address: true,
-          photo: true,
-          email: true,
-          hospitalId: true,
-          createdAt: true,
-          updatedAt: true,
-          hospital: {
-            select: {
-              name: true,
-              subdomain: true
-            }
+    // Define types to avoid TypeScript errors
+    type PatientWithRelations = any; // Using any temporarily to avoid complex type issues
+    let patients: PatientWithRelations[] = [];
+    let total = 0;
+    
+    try {
+      // Use a more targeted select to avoid querying fields that might not exist
+      [patients, total] = await Promise.all([
+        prisma.patient.findMany({
+          where: whereClause,
+          // Include essential fields and avoid fields that might be missing
+          select: {
+            id: true,
+            medicalNumber: true,
+            mrn: true,
+            resourceType: true,
+            active: true,
+            name: true,
+            gender: true,
+            birthDate: true,
+            email: true,
+            phone: true,
+            hospitalId: true,
+            createdAt: true,
+            updatedAt: true,
+            hospital: {
+              select: {
+                name: true,
+                subdomain: true
+              }
+            },
+            // Include related appointments count
+            appointments: {
+              select: {
+                id: true
+              }
+            },
+            // Exclude potentially problematic fields
+            password: false,
           },
-          // Exclude these sensitive or complex fields
-          password: false,
-          contact: false,
-          communication: false,
-          extension: false,
-          medicalHistory: false,
-          generalPractitioner: false,
-        },
         orderBy: {
           createdAt: 'desc', // Show newest patients first
         },
@@ -147,6 +155,12 @@ export async function GET(request: NextRequest) {
         id: patients[0].id,
         medicalNumber: patients[0].medicalNumber
       });
+    }
+    } catch (error) {
+      console.error('Error fetching patients:', error);
+      // Continue with empty results rather than failing the request
+      patients = [];
+      total = 0;
     }
 
     // Process patients to ensure JSON fields are properly formatted

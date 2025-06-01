@@ -9,13 +9,14 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Heart, User, Loader2 } from "lucide-react"
-import { LoginLink, RegisterLink } from "@kinde-oss/kinde-auth-nextjs/components"
+import { toast } from "sonner"
+// Removed Kinde imports
 import { FcGoogle } from "react-icons/fc"
 import { Separator } from "@/components/ui/separator"
 import Link from "next/link"
 
 interface ValidationErrors {
-  phone?: string;
+  identifier?: string;
   password?: string;
   general?: string;
 }
@@ -27,7 +28,7 @@ export default function PatientLoginPage() {
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({})
   
   const [formData, setFormData] = useState({
-    phone: "",
+    phone: "", // We'll keep this name for backward compatibility, but it can be email or phone
     password: "",
   })
   
@@ -55,9 +56,9 @@ export default function PatientLoginPage() {
     const errors: ValidationErrors = {};
     let isValid = true;
 
-    // Validate phone number
+    // Validate identifier (email or phone)
     if (!formData.phone) {
-      errors.phone = "Phone number is required";
+      errors.identifier = "Email or phone number is required";
       isValid = false;
     }
 
@@ -114,14 +115,14 @@ export default function PatientLoginPage() {
       // Format phone number before sending
       const formattedPhone = formatPhoneNumber(formData.phone);
       
-      // Call the API to authenticate the patient
-      const response = await fetch('/api/patients/login', {
+      // Call the API to authenticate the patient using session-based auth
+      const response = await fetch('/api/patients/session/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          phone: formattedPhone,
+          email: formData.phone, // This will handle both email or phone
           password: formData.password
         })
       });
@@ -133,32 +134,31 @@ export default function PatientLoginPage() {
       }
       
       // Patient successfully authenticated
+      // Session is now handled server-side with secure cookies
       const { patient, redirectTo } = data;
       
-      // Store authentication data in localStorage
-      localStorage.setItem('medicalNumber', patient.medicalNumber);
-      localStorage.setItem('patientName', patient.name || 'Patient');
-      localStorage.setItem('userType', 'patient');
-      localStorage.setItem('isPatientLoggedIn', 'true');
+      // Log success with more details
+      console.log("Patient login successful, FORCE REDIRECTING TO DASHBOARD", {
+        patientId: patient?.id,
+        hasMedicalNumber: !!patient?.medicalNumber,
+        hasEmail: !!patient?.email
+      });
       
-      // Store additional patient data for the dashboard
-      const patientData = {
-        medicalNumber: patient.medicalNumber,
-        name: patient.name,
-        email: patient.email || '',
-        phone: patient.phone || '',
-        gender: patient.gender || '',
-        dateOfBirth: patient.birthDate || '',
-        isLoggedIn: true
-      };
+      // DIRECT APPROACH: Create a form and submit it to force a server-side redirect
+      const form = document.createElement('form');
+      form.method = 'GET';
+      form.action = '/patient/dashboard';
       
-      localStorage.setItem('patientData', JSON.stringify(patientData));
+      // Add a hidden timestamp field to prevent caching issues
+      const hiddenField = document.createElement('input');
+      hiddenField.type = 'hidden';
+      hiddenField.name = 'ts';
+      hiddenField.value = Date.now().toString();
+      form.appendChild(hiddenField);
       
-      // Log success
-      console.log("Patient login successful, redirecting to dashboard");
-      
-      // Redirect to dashboard using window.location.href for reliability
-      window.location.href = redirectTo || '/patient/dashboard';
+      // Add the form to the body and submit it immediately
+      document.body.appendChild(form);
+      form.submit();
       return;
     } catch (error: any) {
       console.error('Patient login error:', error);
@@ -194,25 +194,15 @@ export default function PatientLoginPage() {
               </Alert>
             )}
             
-            {/* Kinde Google Authentication */}
+            {/* Login with phone number and password */}
             <div className="mb-6 space-y-4">
-              <LoginLink className="w-full" authUrlParams={{provider: "google"}}>
-                <Button 
-                  type="button"
-                  className="w-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center py-5 text-base"
-                >
-                  <FcGoogle className="mr-2 h-6 w-6 bg-white rounded-full p-1" />
-                  Sign in with Google
-                </Button>
-              </LoginLink>
-              
-              <div className="relative my-4">
+              <div className="relative">
                 <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
+                  <span className="w-full border-t border-muted" />
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-white px-2 text-muted-foreground">
-                    Or sign in with phone
+                  <span className="bg-card px-2 text-muted-foreground">
+                    Login with your phone number
                   </span>
                 </div>
               </div>
@@ -221,25 +211,18 @@ export default function PatientLoginPage() {
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="phone" className="text-sm font-medium">Phone Number</Label>
-                  <div className="relative">
-                    <Input
-                      id="phone"
-                      type="tel"
-                      placeholder="77 505 3410"
-                      value={formData.phone}
-                      onChange={handleInputChange}
-                      className={`pl-20 ${validationErrors.phone ? "border-destructive" : ""}`}
-                      autoComplete="tel"
-                    />
-                    <div className="absolute left-0 top-0 bottom-0 px-3 flex items-center justify-center rounded-l-md bg-green-500 text-white font-medium">
-                      +232
-                    </div>
-                  </div>
-                  {validationErrors.phone && (
-                    <p className="text-sm text-destructive mt-1 animate-fadeIn">
-                      {validationErrors.phone}
-                    </p>
+                  <Label htmlFor="phone">Email or Phone Number</Label>
+                  <Input
+                    id="phone"
+                    placeholder="Enter email or phone"
+                    type="text"
+                    value={formData.phone}
+                    onChange={handleInputChange}
+                    disabled={isLoading}
+                    className={validationErrors.identifier ? "border-destructive" : ""}
+                  />
+                  {validationErrors.identifier && (
+                    <p className="text-xs font-medium text-destructive">{validationErrors.identifier}</p>
                   )}
                   <p className="text-xs text-muted-foreground mt-1">
                     Enter your 8-digit phone number without the leading zero
@@ -317,10 +300,7 @@ export default function PatientLoginPage() {
               <Link href="/register" className="font-medium text-primary hover:text-primary/80 transition-colors hover:underline">
                 Register here
               </Link>
-              {" or "}
-              <RegisterLink authUrlParams={{provider: "google"}} className="font-medium text-primary hover:text-primary/80 transition-colors hover:underline">
-                Register with Google
-              </RegisterLink>
+              {/* Removed Kinde Google registration link */}
             </div>
           </CardFooter>
         </Card>

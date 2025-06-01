@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
@@ -9,266 +9,356 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { RegisterLink } from "@kinde-oss/kinde-auth-nextjs/components"
-import { FcGoogle } from "react-icons/fc"
-import { Separator } from "@/components/ui/separator"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Heart, User, Loader2 } from "lucide-react"
 
-export default function SimpleRegistrationPage() {
+// Define validation error and form data interfaces
+interface ValidationErrors {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  password?: string;
+  birthDate?: string;
+}
+
+interface FormData {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  password: string;
+  birthDate: string;
+}
+
+export default function PatientRegistration() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [password, setPassword] = useState("");
-  const [formError, setFormError] = useState("");
+  const [formData, setFormData] = useState<FormData>({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    password: "",
+    birthDate: ""
+  });
+  const [error, setError] = useState("");
+  const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
 
-  // Debug log on any field change
-  useEffect(() => {
-    console.log('Form state updated:', { firstName, lastName, email, phone: phone || 'empty' });
-  }, [firstName, lastName, email, phone]);
-  
-  // Direct button click handler with simpler logic
-  const handleRegisterClick = async () => {
-    console.log('Register button clicked');
+  // Format phone number to conform to Sierra Leone format
+  const formatPhoneNumber = (phoneNumber: string) => {
+    // Remove any non-digit characters
+    let digits = phoneNumber.replace(/\D/g, "");
     
-    // Clear previous errors
-    setFormError("");
+    // If it starts with 0, remove the 0
+    if (digits.startsWith('0')) {
+      digits = digits.substring(1);
+    }
     
-    // Validate fields
-    if (!firstName || !lastName || !email || !phone || !password) {
-      setFormError("All fields are required");
-      toast.error("All fields are required");
+    // Ensure it has the Sierra Leone country code
+    if (!digits.startsWith('232')) {
+      digits = `232${digits}`;
+    }
+    
+    return `+${digits}`;
+  };
+
+  // Handle form input changes
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+    
+    // Clear validation error when user types
+    if (validationErrors[name as keyof ValidationErrors]) {
+      setValidationErrors(prev => ({
+        ...prev,
+        [name]: undefined
+      }));
+    }
+  };
+
+  // Validate form inputs
+  const validateForm = () => {
+    let isValid = true;
+    const errors: ValidationErrors = {};
+    
+    if (!formData.firstName.trim()) {
+      errors.firstName = "First name is required";
+      isValid = false;
+    }
+    
+    if (!formData.lastName.trim()) {
+      errors.lastName = "Last name is required";
+      isValid = false;
+    }
+    
+    if (!formData.email.trim()) {
+      errors.email = "Email is required";
+      isValid = false;
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+      errors.email = "Please enter a valid email address";
+      isValid = false;
+    }
+    
+    if (!formData.phone.trim()) {
+      errors.phone = "Phone number is required";
+      isValid = false;
+    } else if (formData.phone.trim().length < 9) {
+      errors.phone = "Phone number is too short";
+      isValid = false;
+    }
+    
+    if (!formData.password.trim()) {
+      errors.password = "Password is required";
+      isValid = false;
+    } else if (formData.password.trim().length < 6) {
+      errors.password = "Password must be at least 6 characters";
+      isValid = false;
+    }
+    
+    if (!formData.birthDate) {
+      errors.birthDate = "Date of birth is required";
+      isValid = false;
+    } else {
+      // Check if the date is valid and not in the future
+      const birthDate = new Date(formData.birthDate);
+      const today = new Date();
+      
+      if (isNaN(birthDate.getTime())) {
+        errors.birthDate = "Invalid date format";
+        isValid = false;
+      } else if (birthDate > today) {
+        errors.birthDate = "Date of birth cannot be in the future";
+        isValid = false;
+      }
+    }
+    
+    setValidationErrors(errors);
+    return isValid;
+  };
+
+  // Handle registration submission
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    
+    // Validate form inputs
+    if (!validateForm()) {
       return;
     }
     
-    // Set loading state
     setIsLoading(true);
-    
+
     try {
       // Format phone number
-      let formattedPhone = phone;
-      if (formattedPhone.startsWith('0')) {
-        formattedPhone = formattedPhone.substring(1);
-      }
-      if (!formattedPhone.startsWith('+')) {
-        formattedPhone = `+232${formattedPhone}`;
-      }
+      const formattedPhone = formatPhoneNumber(formData.phone);
       
-      // Prepare data
-      const userData = {
-        firstName,
-        lastName,
-        email,
+      console.log('Submitting registration with data:', {
+        ...formData,
         phone: formattedPhone,
-        password
-      };
+        password: '[REDACTED]'
+      });
       
-      console.log('Sending registration data:', userData);
-      
-      // Make API request
-      const response = await fetch('/api/patients/quick-register', {
+      // Call the server-side API to register the patient
+      const response = await fetch('/api/patients/session/register', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          firstName,
-          lastName,
-          email,
-          phone, // We'll let the backend add the +232 prefix if needed
-          password,
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          email: formData.email,
+          phone: formattedPhone,
+          password: formData.password,
+          birthDate: formData.birthDate
         })
       });
       
-      console.log('Response status:', response.status);
-      
-      const data = await response.json();
-      console.log('Response data:', data);
-      
-      if (data.success) {
-        toast.success(data.message);
-        
-        // Store patient info in localStorage for immediate access
-        if (data.patient) {
-          localStorage.setItem('patientInfo', JSON.stringify(data.patient));
-        }
-        
-        // Since this is quick registration with auto-login, redirect to dashboard
-        router.push('/patient/dashboard');
+      // Check if the response is valid JSON
+      let data;
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json();
       } else {
-        // Handle known error from API
-        const errorMsg = data.error || data.message || 'Registration failed';
-        setFormError(errorMsg);
-        toast.error(errorMsg);
+        // Handle non-JSON responses
+        const text = await response.text();
+        console.error('Non-JSON response:', text);
+        throw new Error('Server returned an invalid response format');
       }
-    } catch (error) {
-      console.error('Registration error:', error);
-      const errorMsg = error instanceof Error ? error.message : 'An unexpected error occurred';
-      setFormError(errorMsg);
-      toast.error(errorMsg);
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Registration failed with status: ' + response.status);
+      }
+      
+      // Success message with more details
+      toast.success('Registration successful! You can now log in with your email and password.');
+      
+      // Redirect to login page after a brief delay to show the toast
+      setTimeout(() => {
+        router.push('/login');
+        router.refresh(); // Force a refresh to ensure the redirect happens
+      }, 2000);
+    } catch (error: any) {
+      console.error('Patient registration error:', error);
+      setError(error.message || "An error occurred during registration. Please try again later.");
+      toast.error("Registration failed. Please try again.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Simple field change handlers
-  const handleFirstNameChange = (e: React.ChangeEvent<HTMLInputElement>) => setFirstName(e.target.value);
-  const handleLastNameChange = (e: React.ChangeEvent<HTMLInputElement>) => setLastName(e.target.value);
-  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value);
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => setPhone(e.target.value);
-  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => setPassword(e.target.value);
-
   return (
-    <div className="flex min-h-screen flex-col">
-      <div className="bg-primary text-primary-foreground py-4">
-        <div className="container">
-          <div className="flex items-center justify-between">
-            <Link href="/" className="text-xl font-bold">
-              Sierra Leone National Health Service
-            </Link>
-            <div className="flex items-center gap-4">
-              <Link href="/" className="text-sm hover:underline">
-                Home
-              </Link>
-              <Link href="/" className="text-sm hover:underline">
-                Login
-              </Link>
-            </div>
-          </div>
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 via-white to-green-50 dark:from-blue-950/20 dark:via-background dark:to-green-950/20 p-4">
+      <div className="w-full max-w-md mx-auto space-y-6">
+        <div className="text-center space-y-2">
+          <h1 className="text-3xl font-bold text-primary">Central Health</h1>
+          <p className="text-muted-foreground">Sierra Leone's National Health System</p>
         </div>
-      </div>
 
-      <div className="container flex-1 py-12">
-        <div className="max-w-md mx-auto w-full">
-          <Card>
-            <CardHeader className="space-y-1">
-              <CardTitle className="text-2xl text-center">Patient Registration</CardTitle>
-              <CardDescription className="text-center">
-                Enter your details to create an account
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {/* Google Registration with Kinde */}
-              <div className="mb-6">
-                <RegisterLink className="w-full" authUrlParams={{provider: "google"}}>
-                  <Button 
-                    type="button"
-                    className="w-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center py-5 text-base"
-                  >
-                    <FcGoogle className="mr-2 h-6 w-6 bg-white rounded-full p-1" />
-                    Register with Google
-                  </Button>
-                </RegisterLink>
+        <Card className="w-full shadow-lg border-primary/10">
+          <CardHeader className="space-y-1 text-center">
+            <div className="flex justify-center">
+              <div className="rounded-full bg-primary/10 p-4 transform transition-transform hover:scale-105 duration-300">
+                <Heart className="h-8 w-8 text-primary" />
+              </div>
+            </div>
+            <CardTitle className="text-2xl font-bold">Create Account</CardTitle>
+            <CardDescription>Register as a patient to access health services</CardDescription>
+          </CardHeader>
+          
+          <CardContent className="p-6">
+            {error && (
+              <Alert variant="destructive" className="mb-5 border-destructive/50 animate-fadeIn">
+                <AlertDescription className="font-medium">{error}</AlertDescription>
+              </Alert>
+            )}
+            
+            <form onSubmit={handleRegister} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="firstName">First Name</Label>
+                  <Input
+                    id="firstName"
+                    name="firstName"
+                    placeholder="John"
+                    value={formData.firstName}
+                    onChange={handleChange}
+                    className={validationErrors.firstName ? "border-destructive" : ""}
+                  />
+                  {validationErrors.firstName && (
+                    <p className="text-destructive text-xs mt-1">{validationErrors.firstName}</p>
+                  )}
+                </div>
                 
-                <div className="relative my-6">
-                  <div className="absolute inset-0 flex items-center">
-                    <span className="w-full border-t" />
-                  </div>
-                  <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-white px-2 text-muted-foreground">
-                      Or register with your details
-                    </span>
-                  </div>
+                <div className="space-y-2">
+                  <Label htmlFor="lastName">Last Name</Label>
+                  <Input
+                    id="lastName"
+                    name="lastName"
+                    placeholder="Doe"
+                    value={formData.lastName}
+                    onChange={handleChange}
+                    className={validationErrors.lastName ? "border-destructive" : ""}
+                  />
+                  {validationErrors.lastName && (
+                    <p className="text-destructive text-xs mt-1">{validationErrors.lastName}</p>
+                  )}
                 </div>
               </div>
               
-              <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
-                {formError && (
-                  <div className="p-3 bg-red-50 border border-red-200 rounded-md text-red-600 text-sm">
-                    {formError}
-                  </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  name="email"
+                  type="email"
+                  placeholder="john.doe@example.com"
+                  value={formData.email}
+                  onChange={handleChange}
+                  className={validationErrors.email ? "border-destructive" : ""}
+                />
+                {validationErrors.email && (
+                  <p className="text-destructive text-xs mt-1">{validationErrors.email}</p>
                 )}
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="firstName">First Name</Label>
-                    <Input
-                      id="firstName"
-                      value={firstName}
-                      onChange={handleFirstNameChange}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="lastName">Last Name</Label>
-                    <Input
-                      id="lastName"
-                      value={lastName}
-                      onChange={handleLastNameChange}
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={handleEmailChange}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="phone">
-                    Phone Number (Sierra Leone)
-                  </Label>
-                  <div className="flex">
-                    <div className="bg-muted flex items-center justify-center px-3 rounded-l-md border border-r-0 border-input">
-                      <span className="text-sm text-muted-foreground">+232</span>
-                    </div>
-                    <Input
-                      id="phone"
-                      type="tel"
-                      className="rounded-l-none"
-                      value={phone}
-                      onChange={handlePhoneChange}
-                      required
-                    />
-                  </div>
-                </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="password">Password</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={handlePasswordChange}
-                    required
-                  />
-                </div>
-                
-                <Button 
-                  type="button" 
-                  className="w-full" 
-                  disabled={isLoading}
-                  onClick={handleRegisterClick}
-                >
-                  {isLoading ? "Registering..." : "Register"}
-                </Button>
-              </form>
-            </CardContent>
-            <CardFooter className="flex justify-center">
-              <p className="text-sm text-muted-foreground text-center">
-                Already have an account?{" "}
-                <Link href="/auth/login" className="text-primary underline">
-                  Login
-                </Link>
-              </p>
-            </CardFooter>
-          </Card>
-        </div>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="phone">Phone Number</Label>
+                <Input
+                  id="phone"
+                  name="phone"
+                  placeholder="+232 XX XXX XXXX"
+                  value={formData.phone}
+                  onChange={handleChange}
+                  className={validationErrors.phone ? "border-destructive" : ""}
+                />
+                {validationErrors.phone && (
+                  <p className="text-destructive text-xs mt-1">{validationErrors.phone}</p>
+                )}
+                <p className="text-xs text-muted-foreground mt-1">Sierra Leone format (+232)</p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  name="password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={formData.password}
+                  onChange={handleChange}
+                  className={validationErrors.password ? "border-destructive" : ""}
+                />
+                {validationErrors.password && (
+                  <p className="text-destructive text-xs mt-1">{validationErrors.password}</p>
+                )}
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="birthDate">Date of Birth</Label>
+                <Input
+                  id="birthDate"
+                  name="birthDate"
+                  type="date"
+                  value={formData.birthDate}
+                  onChange={handleChange}
+                  className={validationErrors.birthDate ? "border-destructive" : ""}
+                />
+                {validationErrors.birthDate && (
+                  <p className="text-destructive text-xs mt-1">{validationErrors.birthDate}</p>
+                )}
+              </div>
+              
+              <Button
+                type="submit"
+                className="w-full"
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Creating account...
+                  </>
+                ) : (
+                  "Create Account"
+                )}
+              </Button>
+            </form>
+          </CardContent>
+          
+          <CardFooter className="flex flex-col space-y-4 border-t p-6 bg-muted/20">
+            <div className="text-center text-sm">
+              <Link href="/auth/login" className="text-primary hover:text-primary/80 transition-colors hover:underline">
+                Already have an account? Sign in
+              </Link>
+            </div>
+          </CardFooter>
+        </Card>
       </div>
-      
-      <footer className="bg-muted py-6">
-        <div className="container text-center text-sm text-muted-foreground">
-          &copy; {new Date().getFullYear()} Sierra Leone National Health Service. All rights reserved.
-        </div>
-      </footer>
     </div>
-  )
+  );
 }

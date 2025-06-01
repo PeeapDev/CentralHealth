@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { v4 as uuidv4 } from 'uuid'
 import { ColumnDef } from "@tanstack/react-table"
@@ -881,6 +882,7 @@ This will invalidate the current password and send a new one to the admin's emai
 // Main HospitalsPage component
 export default function HospitalsPage() {
   // We need to preserve the superadmin layout
+  const router = useRouter()
   const [hospitals, setHospitals] = useState<Hospital[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -890,6 +892,13 @@ export default function HospitalsPage() {
   const [selectedHospital, setSelectedHospital] = useState<Hospital | null>(null)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  
+  // Log page load for debugging
+  useEffect(() => {
+    console.log('Hospitals page loaded successfully')
+    // Fetch hospitals on component mount
+    fetchHospitals()
+  }, [])
 
   const fetchHospitals = async () => {
     try {

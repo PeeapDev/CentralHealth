@@ -13,10 +13,12 @@ function generateMedicalNumber(): string {
   return `P${randomDigits}`;
 }
 
+// Get JWT secret
+const JWT_SECRET = process.env.JWT_SECRET || 'dev_fallback_secret_for_patient_authentication_do_not_use_in_production';
+console.log('Using JWT_SECRET:', JWT_SECRET ? 'Secret defined' : 'Secret undefined - using fallback');
+
 // Helper function to generate JWT token
 function generateToken(patient: any) {
-  const jwtSecret = process.env.JWT_SECRET || 'fallback_secret_for_development';
-  
   return jwt.sign(
     {
       id: patient.id,
@@ -24,7 +26,7 @@ function generateToken(patient: any) {
       email: patient.email,
       role: 'patient', // Role for authorization
     },
-    jwtSecret,
+    JWT_SECRET,
     {
       expiresIn: '7d', // Token expires in 7 days
     }
@@ -166,10 +168,14 @@ export async function POST(req: NextRequest) {
       }
     ];
     
-    // Generate verification code and set expiry date (24 hours from now)
-    const verificationCode = crypto.randomBytes(20).toString('hex');
+    // Generate verification code
+    const verificationCode = crypto.randomBytes(3).toString('hex').toUpperCase(); // 6 characters
+    
+    // Set verification code expiry (24 hours)
     const verificationExpiry = new Date();
     verificationExpiry.setHours(verificationExpiry.getHours() + 24);
+    
+    console.log('Generated verification code:', verificationCode);
     
     try {
       // Create new patient with verification code (match Prisma schema)      
@@ -177,7 +183,7 @@ export async function POST(req: NextRequest) {
         data: {
           medicalNumber: medicalNumber,
           resourceType: 'Patient',
-          active: false, // Initially inactive until email is verified
+          active: true, // Set to active immediately (no email verification)
           
           // JSON fields stored as strings
           name: JSON.stringify(nameData),
@@ -190,9 +196,10 @@ export async function POST(req: NextRequest) {
           address: JSON.stringify(addressData),
           photo: '',
           hospitalId: hospitalId,
-          // Store verification code in resetCode field
+          // Store verification code (using only resetCode, not verificationCode)
           resetCode: verificationCode,
           resetExpiration: verificationExpiry,
+          isVerified: true, // Mark as already verified since we're skipping verification
         },
         select: {
           id: true,
@@ -240,16 +247,40 @@ export async function POST(req: NextRequest) {
         // Continue with registration even if email fails
       }
       
-      // Return success response
-      return NextResponse.json({
+      // Generate JWT token
+      const token = jwt.sign(
+        {
+          id: newPatient.id,
+          medicalNumber: newPatient.medicalNumber,
+          email: newPatient.email,
+          role: 'patient', // Role for authorization
+        },
+        JWT_SECRET,
+        {
+          expiresIn: '7d', // Token expires in 7 days
+        }
+      );
+
+      // Create response with token
+      const response = NextResponse.json({
         success: true,
-        message: emailSent 
-          ? 'Registration successful! Please check your email for verification instructions.' 
-          : `Registration successful! Your medical number is ${medicalNumber}. Use this with your verification code: ${verificationCode}`,
-        requiresVerification: true,
-        verificationCode: emailSent ? undefined : verificationCode, // Only send code in response if email failed
+        message: 'Registration successful!',
+        token,
         patient: patientResponse
       }, { status: 201 });
+      
+      // Set cookie for authentication
+      response.cookies.set({
+        name: 'token',
+        value: token,
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 60 * 60 * 24 * 7, // 7 days
+        path: '/',
+        sameSite: 'strict'
+      });
+      
+      return response;
       
     } catch (dbError) {
       console.error('Database error during patient creation:', dbError);

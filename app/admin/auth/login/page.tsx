@@ -82,7 +82,12 @@ export default function AdminLoginPage() {
     try {
       console.log('Attempting staff login with:', { email: formData.email, role: formData.role });
       
-      const response = await fetch("/api/auth", {
+      // Get the current origin to ensure we're using the correct port
+      const origin = window.location.origin;
+      console.log('Current origin:', origin);
+      
+      // Use the full URL with origin to ensure correct port
+      const response = await fetch(`${origin}/api/auth`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -93,35 +98,76 @@ export default function AdminLoginPage() {
         }),
       });
 
+      // First check the response type to help debug the issue
+      const contentType = response.headers.get('content-type');
+      console.log('Response content type:', contentType);
+      
       if (!response.ok) {
-        const error = await response.json();
-        setError(error.error || error.detail || "Login failed");
+        try {
+          // Try to parse as JSON, but handle case where it's not JSON
+          const errorText = await response.text();
+          console.log('Error response text:', errorText);
+          
+          let errorObj;
+          try {
+            errorObj = JSON.parse(errorText);
+            setError(errorObj.error || errorObj.detail || "Login failed");
+          } catch (jsonError) {
+            console.error('Error parsing error response as JSON:', jsonError);
+            setError("Server returned an invalid response. Please try again.");
+          }
+        } catch (err) {
+          console.error('Error reading response:', err);
+          setError("Could not read server response. Please try again.");
+        }
         return;
       }
 
-      const data = await response.json();
-      console.log('Login successful:', data);
+      // Handle the success response carefully
+      let data;
+      try {
+        const responseText = await response.text();
+        console.log('Response text preview:', responseText.substring(0, 100));
+        
+        data = JSON.parse(responseText);
+        console.log('Login successful:', data);  
+      } catch (jsonError) {
+        console.error('Error parsing success response as JSON:', jsonError);
+        setError("Failed to parse server response. Please try again.");
+        setIsLoading(false);
+        return;
+      }
       
       // Set auth token
       if (data.access_token) {
-        const tokenExpiry = new Date();
-        tokenExpiry.setDate(tokenExpiry.getDate() + 7); // 7 days expiry
+        console.log('Setting auth token cookie...');
+        const maxAge = 7 * 24 * 60 * 60;
         
-        document.cookie = `token=${data.access_token}; path=/; expires=${tokenExpiry.toUTCString()}`;
+        // Clear any existing token first
+        document.cookie = 'token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;';
         
-        if (data.user?.role === 'superadmin') {
-          router.push('/superadmin');
-        } else if (data.user?.role === 'admin') {
-          const hospitalSubdomain = data.user?.hospital?.subdomain;
-          if (hospitalSubdomain) {
-            // For hospital admins, redirect to their hospital dashboard
-            router.push(`/${hospitalSubdomain}/admin`);
-          } else {
-            // Fallback
-            router.push('/dashboard');
-          }
+        // Set new token cookie
+        document.cookie = `token=${data.access_token}; path=/; max-age=${maxAge}; SameSite=Lax;`;
+        
+        // Set loading state to show user something is happening
+        setIsLoading(true);
+        
+        if (formData.role === 'superadmin') {
+          console.log('Redirecting to superadmin dashboard...');
+          // Use a form submission redirect for the most reliable navigation
+          const form = document.createElement('form');
+          form.method = 'GET';
+          form.action = '/superadmin';
+          document.body.appendChild(form);
+          form.submit();
         } else {
-          router.push('/dashboard');
+          console.log('Redirecting to hospital admin dashboard...');
+          // Hospital admin redirect using the same reliable method
+          const form = document.createElement('form');
+          form.method = 'GET';
+          form.action = '/' + data.user.hospital.subdomain + '/admin/dashboard';
+          document.body.appendChild(form);
+          form.submit();
         }
       }
     } catch (error) {

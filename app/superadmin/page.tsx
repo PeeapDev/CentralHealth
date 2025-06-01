@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,12 +11,17 @@ import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Toolti
 export default function SuperadminDashboard() {
   const router = useRouter()
 
+  // Completely disable client-side redirect checks to prevent loops
+  // Instead, we'll rely on server-side middleware for authentication
+  // This removes all client-side redirects that could cause loops
+  
   useEffect(() => {
-    // Check if user is logged in
-    const token = document.cookie.includes('token')
-    if (!token) {
-      router.push('/login')
-    }
+    // Log that we're on the superadmin page for debugging
+    console.log('Superadmin dashboard loaded. If you see this, login was successful.')
+    
+    // Check for token but DON'T redirect - just log it
+    const hasToken = document.cookie.includes('token')
+    console.log('Token present:', hasToken)
   }, [])
 
   const stats = [

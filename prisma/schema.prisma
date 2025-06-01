@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
   output   = "../lib/generated/prisma"
@@ -23,143 +17,120 @@ model Hospital {
   updatedAt   DateTime  @updatedAt
   settings    Json
   branding    Json?
-  users       User[]
   patients    Patient[]
+  users       User[]
 }
 
 model User {
-  id          String    @id @default(uuid())
-  email       String    @unique
-  password    String
-  name        String?
-  role        String
-  profileImage String?   // URL or base64 of profile image
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  hospitalId  String?
-  hospital    Hospital? @relation(fields: [hospitalId], references: [id])
-  // Doctor-Patient relation will be handled through a separate table in PostgreSQL
-  appointments Appointment[]
-  medicalRecords MedicalRecord[]
+  id                 String            @id @default(uuid())
+  email              String            @unique
+  password           String
+  name               String?
+  role               String
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  hospitalId         String?
+  profileImage       String?
+  appointments       Appointment[]
   chatParticipations ChatParticipant[]
-  messages Message[]
+  medicalRecords     MedicalRecord[]
+  messages           Message[]
+  hospital           Hospital?         @relation(fields: [hospitalId], references: [id])
 }
 
 model Patient {
-  id              String    @id @default(uuid())
-  medicalNumber   String    @unique // 10-digit identifier
-  mrn             String?   // Optional hospital-specific medical record number
-  resourceType    String    @default("Patient") // FHIR resource type
-  active          Boolean   @default(true)
-  
-  // Demographic information
-  name            Json      // FHIR HumanName structure (given, family, prefix, suffix, etc.)
-  telecom         Json?     // FHIR ContactPoint array (phone, email, etc.)
-  gender          String    // FHIR AdministrativeGender
-  birthDate       DateTime
-  deceased        Boolean   @default(false)
-  deceasedDateTime DateTime?
-  
-  // Contact information
-  address         Json?     // FHIR Address array
-  maritalStatus   Json?     // FHIR CodeableConcept
-  multipleBirth   Boolean?  // Whether patient is part of multiple birth
-  multipleBirthInteger Int? // Birth order
-  photo           String?   // URL to patient photo
-  
-  // Contact parties
-  contact         Json?     // FHIR Patient.contact array
-  communication   Json?     // FHIR Communication preferences
-  
-  // Patient account data
-  managingOrganization String? // Reference to hospital/organization
-  email           String?   // Email for patient portal access
-  phone           String?   // Phone number with country code
-  password        String?   // Hashed password for patient portal access
-  resetCode       String?   // Password reset code
-  resetExpiration DateTime? // Reset code expiration time
-  verificationCode String?  // Email verification code
-  verificationExpiry DateTime? // Verification code expiration time
-  isVerified      Boolean   @default(false) // Whether email has been verified
-  
-  // Clinical Information
-  generalPractitioner Json?  // FHIR Reference to care providers
-  medicalHistory    Json?    // FHIR conditions summary
-  
-  // Timestamps and relations
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  
-  // FHIR extensions
-  extension       Json?     // Additional FHIR extension fields
-  
-  // Relationships
-  hospitalId      String?
-  hospital        Hospital? @relation(fields: [hospitalId], references: [id])
-  // Doctor-Patient relationship managed through a join table in PostgreSQL
-  appointments    Appointment[]
-  records         MedicalRecord[]
+  id                   String          @id @default(uuid())
+  mrn                  String?
+  gender               String
+  contact              Json?
+  medicalHistory       Json?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  hospitalId           String?
+  active               Boolean         @default(true)
+  address              Json?
+  birthDate            DateTime
+  communication        Json?
+  deceased             Boolean         @default(false)
+  deceasedDateTime     DateTime?
+  email                String?
+  extension            Json?
+  generalPractitioner  Json?
+  managingOrganization String?
+  maritalStatus        Json?
+  medicalNumber        String          @unique
+  multipleBirth        Boolean?
+  multipleBirthInteger Int?
+  password             String?
+  photo                String?
+  resetCode            String?
+  resetExpiration      DateTime?
+  resourceType         String          @default("Patient")
+  telecom              Json?
+  name                 Json
+  phone                String?
+  verificationCode     String?
+  verificationExpiry   DateTime?
+  // isVerified field commented out as it doesn't exist in the actual database
+  // isVerified           Boolean         @default(false)
+  appointments         Appointment[]
+  records              MedicalRecord[]
+  hospital             Hospital?       @relation(fields: [hospitalId], references: [id])
 }
 
 model Appointment {
   id              String    @id @default(uuid())
-  resourceType    String    @default("Appointment") // FHIR resource type
   patientId       String
-  patient         Patient   @relation(fields: [patientId], references: [id])
   doctorId        String
-  doctor          User      @relation(fields: [doctorId], references: [id])
-  status          String    // FHIR AppointmentStatus (booked, cancelled, etc.)
-  start           DateTime  // Appointment start time
-  end             DateTime? // Appointment end time
-  minutesDuration Int?      // Duration in minutes
-  description     String?   // Description of the appointment
-  serviceType     Json?     // FHIR CodeableConcept for service type
-  specialty       Json?     // FHIR CodeableConcept for specialty
-  appointmentType Json?     // FHIR CodeableConcept for appointment type
-  reason          Json?     // FHIR CodeableConcept for reason
-  priority        Int?      // Priority of the appointment (1-9)
-  comment         String?   // Comments about the appointment
-  extension       Json?     // FHIR extensions
+  status          String
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
-  hospitalId      String?   // Optional reference to hospital
+  appointmentType Json?
+  comment         String?
+  description     String?
+  end             DateTime?
+  extension       Json?
+  hospitalId      String?
+  minutesDuration Int?
+  priority        Int?
+  reason          Json?
+  resourceType    String    @default("Appointment")
+  serviceType     Json?
+  specialty       Json?
+  start           DateTime
+  doctor          User      @relation(fields: [doctorId], references: [id])
+  patient         Patient   @relation(fields: [patientId], references: [id])
 }
 
 model MedicalRecord {
-  id              String    @id @default(uuid())
-  resourceType    String    // FHIR resource type (Observation, Condition, Procedure, etc.)
-  patientId       String
-  patient         Patient   @relation(fields: [patientId], references: [id])
-  doctorId        String
-  doctor          User      @relation(fields: [doctorId], references: [id])
-  
-  // Clinical information
-  status          String    // FHIR status (preliminary, final, amended, etc.)
-  category        Json?     // FHIR CodeableConcept for category
-  code            Json      // FHIR CodeableConcept describing what was observed
-  valueString     String?   // String result
-  valueQuantity   Json?     // Numeric result with units
-  valueCodeableConcept Json? // Result as a codeable concept
-  interpretation  Json?     // FHIR CodeableConcept for interpretation (normal, abnormal, etc.)
-  bodySite        Json?     // FHIR CodeableConcept for body site
-  method          Json?     // FHIR CodeableConcept for method
-  specimen        String?   // Reference to Specimen
-  device          String?   // Reference to Device
-  referenceRange  Json?     // Reference ranges for the result
-  hasMember       Json?     // Related observations
-  derivedFrom     Json?     // Related observations from which this is derived
-  
-  // Record data
-  effectiveDateTime DateTime // When the observation was made
-  issued          DateTime  // Date/Time issued
-  performer       Json?     // Who is responsible for the observation
-  note            Json?     // Comments about the observation
-  extension       Json?     // FHIR extensions
-  
-  // Meta
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  hospitalId      String?   // Optional reference to hospital
+  id                   String   @id @default(uuid())
+  patientId            String
+  doctorId             String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  bodySite             Json?
+  category             Json?
+  code                 Json
+  derivedFrom          Json?
+  device               String?
+  effectiveDateTime    DateTime
+  extension            Json?
+  hasMember            Json?
+  hospitalId           String?
+  interpretation       Json?
+  issued               DateTime
+  method               Json?
+  note                 Json?
+  performer            Json?
+  referenceRange       Json?
+  resourceType         String
+  specimen             String?
+  status               String
+  valueCodeableConcept Json?
+  valueQuantity        Json?
+  valueString          String?
+  doctor               User     @relation(fields: [doctorId], references: [id])
+  patient              Patient  @relation(fields: [patientId], references: [id])
 }
 
 model SystemSettings {
@@ -171,36 +142,36 @@ model SystemSettings {
 }
 
 model Chat {
-  id            String    @id @default(uuid())
-  name          String?   // Optional name for group chats
-  type          String    // 'direct', 'group', 'broadcast'
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  messages      Message[]
-  participants  ChatParticipant[]
+  id           String            @id @default(uuid())
+  name         String?
+  type         String
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  participants ChatParticipant[]
+  messages     Message[]
 }
 
 model ChatParticipant {
   id        String   @id @default(uuid())
   chatId    String
   userId    String
-  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  isAdmin   Boolean  @default(false)  // Chat admin can add/remove participants
+  isAdmin   Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([chatId, userId])
 }
 
 model Message {
-  id          String    @id @default(uuid())
-  chatId      String
-  senderId    String
-  content     String
-  isRead      Boolean   @default(false)
-  readBy      Json?     // Array of user IDs who have read the message
-  sentAt      DateTime  @default(now())
-  chat        Chat      @relation(fields: [chatId], references: [id], onDelete: Cascade)
-  sender      User      @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  id       String   @id @default(uuid())
+  chatId   String
+  senderId String
+  content  String
+  isRead   Boolean  @default(false)
+  readBy   Json?
+  sentAt   DateTime @default(now())
+  chat     Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender   User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
 }
