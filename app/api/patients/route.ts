@@ -71,8 +71,13 @@ export async function GET(request: NextRequest) {
     }
     
     // If hospitalId is provided, filter by it
+    // Note: not providing hospitalId will search across ALL hospitals (centralized search)
     if (hospitalId) {
+      // Only search within the specified hospital
       whereClause.hospitalId = hospitalId;
+      console.log(`Filtering patients for specific hospital: ${hospitalId}`);
+    } else {
+      console.log('Performing centralized search across ALL hospitals');
     }
     
     // Log the collection status first

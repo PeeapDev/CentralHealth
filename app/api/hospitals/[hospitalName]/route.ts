@@ -3,10 +3,12 @@ import { prisma } from '@/lib/prisma';
 
 export async function GET(
   req: NextRequest, 
-  context: { params: { hospitalName: string } }
+  context: { params: Promise<{ hospitalName: string }> }
 ) {
   try {
-    const { hospitalName } = context.params;
+    // Await the params in Next.js 15
+    const params = await context.params;
+    const { hospitalName } = params;
     
     // Find the hospital by subdomain in the database
     const hospital = await prisma.hospital.findUnique({
@@ -92,10 +94,12 @@ export async function GET(
 
 export async function PATCH(
   req: NextRequest,
-  context: { params: { hospitalName: string } }
+  context: { params: Promise<{ hospitalName: string }> }
 ) {
   try {
-    const { hospitalName } = context.params;
+    // Await the params in Next.js 15
+    const params = await context.params;
+    const { hospitalName } = params;
     
     // Get the request body
     const body = await req.json();

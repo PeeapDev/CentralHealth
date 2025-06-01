@@ -1,6 +1,7 @@
 "use client"
 
-import React, { useState, useEffect, use } from "react"
+import React, { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { PageHeader } from "@/components/page-header"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -13,150 +14,160 @@ import { Search, Users, Activity, Calendar, FileText } from "lucide-react"
 import { toast } from "sonner"
 import dynamic from "next/dynamic"
 
+// Pages in app/[hospitalName]/* get the hospitalName from dynamic route params
+interface PatientsPageProps {
+  params: Promise<{ hospitalName: string }>
+}
+
 // Use dynamic import to avoid SSR issues with React hooks
 const PatientInfoCard = dynamic(() => import("./info-card"), {
   ssr: false
 })
 
-// FHIR Patient interface
-interface FHIRPatient {
-  id: string
-  resourceType: string
-  medicalNumber: string
-  active: boolean
-  name?: Array<{
-    text?: string
-    family?: string
-    given?: string[]
-  }> | string
-  telecom?: Array<{
-    system: string
-    value: string
-    use?: string
-  }> | string
-  gender?: string
-  birthDate?: string
-  address?: Array<{
-    line?: string[]
-    city?: string
-    state?: string
-    postalCode?: string
-    country?: string
-  }> | string
-  photo?: string
-  email?: string
-}
-
 // Pagination interface
 interface PaginationProps {
-  currentPage: number
-  totalPages: number
-  onPageChange: (page: number) => void
+  currentPage: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}
+
+// FHIR Patient interface
+interface FHIRPatient {
+  id: string;
+  resourceType: string;
+  medicalNumber: string;
+  active: boolean;
+  name?: Array<{
+    text?: string;
+    family?: string;
+    given?: string[];
+  }> | string;
+  telecom?: Array<{
+    system: string;
+    value: string;
+    use?: string;
+  }> | string;
+  gender?: string;
+  birthDate?: string;
+  address?: Array<{
+    line?: string[];
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    country?: string;
+  }> | string;
+  photo?: string;
+  email?: string;
+  hospitalId?: string;
+  hospitalName?: string;
+  hospital?: {
+    name: string;
+    subdomain: string;
+    id?: string;
+  };
 }
 
 // Pagination component
 function Pagination({ currentPage, totalPages, onPageChange }: PaginationProps) {
-  // Generate page numbers to display
-  const getPageNumbers = () => {
-    const pages = []
-    const maxPagesToShow = 5 // Maximum number of page numbers to show
+  const maxVisiblePages = 5;
+  const pages = [];
+  
+  let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+  let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+  
+  // Adjust start if we're near the end
+  if (endPage - startPage + 1 < maxVisiblePages) {
+    startPage = Math.max(1, endPage - maxVisiblePages + 1);
+  }
+  
+  // First Page
+  if (startPage > 1) {
+    pages.push(
+      <Button
+        key="first"
+        variant="outline"
+        size="sm"
+        onClick={() => onPageChange(1)}
+      >
+        1
+      </Button>
+    );
     
-    if (totalPages <= maxPagesToShow) {
-      // If total pages is less than or equal to max, show all pages
-      for (let i = 1; i <= totalPages; i++) {
-        pages.push(i)
-      }
-    } else {
-      // Always show first page
-      pages.push(1)
-      
-      // Calculate start and end of page numbers to display
-      let start = Math.max(2, currentPage - 1)
-      let end = Math.min(totalPages - 1, currentPage + 1)
-      
-      // Adjust to always show 3 pages in the middle
-      if (start === 2) end = Math.min(4, totalPages - 1)
-      if (end === totalPages - 1) start = Math.max(2, totalPages - 3)
-      
-      // Add ellipsis if needed
-      if (start > 2) pages.push(-1) // -1 represents ellipsis
-      
-      // Add middle pages
-      for (let i = start; i <= end; i++) {
-        pages.push(i)
-      }
-      
-      // Add ellipsis if needed
-      if (end < totalPages - 1) pages.push(-2) // -2 represents ellipsis
-      
-      // Always show last page
-      pages.push(totalPages)
+    if (startPage > 2) {
+      pages.push(
+        <span key="ellipsis1" className="px-2">
+          ...
+        </span>
+      );
+    }
+  }
+  
+  // Page numbers
+  for (let i = startPage; i <= endPage; i++) {
+    pages.push(
+      <Button
+        key={i}
+        variant={i === currentPage ? "default" : "outline"}
+        size="sm"
+        onClick={() => onPageChange(i)}
+      >
+        {i}
+      </Button>
+    );
+  }
+  
+  // Last Page
+  if (endPage < totalPages) {
+    if (endPage < totalPages - 1) {
+      pages.push(
+        <span key="ellipsis2" className="px-2">
+          ...
+        </span>
+      );
     }
     
-    return pages
+    pages.push(
+      <Button
+        key="last"
+        variant="outline"
+        size="sm"
+        onClick={() => onPageChange(totalPages)}
+      >
+        {totalPages}
+      </Button>
+    );
   }
-
+  
   return (
-    <div className="flex items-center justify-center space-x-2 mt-4">
+    <div className="flex items-center justify-center space-x-2 my-4">
       <Button
         variant="outline"
         size="sm"
         onClick={() => onPageChange(Math.max(1, currentPage - 1))}
         disabled={currentPage === 1}
       >
-        <span className="sr-only">Previous Page</span>
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4"><path d="m15 18-6-6 6-6"/></svg>
+        Previous
       </Button>
-      
-      {getPageNumbers().map((page, i) => {
-        if (page === -1 || page === -2) {
-          return (
-            <Button 
-              key={`ellipsis-${i}`} 
-              variant="ghost" 
-              size="sm" 
-              disabled 
-              className="px-3 opacity-50"
-            >
-              ...
-            </Button>
-          )
-        }
-        
-        return (
-          <Button
-            key={page}
-            variant={currentPage === page ? "default" : "outline"}
-            size="sm"
-            onClick={() => onPageChange(page)}
-            className="px-3"
-          >
-            {page}
-          </Button>
-        )
-      })}
-      
+      <div className="flex items-center space-x-1">{pages}</div>
       <Button
         variant="outline"
         size="sm"
         onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
-        disabled={currentPage >= totalPages}
+        disabled={currentPage === totalPages}
       >
-        <span className="sr-only">Next Page</span>
-        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4"><path d="m9 18 6-6-6-6"/></svg>
+        Next
       </Button>
     </div>
-  )
-}
-
-interface PatientsPageProps {
-  params: Promise<{ hospitalName: string }>
+  );
 }
 
 export default function PatientsPage({ params }: PatientsPageProps) {
-  // Unwrap params using React.use as recommended by Next.js
-  const unwrappedParams = use(params) as { hospitalName: string };
-  const { hospitalName } = unwrappedParams;
+  // Initialize router for navigation
+  const router = useRouter();
+  
+  // Unwrap the Promise params using React.use()
+  const resolvedParams = React.use(params);
+  const { hospitalName } = resolvedParams;
   const formattedHospitalName = hospitalName.replace(/-/g, " ").replace(/\b\w/g, (l: string) => l.toUpperCase());
   
   // State management
@@ -168,6 +179,7 @@ export default function PatientsPage({ params }: PatientsPageProps) {
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [pageSize, setPageSize] = useState<number>(10);
   const [searchPerformed, setSearchPerformed] = useState<boolean>(false);
+  const [selectedPatient, setSelectedPatient] = useState<FHIRPatient | null>(null);
   
   // Function to extract patient name from FHIR structure
   const getPatientName = (patient: FHIRPatient): string => {
@@ -200,13 +212,15 @@ export default function PatientsPage({ params }: PatientsPageProps) {
   const getPatientInitials = (patient: FHIRPatient): string => {
     const name = getPatientName(patient);
     return name.split(' ')
-      .map(part => part[0])
+      .map(part => part?.[0] || '')
       .join('')
       .toUpperCase().substring(0, 2) || '??';
   };
   
   // Function to calculate age from birthDate
   const calculateAge = (birthDate: string): number => {
+    if (!birthDate) return 0;
+    
     const birth = new Date(birthDate);
     const today = new Date();
     let age = today.getFullYear() - birth.getFullYear();
@@ -251,7 +265,7 @@ export default function PatientsPage({ params }: PatientsPageProps) {
     }
   };
 
-  // Function to search patients from centralized registry
+  // Function to search patients - always scoped to current hospital
   const searchPatients = async () => {
     setIsLoading(true);
     setSearchPerformed(true);
@@ -268,22 +282,33 @@ export default function PatientsPage({ params }: PatientsPageProps) {
         params.append('medicalNumber', medicalNumberQuery);
       }
       
-      // Add hospital ID for hospital-specific patients
+      // Always include hospital ID - hospital-scoped search only
       params.append('hospitalId', hospitalName);
       
       // Add pagination
       params.append('page', currentPage.toString());
       params.append('pageSize', pageSize.toString());
       
-      const response = await fetch(`/api/patients?${params.toString()}`);
+      // Log the URL being called for debugging
+      const apiUrl = `/api/patients?${params.toString()}`;
+      console.log('Calling API:', apiUrl);
       
-      // Process response even if not OK
+      const response = await fetch(apiUrl);
+      
+      if (!response.ok) {
+        console.error(`API error: ${response.status} ${response.statusText}`);
+        throw new Error(`API returned ${response.status}`);
+      }
+      
+      // Process response
       const data = await response.json();
+      console.log('API response:', data);
       
       // Check if we have valid patient data
       if (data && Array.isArray(data.patients)) {
+        // Use patients directly from the response
         setPatients(data.patients);
-        setTotalPatients(data.pagination?.total || 0);
+        setTotalPatients(data.total || 0);
         
         // Show a gentle notification if no results found after search
         if (data.patients.length === 0 && searchPerformed) {
@@ -325,239 +350,239 @@ export default function PatientsPage({ params }: PatientsPageProps) {
     searchPatients();
   };
   
-  // Initialize with sample data on first load
+  // Initialize with data on first load
   useEffect(() => {
-    // Only load data if we haven't performed a search yet
-    if (!searchPerformed) {
-      searchPatients();
-    }
-  }, []);
+    searchPatients();
+  }, [hospitalName]);
 
   const pageCount = Math.ceil(totalPatients / pageSize);
+
+  // View patient details
+  const viewPatientDetails = (patient: FHIRPatient) => {
+    setSelectedPatient(patient);
+  };
+  
+  // Handle record selection (used in the View Record button)
+  const handleRecordSelect = (patient: FHIRPatient) => {
+    viewPatientDetails(patient);
+  };
+  
+  // Close patient details modal
+  const closePatientDetails = () => {
+    setSelectedPatient(null);
+  };
 
   return (
     <div className="flex-1 space-y-6 p-4 md:p-8 pt-6">
       <PageHeader
         title={`${formattedHospitalName} - Patient Management`}
-        description="Access patient records from the National Health Service FHIR registry"
+        description="Search and access patients from the hospital registry"
         breadcrumbs={[{ label: formattedHospitalName }, { label: "Admin" }, { label: "Patient Management" }]}
       />
-
-      {/* Layout with info card and stats */}
-      <div className="grid gap-6 md:grid-cols-3">
-        {/* Left side - Patient Info Card */}
-        <div className="md:col-span-1">
-          <PatientInfoCard />
-        </div>
-        
-        {/* Right side - Stats */}
-        <div className="md:col-span-2 space-y-6">
-          <div className="grid gap-4 grid-cols-2">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Patients</CardTitle>
-                <Users className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{totalPatients}</div>
-                <p className="text-xs text-muted-foreground">National patient registry</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Active Patients</CardTitle>
-                <Activity className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">75%</div>
-                <p className="text-xs text-muted-foreground">Of total patient base</p>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </div>
-
-      {/* Patient Search Form */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Patient Search</CardTitle>
-          <CardDescription>
-            Search the National Health Service registry by name, email or medical number
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSearch} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="searchQuery">Search by Name or Email</Label>
-                <div className="flex space-x-2">
-                  <Input
-                    id="searchQuery"
-                    placeholder="Enter patient name or email"
-                    className="flex-1"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
+      
+      {selectedPatient ? (
+        <PatientInfoCard patient={selectedPatient} onClose={closePatientDetails} />
+      ) : (
+        <>
+          {/* Patient Search Form */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Patient Search</CardTitle>
+              <CardDescription>
+                Search for patients in {formattedHospitalName} by name, email, or medical number
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSearch} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="searchQuery">Search by Name or Email</Label>
+                    <div className="flex space-x-2">
+                      <Input
+                        id="searchQuery"
+                        placeholder="Enter patient name or email"
+                        className="flex-1"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="medicalNumberQuery">Medical Number</Label>
+                    <div className="flex space-x-2">
+                      <Input
+                        id="medicalNumberQuery"
+                        placeholder="Enter medical number"
+                        className="flex-1" 
+                        value={medicalNumberQuery}
+                        onChange={(e) => setMedicalNumberQuery(e.target.value)}
+                      />
+                    </div>
+                  </div>
                 </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="medicalNumberQuery">Search by Medical Number</Label>
-                <div className="flex space-x-2">
-                  <Input
-                    id="medicalNumberQuery"
-                    placeholder="10-digit medical number"
-                    className="flex-1" 
-                    value={medicalNumberQuery}
-                    onChange={(e) => setMedicalNumberQuery(e.target.value)}
-                  />
+                
+                <div className="flex justify-end space-x-2">
+                  <Button 
+                    type="button" 
+                    variant="outline"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setMedicalNumberQuery('');
+                    }}
+                  >
+                    Clear
+                  </Button>
+                  <Button type="submit" disabled={isLoading}>
+                    {isLoading ? (
+                      <span className="flex items-center space-x-2">
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-b-transparent"></span>
+                        <span>Searching...</span>
+                      </span>
+                    ) : (
+                      <span className="flex items-center space-x-2">
+                        <Search className="h-4 w-4 mr-2" />
+                        <span>Search {formattedHospitalName}</span>
+                      </span>
+                    )}
+                  </Button>
                 </div>
-              </div>
-            </div>
-            <div className="flex justify-end space-x-2">
-              <Button 
-                type="button" 
-                variant="outline"
-                onClick={() => {
-                  setSearchQuery('');
-                  setMedicalNumberQuery('');
-                }}
-              >
-                Clear
-              </Button>
-              <Button type="submit" disabled={isLoading}>
-                {isLoading ? (
-                  <>
-                    <div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-b-transparent"></div>
-                    Searching...
-                  </>
-                ) : (
-                  <>
-                    <Search className="mr-2 h-4 w-4" />
-                    Search Patients
-                  </>
-                )}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+              </form>
+            </CardContent>
+          </Card>
 
-      {/* Patient Results */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Patient Directory (FHIR-Compliant)</CardTitle>
-          <CardDescription>
-            {searchPerformed 
-              ? `Found ${totalPatients} patient(s) matching your search criteria` 
-              : "Showing patients from the centralized registry"}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="rounded-md border mb-4">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Medical Number</TableHead>
-                  <TableHead>Patient Name</TableHead>
-                  <TableHead>Age</TableHead>
-                  <TableHead>Gender</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Phone</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8">
-                      <div className="flex justify-center">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-                      </div>
-                      <div className="mt-2 text-sm text-muted-foreground">Loading patients...</div>
-                    </TableCell>
-                  </TableRow>
-                ) : patients.length > 0 ? (
-                  patients.map((patient) => {
-                    const patientName = getPatientName(patient);
-                    const patientInitials = getPatientInitials(patient);
-                    const contactInfo = getContactInfo(patient);
-                    const age = patient.birthDate ? calculateAge(patient.birthDate) : "--";
-                    
-                    return (
-                      <TableRow key={patient.id}>
-                        <TableCell className="font-mono text-sm">{patient.medicalNumber}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Avatar className="h-8 w-8">
-                              {patient.photo ? (
-                                <AvatarImage src={patient.photo} alt={patientName} />
-                              ) : (
-                                <AvatarFallback>{patientInitials}</AvatarFallback>
-                              )}
-                            </Avatar>
-                            <div className="font-medium">{patientName}</div>
-                          </div>
-                        </TableCell>
-                        <TableCell>{age}</TableCell>
-                        <TableCell className="capitalize">{patient.gender || "--"}</TableCell>
-                        <TableCell>{contactInfo.email || "--"}</TableCell>
-                        <TableCell>{contactInfo.phone || "--"}</TableCell>
-                        <TableCell>
-                          <Badge variant={patient.active ? "default" : "secondary"}>
-                            {patient.active ? "Active" : "Inactive"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button variant="ghost" size="icon" asChild>
-                              <a href={`/${hospitalName}/admin/patients/${patient.id}`}>
-                                <FileText className="h-4 w-4" />
-                                <span className="sr-only">View Patient</span>
-                              </a>
-                            </Button>
-                            <Button variant="ghost" size="icon" asChild>
-                              <a href={`/${hospitalName}/admin/patients/${patient.id}/records`}>
-                                <Activity className="h-4 w-4" />
-                                <span className="sr-only">Medical Records</span>
-                              </a>
-                            </Button>
-                            <Button variant="ghost" size="icon" asChild>
-                              <a href={`/${hospitalName}/admin/patients/${patient.id}/appointments`}>
-                                <Calendar className="h-4 w-4" />
-                                <span className="sr-only">Appointments</span>
-                              </a>
-                            </Button>
+          {/* Patient Results */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Patient Directory</CardTitle>
+              <CardDescription>
+                {searchPerformed 
+                  ? `Found ${totalPatients} patient(s) matching your search criteria` 
+                  : `Showing patients from ${formattedHospitalName}`}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Patient</TableHead>
+                      <TableHead>Medical ID</TableHead>
+                      <TableHead>Age/Gender</TableHead>
+                      <TableHead>Contact</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {isLoading ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-8">
+                          <div className="flex justify-center">
+                            <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent"></div>
                           </div>
                         </TableCell>
                       </TableRow>
-                    );
-                  })
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8">
-                      <div className="text-muted-foreground">
-                        {searchPerformed 
-                          ? "No patients found matching your search criteria" 
-                          : "No patients found in the system"}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-          
-          {/* Pagination */}
-          {patients.length > 0 && pageCount > 1 && (
-            <Pagination 
-              currentPage={currentPage} 
-              totalPages={pageCount} 
-              onPageChange={handlePageChange}
-            />
-          )}
-        </CardContent>
-      </Card>
+                    ) : patients.length > 0 ? (
+                      patients.map((patient) => {
+                        const patientName = getPatientName(patient);
+                        const patientInitials = getPatientInitials(patient);
+                        const age = patient.birthDate ? calculateAge(patient.birthDate) : null;
+                        const contactInfo = getContactInfo(patient);
+                        
+                        return (
+                          <TableRow key={patient.id} className="hover:bg-muted/50 cursor-pointer" onClick={() => viewPatientDetails(patient)}>
+                            <TableCell>
+                              <div className="flex items-center space-x-3">
+                                <Avatar>
+                                  <AvatarImage src={patient.photo || ""} alt={patientName} />
+                                  <AvatarFallback>{patientInitials}</AvatarFallback>
+                                </Avatar>
+                                <div>
+                                  <div className="font-medium">{patientName}</div>
+                                  <div className="text-sm text-muted-foreground">
+                                    ID: {patient.id.substring(0, 8)}...
+                                  </div>
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell>{patient.medicalNumber}</TableCell>
+                            <TableCell>
+                              {age !== null ? `${age} years` : 'N/A'} / {patient.gender || 'Unknown'}
+                            </TableCell>
+                            <TableCell>
+                              <div>{contactInfo.email}</div>
+                              <div>{contactInfo.phone}</div>
+                            </TableCell>
+
+                            <TableCell>
+                              <Badge variant={patient.active ? "default" : "destructive"} className={patient.active ? "bg-green-100 text-green-800 hover:bg-green-100" : ""}>
+                                {patient.active ? "Active" : "Inactive"}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <Button variant="ghost" size="sm" onClick={(e) => {
+                                e.stopPropagation();
+                                viewPatientDetails(patient);
+                              }}>
+                                View
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={(e) => {
+                                e.stopPropagation();
+                                toast.info(`Edit details for ${patientName}`);
+                              }}>
+                                Edit
+                              </Button>
+                              <Button variant="ghost" size="sm" onClick={(e) => {
+                                e.stopPropagation();
+                                toast.info(`View timeline for ${patientName}`);
+                              }}>
+                                Timeline
+                              </Button>
+                            </TableCell>
+                            <TableCell>
+                              <div className="flex space-x-2">
+                                <Button size="sm" variant="outline" onClick={() => handleRecordSelect(patient)}>
+                                  View Record
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant="default" 
+                                  onClick={() => router.push(`/${hospitalName}/admin/patients/${patient.id}`)}
+                                >
+                                  View Details
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={8} className="text-center py-8">
+                          <div className="text-muted-foreground">
+                            {searchPerformed 
+                              ? "No patients found matching your search criteria" 
+                              : "No patients found in the system"}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+              
+              {/* Pagination */}
+              {patients.length > 0 && pageCount > 1 && (
+                <Pagination 
+                  currentPage={currentPage}
+                  totalPages={pageCount}
+                  onPageChange={handlePageChange}
+                />
+              )}
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
-  )
+  );
 }

@@ -13,40 +13,98 @@ import { AlertCircle, ExternalLink } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import Link from "next/link"
 
-function PatientInfoCard() {
+// Import FHIRPatient interface from the types folder
+import { FHIRPatient } from "../../types/patient";
+
+interface PatientInfoCardProps {
+  patient: FHIRPatient;
+  onClose: () => void;
+}
+
+function PatientInfoCard({ patient, onClose }: PatientInfoCardProps) {
+  // Helper function to extract name
+  const getPatientName = (): string => {
+    if (!patient.name) return "Unknown";
+    
+    try {
+      // Parse JSON if it's a string
+      const nameData = typeof patient.name === 'string' 
+        ? JSON.parse(patient.name) 
+        : patient.name;
+      
+      // Handle array of names or single name object
+      const nameObj = Array.isArray(nameData) ? nameData[0] : nameData;
+      
+      // Use text if available
+      if (nameObj.text) return nameObj.text;
+      
+      // Otherwise construct from parts
+      const given = nameObj.given ? nameObj.given.join(' ') : '';
+      const family = nameObj.family || '';
+      
+      return `${given} ${family}`.trim() || "Unknown";
+    } catch (e) {
+      return typeof patient.name === 'string' ? patient.name : "Unknown";
+    }
+  };
+
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>National Patient Registry</CardTitle>
-        <CardDescription>
-          Important information about the centralized patient system
-        </CardDescription>
+      <CardHeader className="flex flex-row items-start justify-between">
+        <div>
+          <CardTitle>{getPatientName()}</CardTitle>
+          <CardDescription>
+            Patient Information and Medical Records
+          </CardDescription>
+        </div>
+        <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Alert>
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Patient Registration Notice</AlertTitle>
-          <AlertDescription>
-            Hospitals cannot create new patient records directly. All patients must register through 
-            the National Health Service central portal to receive their unique medical number.
-          </AlertDescription>
-        </Alert>
-        
-        <div className="text-sm">
-          <p className="mb-2">The centralized patient system ensures:</p>
-          <ul className="list-disc pl-5 space-y-1">
-            <li>Each patient has a single nationwide medical record</li>
-            <li>Patient data is accessible across all healthcare facilities</li>
-            <li>Consistent patient identification throughout the healthcare system</li>
-            <li>Complete medical history available to authorized providers</li>
-          </ul>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <h3 className="text-sm font-medium">Patient ID</h3>
+            <p className="text-sm">{patient.id}</p>
+          </div>
+          <div>
+            <h3 className="text-sm font-medium">Medical Number</h3>
+            <p className="text-sm">{patient.medicalNumber || "Not assigned"}</p>
+          </div>
+          <div>
+            <h3 className="text-sm font-medium">Gender</h3>
+            <p className="text-sm">{patient.gender || "Not specified"}</p>
+          </div>
+          <div>
+            <h3 className="text-sm font-medium">Date of Birth</h3>
+            <p className="text-sm">{patient.birthDate ? new Date(patient.birthDate).toLocaleDateString() : "Not specified"}</p>
+          </div>
+          <div>
+            <h3 className="text-sm font-medium">Email</h3>
+            <p className="text-sm">{patient.email || "Not specified"}</p>
+          </div>
+          <div>
+            <h3 className="text-sm font-medium">Phone</h3>
+            <p className="text-sm">{patient.phoneNumber || "Not specified"}</p>
+          </div>
         </div>
         
-        <div className="flex justify-end">
-          <Button asChild variant="outline" size="sm">
-            <Link href="/register" target="_blank">
+        {!patient.medicalNumber && (
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Medical ID Required</AlertTitle>
+            <AlertDescription>
+              This patient doesn't have a Medical ID assigned yet. Visit the patient details page to assign a new Medical ID.
+            </AlertDescription>
+          </Alert>
+        )}
+        
+        <div className="flex justify-end space-x-2">
+          <Button variant="outline" size="sm" onClick={onClose}>
+            Close
+          </Button>
+          <Button asChild variant="default" size="sm">
+            <Link href={`/register?id=${patient.id}`} target="_blank">
               <ExternalLink className="mr-2 h-4 w-4" />
-              Patient Registration Portal
+              View Full Record
             </Link>
           </Button>
         </div>

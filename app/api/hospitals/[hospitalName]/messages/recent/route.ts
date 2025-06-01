@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { verifyJwt } from "@/lib/auth/jwt"
+import { verifyToken } from "@/lib/auth/jwt"
 
-export async function GET(request: NextRequest, { params }: { params: { hospitalName: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ hospitalName: string }> }) {
   try {
-    const { hospitalName } = params
+    // Await the params in Next.js 15
+    const resolvedParams = await params;
+    const { hospitalName } = resolvedParams
     
     // Get the token from cookies
     const token = request.cookies.get("hospitalToken")?.value
@@ -14,8 +16,13 @@ export async function GET(request: NextRequest, { params }: { params: { hospital
     }
     
     // Verify the token
-    const payload = await verifyJwt(token)
-    if (!payload) {
+    let payload;
+    try {
+      payload = await verifyToken(token)
+      if (!payload) {
+        return NextResponse.json({ message: "Invalid token" }, { status: 401 })
+      }
+    } catch (error) {
       return NextResponse.json({ message: "Invalid token" }, { status: 401 })
     }
     

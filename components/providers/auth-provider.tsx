@@ -1,37 +1,15 @@
 "use client";
 
-import { ReactNode, useEffect, useState } from "react";
-import { KindeProvider } from "@kinde-oss/kinde-auth-nextjs";
-import { usePathname } from "next/navigation";
+import { ReactNode } from "react";
 
 interface AuthProviderProps {
   children: ReactNode;
 }
 
+// Simple auth provider that doesn't use Kinde
+// The application uses session-based authentication for patients
+// and JWT-based authentication for hospital staff and admins
 export function AuthProvider({ children }: AuthProviderProps) {
-  const pathname = usePathname();
-  
-  // Determine if the current route is a patient route that should use Kinde
-  const isPatientRoute = (): boolean => {
-    // Add all patient-specific routes here
-    const patientRoutes = [
-      '/auth/patient-login',
-      '/auth/patient-signup',
-      '/patient/',
-      '/patient/dashboard',
-      '/patient/appointments',
-      '/patient/records',
-      '/patient/profile'
-    ];
-    
-    return patientRoutes.some(route => pathname?.startsWith(route));
-  };
-  
-  // Only apply Kinde provider to patient routes
-  if (isPatientRoute()) {
-    return <KindeProvider>{children}</KindeProvider>;
-  }
-  
-  // For all other routes (admin, hospital staff, etc.), don't use Kinde
+  // Just pass children through - authentication is handled by middleware and API routes
   return <>{children}</>;
 }

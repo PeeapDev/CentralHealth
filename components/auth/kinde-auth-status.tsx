@@ -1,9 +1,6 @@
 "use client";
 
-import { 
-  LogoutLink, 
-  useKindeAuth 
-} from "@kinde-oss/kinde-auth-nextjs";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -15,23 +12,61 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { LogOut, User } from "lucide-react";
+import { useRouter } from "next/navigation";
 
-export function KindeAuthStatus() {
-  const { user, isAuthenticated, isLoading } = useKindeAuth();
+// Patient authentication status component using session-based auth
+export function PatientAuthStatus() {
+  const [patient, setPatient] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const router = useRouter();
 
-  const handleLogout = () => {
-    // Clear localStorage and cookies for compatibility with both auth systems
-    localStorage.removeItem("medicalNumber");
-    localStorage.removeItem("patientName");
-    localStorage.removeItem("token");
-    localStorage.removeItem("isPatientLoggedIn");
-    localStorage.removeItem("patientInfo");
-    localStorage.removeItem("user_role");
-    localStorage.removeItem("user_email");
-    
-    // Delete cookies
-    document.cookie = "token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-    document.cookie = "hospitalToken=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+  // Fetch patient data from session API
+  useEffect(() => {
+    const fetchPatientData = async () => {
+      try {
+        setIsLoading(true);
+        const response = await fetch('/api/patients/session/me');
+        
+        if (response.ok) {
+          const data = await response.json();
+          setPatient(data);
+          setIsAuthenticated(true);
+        } else {
+          setIsAuthenticated(false);
+        }
+      } catch (error) {
+        console.error("Error fetching patient data:", error);
+        setIsAuthenticated(false);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchPatientData();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      // Call logout API endpoint to clear cookies properly
+      await fetch('/api/patients/session/logout', {
+        method: 'POST',
+      });
+      
+      // Clear any local storage items as backup
+      localStorage.removeItem("medicalNumber");
+      localStorage.removeItem("patientName");
+      localStorage.removeItem("patientInfo");
+      localStorage.removeItem("token");
+      localStorage.removeItem("isPatientLoggedIn");
+      
+      // Redirect to root path as per existing system
+      window.location.replace('/');
+    } catch (error) {
+      console.error("Error during logout:", error);
+      // Fallback redirect
+      window.location.replace('/');
+    }
   };
 
   if (isLoading) {
@@ -51,10 +86,10 @@ export function KindeAuthStatus() {
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="relative h-8 w-8 rounded-full">
           <Avatar className="h-8 w-8">
-            <AvatarImage src={user?.picture || ""} alt={user?.given_name || ""} />
+            <AvatarImage src={patient?.photo || ""} alt={patient?.name || ""} />
             <AvatarFallback>
-              {user?.given_name
-                ? user.given_name.charAt(0)
+              {patient?.name
+                ? patient.name.charAt(0).toUpperCase()
                 : "P"}
             </AvatarFallback>
           </Avatar>
@@ -64,14 +99,14 @@ export function KindeAuthStatus() {
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
             <p className="text-sm font-medium leading-none">
-              {user?.given_name} {user?.family_name}
+              {patient?.name || "Patient"}
             </p>
             <p className="text-xs leading-none text-muted-foreground">
-              {user?.email}
+              {patient?.email || ""}
             </p>
-            {user?.id && (
+            {patient?.medicalNumber && (
               <p className="text-xs font-semibold text-primary">
-                ID: {user.id.substring(0, 8)}...
+                Medical #: {patient.medicalNumber}
               </p>
             )}
           </div>
@@ -84,11 +119,12 @@ export function KindeAuthStatus() {
           </a>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <LogoutLink className="flex w-full cursor-pointer items-center text-red-600 focus:text-red-600" onClick={handleLogout}>
-            <LogOut className="mr-2 h-4 w-4" />
-            <span>Log out</span>
-          </LogoutLink>
+        <DropdownMenuItem 
+          className="flex w-full cursor-pointer items-center text-red-600 focus:text-red-600"
+          onClick={handleLogout}
+        >
+          <LogOut className="mr-2 h-4 w-4" />
+          <span>Log out</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

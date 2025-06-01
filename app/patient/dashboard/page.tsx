@@ -1,7 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import { useCachedFetch } from "@/lib/use-cached-fetch"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
@@ -23,208 +24,315 @@ import {
   Plus,
   ChevronRight,
   Clock,
-  Search
+  Search,
+  Edit,
+  Mail,
+  Phone,
+  MapPin,
+  AlertCircle,
+  Loader2,
+  Save,
+  CheckCircle2
 } from "lucide-react"
 import Link from "next/link"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
-// Types
-interface Appointment {
+// Type definitions for patient data and related objects
+type Appointment = {
   id: string;
   doctor: string;
   specialty: string;
   date: string;
   time: string;
   status: string;
-}
+};
 
-interface Medication {
+type Medication = {
   id: string;
   name: string;
   dosage: string;
   frequency: string;
   refillDate: string;
   status: string;
-}
+};
 
-interface Vaccination {
+type Vaccination = {
   id: string;
   name: string;
   date: string;
   status: string;
-}
+};
 
-interface PatientData {
+type VitalSigns = {
+  lastChecked: string;
+  bloodPressure: string;
+  heartRate: number;
+  temperature: string;
+  oxygenLevel: number;
+};
+
+// Type for patient data
+type Patient = {
   id: string;
-  name: string;
-  email: string;
-  medicalNumber: string;
-  age: number;
+  firstName: string;
+  lastName: string;
   gender: string;
-  bloodType: string;
-  appointments: Appointment[];
-  medications: Medication[];
-  vaccinations: Vaccination[];
-  vitalSigns: {
-    lastChecked: string;
-    bloodPressure: string;
-    heartRate: number;
-    temperature: string;
-    oxygenLevel: number;
+  dateOfBirth: string;
+  phoneNumber?: string;
+  email?: string;
+  medicalId?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  country?: string;
+  addressData?: Array<{
+    line?: string[];
+    city?: string;
+    state?: string;
+    postalCode?: string;
+    country?: string;
+  }>;
+  phone?: string;
+  appointments?: Appointment[];
+  medications?: Medication[];
+  vaccinations?: Vaccination[];
+  vitalSigns?: VitalSigns;
+};
+
+// Form data type
+type FormData = {
+  email: string;
+  phone: string;
+  address: {
+    line: string[];
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
   };
 }
 
+// Format address as a string
+const formatAddress = (address: any) => {
+  if (!address) return "No address provided";
+  
+  try {
+    const addressObj = typeof address === 'string' ? JSON.parse(address) : address;
+    const line = addressObj.line && addressObj.line.length > 0 ? addressObj.line.join(", ") : "";
+    const city = addressObj.city || "";
+    const state = addressObj.state || "";
+    const postalCode = addressObj.postalCode || "";
+    const country = addressObj.country || "";
+    
+    return [line, city, state, postalCode, country].filter(Boolean).join(", ");
+  } catch (e) {
+    return typeof address === 'string' ? address : "Invalid address format";
+  }
+};
+
+// Format name for display
+const formatName = (name: any) => {
+  if (!name) return "Unknown";
+  
+  try {
+    const nameData = typeof name === 'string' ? JSON.parse(name) : name;
+    const nameObj = Array.isArray(nameData) ? nameData[0] : nameData;
+    
+    if (nameObj.text) return nameObj.text;
+    
+    const given = nameObj.given ? nameObj.given.join(' ') : '';
+    const family = nameObj.family || '';
+    
+    return `${given} ${family}`.trim() || "Unknown";
+  } catch (e) {
+    return typeof name === 'string' ? name : "Unknown";
+  }
+};
+
+// Calculate age from birthdate
+const calculateAge = (birthDate: string) => {
+  if (!birthDate) return "";
+  const today = new Date();
+  const birthDateObj = new Date(birthDate);
+  let age = today.getFullYear() - birthDateObj.getFullYear();
+  const m = today.getMonth() - birthDateObj.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < birthDateObj.getDate())) {
+    age--;
+  }
+  return age;
+};
+
 export default function PatientDashboard() {
   const router = useRouter();
-  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [patient, setPatient] = useState<PatientData | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [patientData, setPatientData] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<"overview" | "appointments" | "medications" | "vaccinations" | "medical-records">("overview");
+  const [patientData, setPatientData] = useState<any>({
+    email: '',
+    phone: '',
+    address: {
+      line: [''],
+      city: '',
+      state: '',
+      postalCode: '',
+      country: ''
+    }
+  });
+  const [activeTab, setActiveTab] = useState<"overview" | "appointments" | "medications" | "vaccinations" | "medical-records" | "profile">("overview");
+  const [editing, setEditing] = useState<boolean>(false);
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [formData, setFormData] = useState({
+    email: "",
+    phone: "",
+    address: {
+      line: [""],
+      city: "",
+      state: "",
+      postalCode: "",
+      country: ""
+    }
+  });
 
+  // Use our cached fetch hook instead of useEffect + fetch
+  const { 
+    data: patientResponse, 
+    isLoading, 
+    error: patientError,
+    revalidate: revalidatePatient
+  } = useCachedFetch('/api/patients/session/me', {
+    cacheTime: 2 * 60 * 1000, // 2 minutes cache
+    revalidateOnFocus: true
+  });
+  
+  // Patient data derived from the fetch response
+  const patient = patientResponse?.patient;
+  
+  // Setup authentication state and form data when patient data loads
   useEffect(() => {
-    console.log('Dashboard component mounted, checking authentication...');
-    // Check if user is logged in as a patient using session auth
-    const checkAuth = async () => {
-      try {
-        // Set initial loading state
-        setLoading(true);
-        setError(null);
-        
-        // Check session auth by making a request to our patient API
-        const response = await fetch('/api/patients/session/me', {
-          method: 'GET',
-          credentials: 'include', // Important for sending cookies
-          headers: {
-            'Accept': 'application/json'
+    if (patientResponse) {
+      setIsAuthenticated(!!patientResponse.authenticated);
+      
+      if (patientResponse.patient) {
+        // Set form data from patient
+        setPatientData({
+          email: patientResponse.patient.email || '',
+          phone: patientResponse.patient.phone || '',
+          address: {
+            line: patientResponse.patient.addressData?.[0]?.line || [''],
+            city: patientResponse.patient.addressData?.[0]?.city || '',
+            state: patientResponse.patient.addressData?.[0]?.state || '',
+            postalCode: patientResponse.patient.addressData?.[0]?.postalCode || '',
+            country: patientResponse.patient.addressData?.[0]?.country || ''
           }
         });
         
-        // Debug response before trying to parse
-        console.log('API Response status:', response.status);
-        
-        if (!response.ok) {
-          // Handle non-2xx responses
-          if (response.status === 401) {
-            console.log('Not authenticated, redirecting to login page');
-            setIsAuthenticated(false);
-            // Use the correct login page path
-            router.push('/auth/login');
-            return;
-          }
-          
-          throw new Error(`API responded with status: ${response.status}`);
-        }
-        
-        // Safe to parse JSON only if response was ok
-        const data = await response.json();
-        console.log('Authenticated via session', data);
-        
-        if (data.authenticated && data.patient) {
-          setIsAuthenticated(true);
-          setPatientData(data.patient);
-          
-          // Use real patient data from session
-          const patientInfo = data.patient || {};
-          
-          // Create sample patient data object using available data from the session
-          // with fallback to dummy data where needed
-          const sampleData: PatientData = {
-            id: patientInfo.id || "p12345",
-            name: patientInfo.name || (patientInfo.firstName && patientInfo.lastName ? 
-              `${patientInfo.firstName} ${patientInfo.lastName}` : "John Doe"),
-            email: patientInfo.email || "patient@example.com",
-            medicalNumber: patientInfo.medicalNumber || "MRN12345",
-            age: 35,
-            gender: patientInfo.gender || "Not specified",
-            bloodType: "O+",
-            appointments: [
-              {
-                id: "apt-1",
-                doctor: "Dr. Sarah Johnson",
-                specialty: "Cardiology",
-                date: "June 15, 2023",
-                time: "10:30 AM",
-                status: "scheduled"
-              },
-              {
-                id: "apt-2",
-                doctor: "Dr. Michael Chen",
-                specialty: "General Practice",
-                date: "July 2, 2023",
-                time: "2:00 PM",
-                status: "scheduled"
-              }
-            ],
-            medications: [
-              {
-                id: "med-1",
-                name: "Lisinopril",
-                dosage: "10mg",
-                frequency: "Once daily",
-                refillDate: "August 15, 2023",
-                status: "active"
-              },
-              {
-                id: "med-2",
-                name: "Metformin",
-                dosage: "500mg",
-                frequency: "Twice daily",
-                refillDate: "July 30, 2023",
-                status: "active"
-              }
-            ],
-            vaccinations: [
-              {
-                id: "vac-1",
-                name: "Influenza",
-                date: "November 10, 2022",
-                status: "completed"
-              },
-              {
-                id: "vac-2",
-                name: "COVID-19",
-                date: "March 15, 2022",
-                status: "completed"
-              }
-            ],
-            vitalSigns: {
-              lastChecked: "May 20, 2023",
-              bloodPressure: "128/85",
-              heartRate: 72,
-              temperature: "98.6°F",
-              oxygenLevel: 98
+        console.log('Patient data loaded:', patientResponse.patient);
+      }
+    }
+    
+    if (patientError) {
+      console.error('Error loading patient data:', patientError);
+      setIsAuthenticated(false);
+    }
+  }, [patientResponse, patientError]);
+
+  // Handle profile form data changes
+  const handleProfileInputChange = (field: string, value: string) => {
+    setFormData(prevFormData => {
+      if (field.startsWith('address.')) {
+        const addressField = field.split('.')[1];
+        if (addressField === 'line') {
+          return {
+            ...prevFormData,
+            address: {
+              ...prevFormData.address,
+              line: [value]
             }
           };
-          
-          // Update the patient data state with our sample data
-          setPatientData((prev: any) => ({ ...sampleData, ...prev }));
-          setError(null);
-          // Important: Set loading to false after successful authentication
-          setLoading(false);
         } else {
-          // User is not authenticated
-          console.log('Not authenticated via session');
-          // Use the correct login page path
-          router.push('/auth/login');
-          setLoading(false);
+          return {
+            ...prevFormData,
+            address: {
+              ...prevFormData.address,
+              [addressField]: value
+            }
+          };
         }
-      } catch (err) {
-        console.error('Error checking auth:', err);
-        setError('Authentication error. Please try logging in again.');
-        setLoading(false);
-        // Use the correct login page path
-        router.push('/auth/login');
+      } else {
+        return {
+          ...prevFormData,
+          [field]: value
+        };
       }
-    };
-    
-    checkAuth();
-  }, [router]);
+    });
+  };
+
+  // Handle profile form submission
+  const handleProfileSubmit = async () => {
+    try {
+      setIsSaving(true);
+      const response = await fetch('/api/patients/profile/update', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(formData),
+        credentials: 'include', // Important for sending cookies
+      });
+
+      if (!response.ok) {
+        throw new Error(`Error: ${response.status}`);
+      }
+
+      const updatedData = await response.json();
+      // Refresh patient data after update
+      revalidatePatient();
+      setPatientData((prevData: any) => ({
+        ...prevData, 
+        email: updatedData.email,
+        phone: updatedData.phone,
+        address: updatedData.address
+      }));
+      setEditing(false);
+      // Show success toast or message
+      console.log('Profile updated successfully');
+    } catch (error) {
+      console.error('Error updating profile:', error);
+      // Show error toast or message
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Redirect to login if not authenticated
+  useEffect(() => {
+    if (patientError || (patientResponse && !patientResponse.authenticated)) {
+      console.error('Authentication failed:', patientError || 'Not authenticated');
+      setError(patientError?.message || 'Not authenticated');
+      window.location.href = '/';
+    }
+  }, [patientResponse, patientError]);
+  
+  // Setup form data when patient data is loaded
+  useEffect(() => {
+    if (patient) {
+      setFormData({
+        email: patient.email || '',
+        phone: patient.phone || '',
+        address: {
+          line: patient.addressData?.[0]?.line || [''],
+          city: patient.addressData?.[0]?.city || '',
+          state: patient.addressData?.[0]?.state || '',
+          postalCode: patient.addressData?.[0]?.postalCode || '',
+          country: patient.addressData?.[0]?.country || ''
+        }
+      });
+    }
+  }, [patient]);
 
   // Loading state
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -236,12 +344,13 @@ export default function PatientDashboard() {
   }
 
   // Error state
-  if (error) {
+  if (error || patientError) {
+    const errorMessage = error || patientError?.message || 'An error occurred';
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Alert className="max-w-md">
           <AlertDescription>
-            {error}
+            {errorMessage}
             <div className="mt-4">
               <Button onClick={() => window.location.href = '/'}>
                 Back to Login
@@ -327,6 +436,17 @@ export default function PatientDashboard() {
         </nav>
         
         <div className="p-4 border-t border-gray-200">
+          {/* Profile link button */}
+          <Button 
+            variant={activeTab === "profile" ? "secondary" : "outline"} 
+            className="w-full justify-start mb-2" 
+            onClick={() => setActiveTab("profile")}
+          >
+            <User className="mr-2 h-4 w-4" />
+            Profile
+          </Button>
+          
+          {/* Logout button */}
           <Button 
             variant="outline" 
             className="w-full justify-start" 
@@ -374,6 +494,15 @@ export default function PatientDashboard() {
                 <Bell className="h-5 w-5" />
               </Button>
               
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => setActiveTab("profile")}
+                title="Profile"
+              >
+                <User className="h-5 w-5" />
+              </Button>
+              
               <Avatar className="h-8 w-8">
                 <AvatarImage src="" />
                 <AvatarFallback className="bg-primary/10 text-primary">
@@ -412,6 +541,11 @@ export default function PatientDashboard() {
                   <FileText className="h-4 w-4 md:mr-2" />
                   <span className="hidden md:inline">Records</span>
                 </TabsTrigger>
+                
+                <TabsTrigger value="profile" className="flex-1">
+                  <User className="h-4 w-4 md:mr-2" />
+                  <span className="hidden md:inline">Profile</span>
+                </TabsTrigger>
               </TabsList>
             </Tabs>
           </div>
@@ -445,8 +579,8 @@ export default function PatientDashboard() {
                     </div>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{patient?.appointments?.filter(a => a.status === 'scheduled').length || 0}</div>
-                    <p className="text-xs text-muted-foreground">Next: {patient?.appointments?.find(a => a.status === 'scheduled')?.date || 'N/A'}</p>
+                    <div className="text-2xl font-bold">{patient?.appointments?.filter((a: Appointment) => a.status === 'scheduled').length || 0}</div>
+                    <p className="text-xs text-muted-foreground">Next: {patient?.appointments?.find((a: Appointment) => a.status === 'scheduled')?.date || 'N/A'}</p>
                     <div className="mt-3">
                       <Button variant="outline" size="sm" className="w-full text-xs border-blue-500 text-blue-500 hover:bg-blue-50">
                         <Plus className="h-3 w-3 mr-1" /> Book Appointment
@@ -464,8 +598,8 @@ export default function PatientDashboard() {
                     </div>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{patient?.medications?.filter(m => m.status === 'active').length || 0}</div>
-                    <p className="text-xs text-muted-foreground">Next refill: {patient?.medications?.find(m => m.status === 'active')?.refillDate || 'N/A'}</p>
+                    <div className="text-2xl font-bold">{patient?.medications?.filter((m: Medication) => m.status === 'active').length || 0}</div>
+                    <p className="text-xs text-muted-foreground">Next refill: {patient?.medications?.find((m: Medication) => m.status === 'active')?.refillDate || 'N/A'}</p>
                     <div className="mt-3">
                       <Badge className="bg-green-50 text-green-600 hover:bg-green-100 border-none">Active</Badge>
                     </div>
@@ -519,7 +653,7 @@ export default function PatientDashboard() {
               <div className="space-y-3 mt-4">
                 <h3 className="font-medium">Upcoming Schedule</h3>
                 <div className="space-y-2">
-                  {patient?.appointments?.filter(a => a.status === 'scheduled').map((appointment, i) => (
+                  {patient?.appointments?.length > 0 ? patient.appointments.sort((a: Appointment, b: Appointment) => new Date(a.date).getTime() - new Date(b.date).getTime()).slice(0, 3).map((appointment: Appointment, i: number) => (
                     <div key={appointment.id} className="flex items-start space-x-4 p-3 bg-white rounded-lg shadow-sm border border-gray-100">
                       <div className="flex-shrink-0 bg-blue-100 text-blue-800 p-2 rounded-lg">
                         <Calendar className="h-5 w-5" />
@@ -536,7 +670,7 @@ export default function PatientDashboard() {
                         <ChevronRight className="h-4 w-4" />
                       </Button>
                     </div>
-                  ))}
+                  )) : <div className="text-center py-4 text-muted-foreground">No upcoming appointments</div>}
                 </div>
               </div>
             </div>
@@ -558,7 +692,7 @@ export default function PatientDashboard() {
               </div>
               
               <div className="space-y-4">
-                {patient?.appointments?.map((appointment) => (
+                {patient?.appointments?.map((appointment: Appointment) => (
                   <Card key={appointment.id}>
                     <CardHeader>
                       <div className="flex justify-between items-center">
@@ -601,7 +735,7 @@ export default function PatientDashboard() {
               </div>
               
               <div className="space-y-4">
-                {patient?.medications?.map((medication) => (
+                {patient?.medications?.map((medication: Medication) => (
                   <Card key={medication.id} className={medication.status === 'active' ? 'border-l-4 border-l-green-500' : ''}>
                     <CardHeader>
                       <div className="flex justify-between items-center">
@@ -640,7 +774,7 @@ export default function PatientDashboard() {
               </div>
               
               <div className="space-y-4">
-                {patient?.vaccinations?.map((vaccination) => (
+                {patient?.vaccinations?.map((vaccination: Vaccination) => (
                   <Card key={vaccination.id}>
                     <CardHeader>
                       <div className="flex justify-between items-center">
@@ -722,6 +856,53 @@ export default function PatientDashboard() {
                         <div>
                           <div className="font-semibold">Your Doctor</div>
                           <div className="text-sm text-muted-foreground">Appointment Today</div>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          )}
+          
+          {/* Profile Tab */}
+          {activeTab === "profile" && (
+            <div className="space-y-6">
+              <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+                <div>
+                  <h1 className="text-2xl font-bold">Profile</h1>
+                  <p className="text-muted-foreground">View and edit your profile information</p>
+                </div>
+                
+                {!editing ? (
+                  <Button onClick={() => setEditing(true)}>
+                    <Edit className="mr-2 h-4 w-4" />
+                    Edit Profile
+                  </Button>
+                ) : (
+                  <Button variant="outline" onClick={() => setEditing(false)}>
+                    Cancel
+                  </Button>
+                )}
+              </div>
+              
+              <div className="space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Personal Information</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <p className="font-medium">Name</p>
+                          <p className="text-sm text-muted-foreground">{patient?.name || 'Not provided'}</p>
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <p className="font-medium">Email</p>
+                          <p className="text-sm text-muted-foreground">{patient?.email || 'Not provided'}</p>
                         </div>
                       </div>
                     </div>
