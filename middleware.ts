@@ -6,39 +6,55 @@ export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname
   const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3000'
 
-  // Define public paths that don't require authentication
+  // Define paths that use different authentication systems
   const publicPaths = [
     '/',
-    '/login',
-    '/auth/login',
-    '/auth/signup',
-    '/auth/parent-login',
     '/register'
   ]
+
+  const patientAuthPaths = [
+    '/auth/patient-login',
+    '/auth/patient-signup',
+    '/patient/',
+  ]
+
+  const hospitalAdminPaths = [
+    '/login', 
+    '/auth/login'
+  ]
   
-  // Skip middleware for API routes, static files, and public paths
+  // Skip middleware for API routes, static files, public paths and patient-specific Kinde auth paths
   if (
     path.startsWith('/_next') ||
     path.startsWith('/api') ||
-    publicPaths.includes(path)
+    publicPaths.includes(path) ||
+    patientAuthPaths.some(p => path.startsWith(p))
   ) {
-    // Handle login redirection differently based on path
+    // No middleware processing for these paths
+    return NextResponse.next()
+  }
+
+  // Special case for hospital admin login routes (only for main login routes, not hospital-specific)
+  if (hospitalAdminPaths.some(p => path === p)) {
+    // Handle login redirection for hospital admin login
     const token = request.cookies.get('token')?.value
     
-    // Only redirect for admin login, not for patient login
-    if (token && path === '/login') {
+    // Check if token exists and redirect based on role
+    if (token) {
       try {
         const payload = await verifyToken(token)
         if (payload.role === 'superadmin') {
           return NextResponse.redirect(new URL('/superadmin', request.url))
+        } else if (payload.role === 'admin' && payload.hospitalId) {
+          // For hospital admin, redirect to their specific hospital admin dashboard
+          return NextResponse.redirect(new URL(`/${payload.hospitalId}/admin/dashboard`, request.url))
         }
-        // Other roles will be handled as needed
+        // If token is invalid or role doesn't match, let them access login
       } catch (error) {
         // Invalid token, let them access login
       }
     }
     
-    // For /auth/login (patient login), never redirect to superadmin
     return NextResponse.next()
   }
 
@@ -89,27 +105,45 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  // Check for patient routes first - these are at the root level
-  if (path.startsWith('/patient/')) {
-    // Check if we have a token cookie
-    const token = request.cookies.get('token')?.value
+  // Check for hospital admin routes (subdomain/admin/*)
+  // Make sure to use exact matching to avoid catching auth paths
+  const hospitalAdminMatch = path.match(/^\/([\w-]+)\/admin\//)
+  if (hospitalAdminMatch) {
+    const hospitalSubdomain = hospitalAdminMatch[1]
+    console.log(`Checking hospital admin access for ${hospitalSubdomain}:`, path)
     
+    // Skip auth check for login page itself
+    if (path.includes('/admin/auth/login')) {
+      return NextResponse.next()
+    }
+    
+    const token = request.cookies.get('token')?.value
     if (!token) {
-      console.log('Patient route access denied: no token', path);
-      return NextResponse.redirect(new URL('/auth/login', request.url))
+      console.log('Hospital admin access denied: no token')
+      return NextResponse.redirect(new URL(`/${hospitalSubdomain}/admin/auth/login`, request.url))
     }
     
     try {
-      // Verify the token and check if it belongs to a patient
+      // Verify the token and check if it belongs to an admin of this hospital
       const payload = await verifyToken(token)
       
-      // Allow access for any authenticated user to patient routes
-      // In a real system you might want to check for specific patient role
+      // Check if user is an admin for this specific hospital
+      if (payload.role !== 'admin' || payload.hospitalId !== hospitalSubdomain) {
+        console.log(`Hospital admin access denied: user is not admin for ${hospitalSubdomain}`)
+        console.warn(`SECURITY: Unauthorized hospital admin access attempt to ${path} by ${payload?.email || 'unknown'}`)
+        
+        // Clear the invalid token
+        const response = NextResponse.redirect(new URL(`/${hospitalSubdomain}/admin/auth/login`, request.url))
+        response.cookies.delete('token')
+        return response
+      }
+      
+      // User is authorized for this hospital's admin area
       return NextResponse.next()
     } catch (error) {
       console.error('Token verification failed:', error)
       // Clear the invalid token
-      const response = NextResponse.redirect(new URL('/auth/login', request.url))
+      const response = NextResponse.redirect(new URL(`/${hospitalSubdomain}/admin/auth/login`, request.url))
       response.cookies.delete('token')
       return response
     }
@@ -129,7 +163,7 @@ export async function middleware(request: NextRequest) {
         hospitalSlug !== 'patient' && 
         !hospitalSlug.includes('.')) {
       // Log potential hospital access
-      console.log(`Checking hospital access: ${hospitalSlug}`)
+      console.log(`Hospital route detected: ${path} for hospital: ${hospitalSlug}`)
 
       // Hospital landing pages are public
       if (pathParts.length === 2) {
@@ -143,6 +177,8 @@ export async function middleware(request: NextRequest) {
       
       // Hospital auth pages are public
       if (pathParts.length >= 3 && pathParts[2] === 'auth') {
+        console.log(`Hospital auth page detected: ${path}`);
+        // Make sure this is not caught by any token verification
         return NextResponse.next()
       }
       

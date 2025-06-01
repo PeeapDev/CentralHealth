@@ -1026,14 +1026,28 @@ export default function HospitalsPage() {
     if (!window.confirm('Are you sure you want to delete this hospital?')) return
 
     try {
-      const response = await fetch(`/api/hospitals/${id}`, { method: 'DELETE' })
-      if (!response.ok) throw new Error('Failed to delete hospital')
+      console.log('Deleting hospital with ID:', id);
+      const response = await fetch('/api/hospitals/delete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ hospitalId: id }),
+        credentials: 'include' // Add this to include cookies in the request
+      })
+      
+      const responseData = await response.json();
+      console.log('Delete response:', responseData);
+      if (!response.ok) {
+        console.error('Delete response error:', responseData);
+        throw new Error(responseData.error || responseData.detail || 'Failed to delete hospital');
+      }
       
       setHospitals(prev => prev.filter(h => h.id !== id))
       toast.success('Hospital deleted successfully')
     } catch (error) {
       console.error('Error deleting hospital:', error)
-      toast.error('Failed to delete hospital')
+      toast.error(error instanceof Error ? error.message : 'Failed to delete hospital')
     }
   }
 
