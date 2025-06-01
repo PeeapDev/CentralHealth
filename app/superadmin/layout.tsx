@@ -15,7 +15,7 @@ export default function SuperAdminLayout({
       <SidebarProvider>
         <div className="flex h-full w-full">
           <SuperAdminSidebar />
-          <main className="pl-64 flex-1 overflow-hidden">
+          <main className="flex-1 overflow-hidden ml-[3rem] md:ml-[16rem]">
             <div className="h-full w-full overflow-auto bg-white p-0">
               {children}
             </div>
