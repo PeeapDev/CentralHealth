@@ -1,9 +1,13 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { getPatientSession } from '@/lib/patient-session';
+// We'll use our new session auth module instead of the old one
+import { getPatientFromSession } from './lib/auth/session-auth';
+
+// Toggle to enable or disable debug mode
+const DEBUG_MODE = true; // Set to false in production
 
 // Middleware handles all route protection logic
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;
   
   // Always log which path is being accessed
@@ -18,8 +22,10 @@ export function middleware(request: NextRequest) {
     '/auth/patient-signup',
     '/_next',
     '/api',
-    '/admin/auth/login', // Add admin login path as public
-    '/superadmin'        // Allow superadmin dashboard access
+    '/admin/auth/login', // Admin login path as public
+    '/superadmin',       // Allow superadmin dashboard access
+    '/onboarding',       // Onboarding page must be accessible
+    '/login'             // Add login path to handle login/home redirects
   ];
   
   // Check if the path is public or starts with a public prefix
@@ -32,11 +38,38 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
   
-  // IMPORTANT: Debug mode - bypass all auth checks for patient routes
-  // This allows direct access to the patient dashboard for testing
+  // Handle patient routes
   if (path.startsWith('/patient/')) {
-    console.log('🔓 DEBUG MODE: Bypassing authentication for patient routes');
-    return NextResponse.next();
+    if (DEBUG_MODE) {
+      // DEBUG MODE - bypass all auth checks for patient routes
+      console.log('🔓 DEBUG MODE: Bypassing authentication for patient routes');
+      return NextResponse.next();
+    } else {
+      // PRODUCTION MODE - enforce onboarding completion
+      try {
+        const patient = await getPatientFromSession();
+        
+        // If not authenticated, redirect to login
+        if (!patient) {
+          console.log('🔒 Not authenticated, redirecting to login');
+          return NextResponse.redirect(new URL('/auth/patient-login', request.url));
+        }
+        
+        // If authenticated but onboarding not completed, redirect to onboarding
+        if (!patient.onboardingCompleted) {
+          console.log('⚠️ Patient onboarding not completed, redirecting');
+          return NextResponse.redirect(new URL('/onboarding', request.url));
+        }
+        
+        // Authenticated and onboarded, allow access
+        console.log('✅ Patient authenticated and onboarded, allowing access');
+        return NextResponse.next();
+      } catch (error) {
+        console.error('Error checking patient authentication:', error);
+        // On error, redirect to login for safety
+        return NextResponse.redirect(new URL('/auth/patient-login', request.url));
+      }
+    }
   }
   
   // Allow admin routes without redirection

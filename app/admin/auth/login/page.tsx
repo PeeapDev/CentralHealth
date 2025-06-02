@@ -35,30 +35,7 @@ export default function AdminLoginPage() {
     },
   ]
 
-  // Demo hospitals for hospital admin login
-  const demoHospitals = [
-    {
-      name: "Smart Hospital & Research Center",
-      slug: "smart-hospital",
-      adminEmail: "admin@smarthospital.com",
-      adminPassword: "admin123",
-      adminName: "Dr. John Smith",
-    },
-    {
-      name: "City Medical Center",
-      slug: "city-medical",
-      adminEmail: "admin@citymedical.com",
-      adminPassword: "admin123",
-      adminName: "Dr. Sarah Johnson",
-    },
-    {
-      name: "General Hospital",
-      slug: "general-hospital",
-      adminEmail: "admin@generalhospital.com",
-      adminPassword: "admin123",
-      adminName: "Dr. Michael Brown",
-    },
-  ]
+  // No demo hospitals
 
   const handleDemoLogin = (account: (typeof demoAccounts)[0]) => {
     setFormData({
@@ -68,10 +45,7 @@ export default function AdminLoginPage() {
     })
   }
 
-  const handleHospitalDemoLogin = (hospital: (typeof demoHospitals)[0]) => {
-    // Redirect to hospital's login page instead of instant login
-    router.push(`/${hospital.slug}/auth/login`)
-  }
+  // No hospital demo login
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -287,31 +261,10 @@ export default function AdminLoginPage() {
                 {isLoading ? "Signing in..." : "Sign in"}
               </Button>
               
-              <div className="text-center text-sm">
-                <p className="text-muted-foreground">Access hospital administration</p>
-                <div className="flex flex-wrap justify-center gap-2 mt-2">
-                  {demoHospitals.map((hospital, index) => (
-                    <Button
-                      key={index}
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleHospitalDemoLogin(hospital)}
-                    >
-                      {hospital.name}
-                    </Button>
-                  ))}
-                </div>
-              </div>
+              {/* Hospital demo login buttons removed */}
             </form>
           </CardContent>
-          <CardFooter className="flex justify-center border-t p-4">
-            <div className="text-center text-sm">
-              <Link href="/auth/login" className="text-primary hover:underline">
-                Go to Patient Login
-              </Link>
-            </div>
-          </CardFooter>
+          {/* Footer with patient login link removed */}
         </Card>
       </div>
     </div>

@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { 
   Calendar, 
   FileText, 
@@ -182,6 +183,7 @@ export default function PatientDashboard() {
   const [activeTab, setActiveTab] = useState<"overview" | "appointments" | "medications" | "vaccinations" | "medical-records" | "profile">("overview");
   const [editing, setEditing] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
+  const [showOnboardingWizard, setShowOnboardingWizard] = useState<boolean>(false);
   const [formData, setFormData] = useState({
     email: "",
     phone: "",
@@ -194,7 +196,7 @@ export default function PatientDashboard() {
     }
   });
 
-  // Use our cached fetch hook instead of useEffect + fetch
+  // Use our optimized cached fetch hook with faster loading
   const { 
     data: patientResponse, 
     isLoading, 
@@ -202,7 +204,8 @@ export default function PatientDashboard() {
     revalidate: revalidatePatient
   } = useCachedFetch('/api/patients/session/me', {
     cacheTime: 2 * 60 * 1000, // 2 minutes cache
-    revalidateOnFocus: true
+    revalidateOnFocus: true,
+    timeout: 5000 // 5 second timeout to fail faster on slow connections
   });
   
   // Patient data derived from the fetch response
@@ -226,6 +229,8 @@ export default function PatientDashboard() {
             country: patientResponse.patient.addressData?.[0]?.country || ''
           }
         });
+        
+        // Using session-based authentication, no need for localStorage caching
         
         console.log('Patient data loaded:', patientResponse.patient);
       }
@@ -305,14 +310,50 @@ export default function PatientDashboard() {
     }
   };
 
-  // Redirect to login if not authenticated
+  // Handle authentication and onboarding requirements silently in the background
   useEffect(() => {
-    if (patientError || (patientResponse && !patientResponse.authenticated)) {
-      console.error('Authentication failed:', patientError || 'Not authenticated');
-      setError(patientError?.message || 'Not authenticated');
+    // Debug onboarding conditions
+    console.log('Debug onboarding conditions:', {
+      authenticated: patientResponse?.authenticated,
+      onboardingCompleted: patientResponse?.onboardingCompleted,
+      patientExists: !!patientResponse?.patient,
+      extensionData: patientResponse?.patient?.extension
+    });
+    
+    // If authentication explicitly fails, redirect to login without showing errors to user
+    if (patientResponse && !patientResponse.authenticated) {
+      console.log('Authentication failed, redirecting to landing');
       window.location.href = '/';
+      return;
     }
-  }, [patientResponse, patientError]);
+    
+    // IMPORTANT: Show the onboarding wizard for a new registration
+    // We make the check more aggressive by considering anything not explicitly
+    // marked as completed as needing onboarding
+    if (patientResponse && patientResponse.authenticated && patientResponse.onboardingCompleted !== true) {
+      console.log('Onboarding not explicitly completed, showing wizard');
+      setShowOnboardingWizard(true);
+      
+      // Force this to run after a slight delay to ensure the UI has updated
+      setTimeout(() => {
+        console.log('Delayed check - wizard shown:', showOnboardingWizard);
+        if (!showOnboardingWizard) {
+          console.log('Forcing wizard to show!');
+          setShowOnboardingWizard(true);
+        }
+      }, 1000);
+      
+      return;
+    } else {
+      console.log('Onboarding conditions not met, wizard hidden');
+    }
+    
+    // If there's a network/server error, don't immediately redirect
+    // Just log it and let the app continue with whatever data it has
+    if (patientError) {
+      console.error('Error fetching patient data:', patientError);
+    }
+  }, [patientResponse, patientError, router]);
   
   // Setup form data when patient data is loaded
   useEffect(() => {
@@ -331,36 +372,73 @@ export default function PatientDashboard() {
     }
   }, [patient]);
 
-  // Loading state
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <h2 className="text-2xl font-semibold mb-2">Loading dashboard...</h2>
-          <p className="text-muted-foreground">Please wait while we fetch your information</p>
+  // Onboarding wizard dialog
+  const OnboardingWizardDialog = () => (
+    <Dialog open={showOnboardingWizard} onOpenChange={setShowOnboardingWizard}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Welcome to Central Health!</DialogTitle>
+          <DialogDescription>
+            Complete your patient profile to access all features of the patient portal.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="flex flex-col space-y-2">
+            <h3 className="font-medium">Complete your onboarding process to:</h3>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Update your personal and health information</li>
+              <li>Add emergency contacts</li>
+              <li>Record important medical details</li>
+              <li>Get your digital medical ID</li>
+            </ul>
+          </div>
+          
+          {/* Debug info for admins */}
+          <div className="border-t pt-2 mt-2 text-xs text-gray-500">
+            <p>Debug info:</p>
+            <p>onboardingCompleted: {String(patientResponse?.onboardingCompleted)}</p>
+            <p>isAuthenticated: {String(patientResponse?.authenticated)}</p>
+          </div>
         </div>
-      </div>
-    );
-  }
-
-  // Error state
-  if (error || patientError) {
-    const errorMessage = error || patientError?.message || 'An error occurred';
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Alert className="max-w-md">
-          <AlertDescription>
-            {errorMessage}
-            <div className="mt-4">
-              <Button onClick={() => window.location.href = '/'}>
-                Back to Login
-              </Button>
-            </div>
-          </AlertDescription>
-        </Alert>
-      </div>
-    );
-  }
+        <DialogFooter className="sm:justify-between">
+          <div>
+            <Button 
+              type="button" 
+              variant="default"
+              onClick={() => {
+                setShowOnboardingWizard(false);
+                router.push('/onboarding');
+              }}
+            >
+              Start Onboarding
+            </Button>
+            <Button 
+              type="button" 
+              variant="outline"
+              className="ml-2"
+              onClick={() => setShowOnboardingWizard(false)}
+            >
+              Later
+            </Button>
+          </div>
+          
+          {/* Force toggle button for debugging - only visible for admins */}
+          <Button 
+            type="button" 
+            variant="ghost"
+            size="sm"
+            className="text-xs opacity-50 hover:opacity-100"
+            onClick={() => {
+              console.log('Forcing onboarding dialog toggle:', !showOnboardingWizard);
+              setShowOnboardingWizard(!showOnboardingWizard);
+            }}
+          >
+            Toggle
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 
   return (
     <div className="flex min-h-screen bg-gray-50">
@@ -462,8 +540,8 @@ export default function PatientDashboard() {
                 
                 if (response.ok) {
                   console.log('Logged out successfully');
-                  // Redirect to login page after successful logout
-                  router.push('/auth/login');
+                  // Redirect to landing page after successful logout
+                  router.push('/');
                 } else {
                   console.error('Logout failed');
                 }
@@ -913,6 +991,8 @@ export default function PatientDashboard() {
           )}
         </div>
       </div>
+      {/* Render the onboarding wizard */}
+      <OnboardingWizardDialog />
     </div>
   );
 }

@@ -1130,8 +1130,8 @@ export default function HospitalsPage() {
   ]
 
   return (
-    <div className="py-6 px-8">
-      <div className="flex justify-between items-center mb-8">
+    <div className="py-4 px-6">
+      <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Hospitals</h1>
         <Button onClick={() => setIsAddDialogOpen(true)}>
           Add Hospital
@@ -1139,67 +1139,73 @@ export default function HospitalsPage() {
       </div>
 
       {isLoading ? (
-        <div>Loading...</div>
+        <div className="py-4 text-center">Loading hospitals...</div>
       ) : error ? (
-        <div className="text-red-500">{error}</div>
+        <div className="text-red-500 py-4 text-center">{error}</div>
       ) : (
         <DataTable<Hospital, any> columns={columns} data={hospitals} />
       )}
 
       {/* Create Dialog */}
       <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0">
+          <DialogHeader className="p-6 pb-2">
             <DialogTitle>Add Hospital</DialogTitle>
           </DialogHeader>
-          <HospitalForm
-            onSubmit={handleAddHospital}
-            onCancel={() => setIsAddDialogOpen(false)}
-          />
+          <div className="px-6 pb-6">
+            <HospitalForm
+              onSubmit={handleAddHospital}
+              onCancel={() => setIsAddDialogOpen(false)}
+            />
+          </div>
         </DialogContent>
       </Dialog>
 
       {/* Edit Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0">
+          <DialogHeader className="p-6 pb-2">
             <DialogTitle>Edit Hospital</DialogTitle>
           </DialogHeader>
           {editingHospital && (
-            <HospitalForm
-              initialData={{
-                name: editingHospital.name,
-                subdomain: editingHospital.subdomain,
-                email: editingHospital.email,
-                phone: editingHospital.phone,
-                address: editingHospital.address,
-                city: editingHospital.city,
-                state: editingHospital.state,
-                country: editingHospital.country,
-                zip: editingHospital.zip,
-                status: editingHospital.status,
-                package: editingHospital.package,
-                website: editingHospital.website,
-                description: editingHospital.description,
-                modules: editingHospital.modules,
-                admin_email: editingHospital.admin_email,
-                admin_password: editingHospital.admin_password || '',
-                branches: editingHospital.branches
-              }}
-              onSubmit={handleUpdateHospital}
-              onCancel={() => setIsEditDialogOpen(false)}
-            />
+            <div className="px-6 pb-6">
+              <HospitalForm
+                initialData={{
+                  name: editingHospital.name,
+                  subdomain: editingHospital.subdomain,
+                  email: editingHospital.email,
+                  phone: editingHospital.phone,
+                  address: editingHospital.address,
+                  city: editingHospital.city,
+                  state: editingHospital.state,
+                  country: editingHospital.country,
+                  zip: editingHospital.zip,
+                  status: editingHospital.status,
+                  package: editingHospital.package,
+                  website: editingHospital.website,
+                  description: editingHospital.description,
+                  modules: editingHospital.modules,
+                  admin_email: editingHospital.admin_email,
+                  admin_password: editingHospital.admin_password || '',
+                  branches: editingHospital.branches
+                }}
+                onSubmit={handleUpdateHospital}
+                onCancel={() => setIsEditDialogOpen(false)}
+              />
+            </div>
           )}
         </DialogContent>
       </Dialog>
 
       {/* View Dialog */}
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto p-0">
+          <DialogHeader className="p-6 pb-2">
             <DialogTitle>View Hospital</DialogTitle>
           </DialogHeader>
-          {selectedHospital && <HospitalView hospital={selectedHospital} onClose={() => setIsViewDialogOpen(false)} />}
+          <div className="px-6 pb-6">
+            {selectedHospital && <HospitalView hospital={selectedHospital} onClose={() => setIsViewDialogOpen(false)} />}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

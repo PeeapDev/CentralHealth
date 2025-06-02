@@ -109,26 +109,39 @@ export async function POST(req: NextRequest) {
       }
     }
     
-    // Check if patient already exists with the same email
-    const existingPatientByEmail = await prisma.patient.findFirst({
-      where: {
-        email: body.email // Direct equality check instead of contains
-      }
-    });
+    // Only check for existing email if the email hasn't been verified yet
+    // This prevents double-registration checks for emails that are already verified
+    if (!body.emailVerified) {
+      // Check if patient already exists with the same email
+      const existingPatientByEmail = await prisma.patient.findFirst({
+        where: {
+          email: body.email 
+        }
+      });
 
+      if (existingPatientByEmail) {
+        return NextResponse.json({
+          success: false,
+          error: 'A patient with this email already exists',
+        }, { status: 409 });
+      }
+    }
+    
     // Check if patient already exists with the same phone number
-    // We can't use contains with telecom, so use phone field directly
-    const existingPatientByPhone = await prisma.patient.findFirst({
-      where: {
-        phone: phoneNumber
+    // Skip this check if we already have email verification
+    if (!body.emailVerified) {
+      const existingPatientByPhone = await prisma.patient.findFirst({
+        where: {
+          phone: phoneNumber
+        }
+      });
+      
+      if (existingPatientByPhone) {
+        return NextResponse.json({
+          success: false,
+          error: 'A patient with this phone number already exists',
+        }, { status: 409 });
       }
-    });
-
-    if (existingPatientByEmail || existingPatientByPhone) {
-      return NextResponse.json({
-        success: false,
-        error: 'A patient with this email or phone number already exists',
-      }, { status: 409 });
     }
     
     // Format name according to FHIR standard
@@ -178,6 +191,15 @@ export async function POST(req: NextRequest) {
     console.log('Generated verification code:', verificationCode);
     
     try {
+      // Make sure the email is verified before creating a patient
+      if (body.emailVerified === undefined || body.emailVerified === false) {
+        return NextResponse.json({
+          success: false,
+          message: "Email verification is required to complete registration",
+          details: { emailVerified: body.emailVerified }
+        }, { status: 400 });
+      }
+
       // Create new patient with verification code (match Prisma schema)      
       const newPatient = await prisma.patient.create({
         data: {
@@ -199,7 +221,11 @@ export async function POST(req: NextRequest) {
           // Store verification code (using only resetCode, not verificationCode)
           resetCode: verificationCode,
           resetExpiration: verificationExpiry,
-          isVerified: true, // Mark as already verified since we're skipping verification
+          
+          // Set extension with onboardingCompleted = false to trigger wizard
+          extension: JSON.stringify({
+            onboardingCompleted: false
+          })
         },
         select: {
           id: true,
@@ -232,20 +258,14 @@ export async function POST(req: NextRequest) {
         updatedAt: new Date(newPatient.updatedAt).toISOString(),
       };
       
-      let emailSent = false;
-      try {
-        // Try to send verification email
-        await sendVerificationEmail({
-          patientEmail: body.email,
-          patientName: `${body.firstName} ${body.lastName}`,
-          verificationCode,
-          medicalNumber
-        });
-        emailSent = true;
-      } catch (emailError) {
-        console.error('Email sending failed, but continuing with registration:', emailError);
-        // Continue with registration even if email fails
-      }
+      // We're no longer sending welcome email at registration time
+      // It will now be sent after onboarding is completed
+      
+      // Log successful registration
+      console.log(`Patient registered successfully: ${body.email} with medical number ${medicalNumber}`);
+      console.log(`Patient will be redirected to onboarding after registration`);
+      
+      // No email is sent at this stage - welcome email with full details will be sent after onboarding
       
       // Generate JWT token
       const token = jwt.sign(

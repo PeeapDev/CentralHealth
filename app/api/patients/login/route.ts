@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
         active: true,
         password: true,
         hospitalId: true,
+        createdAt: true, // Add createdAt to determine if onboarding is needed
       }
     });
     
@@ -132,13 +133,20 @@ export async function POST(req: NextRequest) {
       console.error('Error parsing patient name:', e);
     }
 
-    // Generate JWT token
+    // Check if this is a new user who needs to complete onboarding
+    // We'll consider a user as needing onboarding if they were created in the last hour
+    const isNewUser = new Date().getTime() - patient.createdAt.getTime() < 3600000; // 1 hour in milliseconds
+    
+    // Generate JWT token with onboardingCompleted flag
     const token = jwt.sign(
       {
-        id: patient.id,
+        patientId: patient.id,
         medicalNumber: patient.medicalNumber,
         role: 'patient',
-        phone: patient.phone
+        phone: patient.phone,
+        name: `${firstName} ${lastName}`,
+        // For new users, set onboardingCompleted to false
+        onboardingCompleted: !isNewUser
       },
       JWT_SECRET,
       { expiresIn: '7d' }

@@ -175,3 +175,14 @@ model Message {
   chat     Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
   sender   User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
 }
+
+model EmailVerification {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  code      String
+  expires   DateTime
+  verified  Boolean  @default(false)
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

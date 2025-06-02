@@ -35,14 +35,18 @@ export async function createPatientSession(patientData: Omit<PatientSession, 'is
   
   // Set session cookie with HttpOnly for security but more permissive settings for dev
   // Note: In development, secure:false ensures the cookie works on http localhost
-  const cookieStore = cookies();
+  // Handle cookies() as potentially async function
+  const cookieStore = await Promise.resolve(cookies());
+  
+  // Set the cookie
   cookieStore.set({
     name: SESSION_COOKIE_NAME,
     value: encryptedData,
     httpOnly: true,
     path: '/',
     secure: process.env.NODE_ENV === 'production',
-    maxAge: 60 * 60 * 24 * 7, // 7 days
+    maxAge: 60 * 60 * 24 * 30, // 30 days - we use a very long session for onboarding
+    expires: new Date(Date.now() + 1000 * 60 * 60 * 24 * 30), // Explicit 30 day expiration as backup
     sameSite: 'lax',
     // Debug info
     priority: 'high'
@@ -52,16 +56,27 @@ export async function createPatientSession(patientData: Omit<PatientSession, 'is
 }
 
 export async function getPatientSession(): Promise<PatientSession | null> {
-  const cookieStore = await cookies();
+  // Get the cookie store - handle it as potentially async
+  const cookieStore = await Promise.resolve(cookies());
   const sessionCookie = cookieStore.get(SESSION_COOKIE_NAME);
   
   if (!sessionCookie?.value) {
+    console.log('Patient session cookie not found');
     return null;
   }
   
   try {
     const decryptedData = decrypt(sessionCookie.value, SESSION_SECRET);
     const session = JSON.parse(decryptedData) as PatientSession;
+    
+    // Debug information to track session usage
+    console.log('Patient session found:', {
+      id: session.id,
+      createdAt: session.createdAt,
+      isLoggedIn: session.isLoggedIn,
+      age: session.createdAt ? Math.floor((Date.now() - new Date(session.createdAt).getTime()) / (1000 * 60 * 60 * 24)) + ' days' : 'unknown'
+    });
+    
     return session;
   } catch (error) {
     console.error('Failed to parse patient session:', error);

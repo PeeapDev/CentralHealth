@@ -36,4 +36,22 @@ export interface FHIRPatient {
     subdomain: string;
     id?: string;
   };
+  
+  // Extended fields for onboarding wizard
+  bloodGroup?: string;
+  allergies?: string[];
+  chronicConditions?: string[];
+  organDonor?: boolean;
+  
+  // Emergency contact information
+  emergencyContact?: {
+    name: string;
+    relationship: string;
+    phoneNumber: string;
+  };
+  
+  // Registration and onboarding status
+  onboardingCompleted?: boolean;
+  registrationDate?: string;
+  qrCode?: string; // URL or base64 encoded QR code
 }

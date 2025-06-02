@@ -75,9 +75,10 @@ export function GoToDashboard({ formData }: GoToDashboardProps) {
       console.error('Auto-login failed:', err);
       setError(err.message || 'Failed to login automatically');
       
-      // If auto-login fails, store only the medical number and redirect to login page
+      // Even if auto-login fails, still try to direct user to the dashboard
+      // This might redirect them to login if they're not authenticated, but the URL should be patient/dashboard
       sessionStorage.setItem('tempMedicalNumber', formData.medicalNumber || '');
-      window.location.href = `/auth/login?medicalNumber=${formData.medicalNumber}`;
+      window.location.href = '/patient/dashboard';
     } finally {
       setIsLoading(false);
     }

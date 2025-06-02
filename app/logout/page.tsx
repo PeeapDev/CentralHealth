@@ -28,9 +28,9 @@ export default function LogoutPage() {
           setStatus('success');
           setMessage('You have been successfully logged out.');
           
-          // Redirect after a short delay
+          // Redirect to the landing page after a short delay
           setTimeout(() => {
-            router.push('/auth/login');
+            router.push('/');
           }, 1500);
         } else {
           // If not a patient, could be an admin/staff using JWT

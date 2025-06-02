@@ -15,6 +15,8 @@ interface UseCachedFetchOptions {
   shouldRetryOnError?: boolean; // Whether to retry on error
   errorRetryCount?: number; // Number of times to retry on error
   errorRetryInterval?: number; // Time between retries in milliseconds
+  timeout?: number; // Request timeout in milliseconds
+  initialData?: any; // Optional initial data to use before fetching
 }
 
 // Default options
@@ -26,6 +28,7 @@ const defaultOptions: UseCachedFetchOptions = {
   shouldRetryOnError: true,
   errorRetryCount: 3,
   errorRetryInterval: 5000, // 5 seconds
+  timeout: 8000, // 8 second timeout
 };
 
 /**
@@ -43,6 +46,8 @@ export function useCachedFetch<T = any>(
     shouldRetryOnError,
     errorRetryCount,
     errorRetryInterval,
+    timeout,
+    initialData,
     ...fetchOptions
   } = { ...defaultOptions, ...options };
 
@@ -61,7 +66,15 @@ export function useCachedFetch<T = any>(
     );
   }, [cacheTime]);
 
-  // Main fetch function
+  // Use initialData if provided
+  useEffect(() => {
+    if (options.initialData !== undefined) {
+      setData(options.initialData);
+      setIsLoading(false);
+    }
+  }, [options.initialData]);
+
+  // Main fetch function with timeout support
   const fetchData = useCallback(async (shouldUpdateLoading = true) => {
     const requestId = Date.now();
     requestTimeRef.current = requestId;
@@ -72,13 +85,18 @@ export function useCachedFetch<T = any>(
       return;
     }
 
-    // Check if we have valid cached data
+    // Check if we have valid cached data first
     if (isCacheValid(url)) {
       const cachedData = cache[url];
       if (!cachedData.error) {
         setData(cachedData.data);
         setIsLoading(false);
         setError(null);
+        // Still revalidate in background if needed
+        if (cachedData.timestamp < Date.now() - (cacheTime || defaultOptions.cacheTime!) / 2) {
+          // If cache is more than half expired, revalidate in background
+          setTimeout(() => fetchData(false), 0);
+        }
         return;
       }
     }
@@ -88,13 +106,22 @@ export function useCachedFetch<T = any>(
     }
 
     try {
+      // Create an AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => {
+        controller.abort();
+      }, timeout || defaultOptions.timeout!);
+      
       const response = await fetch(url, {
         ...fetchOptions,
         headers: {
           ...fetchOptions.headers,
         },
         credentials: 'include', // Include credentials for cookie-based auth
+        signal: controller.signal,
       });
+      
+      clearTimeout(timeoutId);
 
       if (!response.ok) {
         throw new Error(`Error ${response.status}: ${response.statusText}`);
@@ -117,18 +144,31 @@ export function useCachedFetch<T = any>(
     } catch (err: any) {
       // Only update state if this is the most recent request
       if (requestId === requestTimeRef.current) {
-        setError(err);
+        // Special handling for timeout errors
+        const errorMessage = err.name === 'AbortError' 
+          ? 'Request timed out. Please try again.'
+          : err.message || 'An error occurred';
+        
+        const timeoutError = err.name === 'AbortError' 
+          ? new Error(errorMessage)
+          : err;
+
+        setError(timeoutError);
         setIsLoading(false);
 
         // Update cache with error
         cache[url] = {
           data: null,
           timestamp: Date.now(),
-          error: err,
+          error: timeoutError,
         };
 
-        // Retry logic
-        if (shouldRetryOnError && retryCountRef.current < (errorRetryCount || 3)) {
+        // Retry logic - but don't retry timeouts more than once
+        const shouldRetry = shouldRetryOnError && 
+          retryCountRef.current < (errorRetryCount || 3) &&
+          (err.name !== 'AbortError' || retryCountRef.current === 0);
+        
+        if (shouldRetry) {
           retryCountRef.current++;
           setTimeout(() => {
             fetchData(false);
@@ -136,13 +176,26 @@ export function useCachedFetch<T = any>(
         }
       }
     }
-  }, [url, fetchOptions, isCacheValid, dedupingInterval, shouldRetryOnError, errorRetryCount, errorRetryInterval]);
+  }, [url, fetchOptions, isCacheValid, dedupingInterval, shouldRetryOnError, errorRetryCount, errorRetryInterval, timeout]);
 
   // Initial fetch and refetching on dependencies change
   useEffect(() => {
     retryCountRef.current = 0;
+    
+    // Quick check for valid cache first to prevent flash of loading state
+    if (isCacheValid(url)) {
+      const cachedData = cache[url];
+      if (!cachedData.error) {
+        setData(cachedData.data);
+        setIsLoading(false);
+        // Still fetch in background to update cache
+        setTimeout(() => fetchData(false), 0);
+        return;
+      }
+    }
+    
     fetchData();
-  }, [fetchData]);
+  }, [fetchData, url, isCacheValid]);
 
   // Set up revalidation on window focus
   useEffect(() => {
@@ -172,10 +225,19 @@ export function useCachedFetch<T = any>(
     };
   }, [fetchData, revalidateOnReconnect]);
 
-  // Function to manually revalidate data
-  const revalidate = () => {
-    fetchData();
-  };
+  // Expose a function to manually revalidate the data
+  const revalidate = useCallback(() => {
+    // Immediately use cached data if available
+    if (isCacheValid(url)) {
+      const cachedData = cache[url];
+      if (!cachedData.error) {
+        setData(cachedData.data);
+      }
+    }
+    
+    // Then fetch fresh data
+    fetchData(false);
+  }, [fetchData, url, isCacheValid]);
 
   return { data, isLoading, error, revalidate };
 }

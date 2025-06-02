@@ -21,6 +21,7 @@ const PersonalInfoStep = dynamic(() => import('./steps/personal-info-step').then
 const LocationStep = dynamic(() => import('./steps/location-step').then(mod => mod.LocationStep), { ssr: false })
 const SiblingsStep = dynamic(() => import('./steps/siblings-step').then(mod => mod.SiblingsStep), { ssr: false })
 const PaymentMethodStep = dynamic(() => import('./steps/payment-method-step').then(mod => mod.PaymentMethodStep), { ssr: false })
+const EmailVerificationStep = dynamic(() => import('./steps/email-verification-step').then(mod => mod.EmailVerificationStep), { ssr: false })
 const VerificationStep = dynamic(() => import('./steps/verification-step').then(mod => mod.VerificationStep), { ssr: false })
 const ReviewStep = dynamic(() => import('./steps/review-step').then(mod => mod.ReviewStep), { ssr: false })
 
@@ -112,10 +113,10 @@ export function MultiStepForm() {
   // Steps configuration
   const steps = [
     { id: 1, title: "Personal Info" },
-    { id: 2, title: "Location" },
-    { id: 3, title: "Family" },
-    { id: 4, title: "Payment" },
-    { id: 5, title: "Verification" },
+    { id: 2, title: "Email Verification" },
+    { id: 3, title: "Location" },
+    { id: 4, title: "Family" },
+    { id: 5, title: "Payment" },
     { id: 6, title: "Review" }
   ]
   
@@ -141,20 +142,19 @@ export function MultiStepForm() {
         return
       }
     } else if (step === 2) {
+      // Validate email verification
+      if (!formData.emailVerified) {
+        toast.error("Please verify your email address before continuing")
+        return
+      }
+    } else if (step === 3) {
       // Validate location info
       if (!formData.addressLine || !formData.district || !formData.city) {
         toast.error("Please fill in all required location fields")
         return
       }
     }
-    // Steps 3 and 4 are optional
-    else if (step === 5) {
-      // Validate verification
-      if (!formData.phoneVerified || !formData.emailVerified) {
-        toast.error("Please verify your phone number and email address")
-        return
-      }
-    }
+    // Steps 4 and 5 are optional
     
     // Move to next step if validation passes
     if (step < 6) {
@@ -219,11 +219,35 @@ export function MultiStepForm() {
       }
       
       // Show success message
-      toast.success("Registration successful! You can now log in.")
+      toast.success("Registration successful! Redirecting to complete your profile...")
       
-      // Redirect to login page
-      setTimeout(() => {
-        router.push("/login")
+      // Auto-login and redirect directly to onboarding
+      setTimeout(async () => {
+        // Auto-login the user with the credentials they just used
+        try {
+          const loginResponse = await fetch('/api/patients/session/login', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              email: formData.email,
+              password: formData.password
+            })
+          });
+          
+          if (loginResponse.ok) {
+            // Successful login, redirect directly to onboarding
+            window.location.href = '/onboarding';
+          } else {
+            // Fall back to auth login page if auto-login fails
+            window.location.href = '/auth/login';
+          }
+        } catch (err) {
+          console.error('Auto-login error:', err);
+          // Fall back to login page
+          window.location.href = '/auth/login';
+        }
       }, 2000)
       
     } catch (error: any) {
@@ -300,28 +324,28 @@ export function MultiStepForm() {
           )}
           
           {step === 2 && (
-            <LocationStep 
+            <EmailVerificationStep 
               formData={formData}
               updateFormData={updateFormData}
             />
           )}
           
           {step === 3 && (
-            <SiblingsStep 
+            <LocationStep 
               formData={formData}
               updateFormData={updateFormData}
             />
           )}
           
           {step === 4 && (
-            <PaymentMethodStep 
+            <SiblingsStep 
               formData={formData}
               updateFormData={updateFormData}
             />
           )}
           
           {step === 5 && (
-            <VerificationStep 
+            <PaymentMethodStep 
               formData={formData}
               updateFormData={updateFormData}
             />

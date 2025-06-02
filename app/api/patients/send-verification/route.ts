@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import nodemailer from 'nodemailer';
 
+// Email verification code expiry time (10 minutes)
 const VERIFICATION_EXPIRY_MINUTES = 10;
 
 // Generate a random OTP code
@@ -13,7 +14,6 @@ function generateOTP(length = 6) {
   return otp;
 }
 
-// POST endpoint to send verification code
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -27,24 +27,39 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
     
+    // Check if email is already registered
+    const existingPatient = await prisma.patient.findFirst({
+      where: { email },
+    });
+    
+    if (existingPatient) {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Email address is already registered' 
+      }, { status: 400 });
+    }
+    
     // Generate a 6-digit OTP
     const otp = generateOTP(6);
     const expiryTime = new Date();
     expiryTime.setMinutes(expiryTime.getMinutes() + VERIFICATION_EXPIRY_MINUTES);
     
-    // Store the OTP in the verification codes object (in-memory storage for simplicity)
-    // In a production app, you would use a database
-    const verificationCodes = global as any;
-    if (!verificationCodes.otpCodes) {
-      verificationCodes.otpCodes = {};
-    }
-    
-    verificationCodes.otpCodes[email] = {
-      code: otp,
-      expires: expiryTime
-    };
-    
-    console.log(`Storing verification code for ${email}:`, verificationCodes.otpCodes[email]);
+    // Store the OTP in a temporary verification table
+    // We'll use prisma's upsert to update if the email already has a pending verification
+    await prisma.emailVerification.upsert({
+      where: { email },
+      update: {
+        code: otp,
+        expires: expiryTime,
+        attempts: 0
+      },
+      create: {
+        email,
+        code: otp,
+        expires: expiryTime,
+        attempts: 0
+      }
+    });
     
     // Email configuration
     const emailConfig = {
@@ -57,12 +72,7 @@ export async function POST(request: NextRequest) {
       }
     };
     
-    // For testing/demo purposes, we can log the OTP instead of actually sending it
-    console.log(`DEMO MODE: Verification code for ${email} is ${otp}`);
-    
-    // In a real app, we would send the email
-    // Uncomment this in production
-    /*
+    // Send verification email
     const transporter = nodemailer.createTransport(emailConfig);
     const emailResult = await transporter.sendMail({
       from: process.env.EMAIL_FROM || 'Central Health <no-reply@centralhealth.org>',
@@ -84,15 +94,14 @@ export async function POST(request: NextRequest) {
         </div>
       `
     });
-    console.log('Email sent:', emailResult);
-    */
     
-    // Return success with the verification code in development (remove in production)
+    console.log('Email sent:', emailResult);
+    
+    // Return success without exposing the actual OTP in the response
     return NextResponse.json({
       success: true,
       message: 'Verification code sent to email address',
-      expiresIn: VERIFICATION_EXPIRY_MINUTES * 60, // in seconds
-      code: otp // Remove this in production
+      expiresIn: VERIFICATION_EXPIRY_MINUTES * 60 // in seconds
     });
     
   } catch (error) {
@@ -101,69 +110,7 @@ export async function POST(request: NextRequest) {
       success: false, 
       error: 'Failed to send verification email' 
     }, { status: 500 });
-  }
-}
-
-// PUT endpoint to verify the OTP
-export async function PUT(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { email, otp } = body;
-    
-    // Basic validation
-    if (!email || !otp) {
-      return NextResponse.json({ 
-        success: false, 
-        error: 'Email address and verification code are required' 
-      }, { status: 400 });
-    }
-    
-    // Verify against stored OTP
-    const verificationCodes = global as any;
-    const storedData = verificationCodes.otpCodes?.[email];
-    
-    console.log(`Verifying code for ${email}:`, { 
-      provided: otp, 
-      stored: storedData?.code,
-      expires: storedData?.expires
-    });
-    
-    if (!storedData) {
-      return NextResponse.json({
-        success: false,
-        error: 'No verification code found for this email. Please request a new one.'
-      }, { status: 400 });
-    }
-    
-    // Check if code is expired
-    if (new Date() > new Date(storedData.expires)) {
-      return NextResponse.json({
-        success: false,
-        error: 'Verification code has expired. Please request a new one.'
-      }, { status: 400 });
-    }
-    
-    // Check if code matches
-    if (storedData.code !== otp) {
-      return NextResponse.json({
-        success: false,
-        error: 'Invalid verification code'
-      }, { status: 400 });
-    }
-    
-    // Code is valid - mark as verified
-    delete verificationCodes.otpCodes[email]; // Clean up after successful verification
-    
-    return NextResponse.json({
-      success: true,
-      message: 'Email address verified successfully'
-    });
-    
-  } catch (error) {
-    console.error('Email verification error:', error);
-    return NextResponse.json({ 
-      success: false, 
-      error: 'Failed to verify email address'
-    }, { status: 500 });
+  } finally {
+    await prisma.$disconnect();
   }
 }

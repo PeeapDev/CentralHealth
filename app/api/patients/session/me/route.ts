@@ -31,7 +31,11 @@ export async function GET(req: NextRequest) {
         resourceType: true,
         hospitalId: true,
         telecom: true,
-        address: true
+        address: true,
+        photo: true,
+        contact: true,     // We'll use contact to store some onboarding data
+        extension: true,   // We'll use extension to store onboarding status
+        medicalHistory: true // For allergies and conditions
       }
     });
     
@@ -63,6 +67,96 @@ export async function GET(req: NextRequest) {
       addressData = [];
     }
     
+    // Define types for our JSON data structures
+    interface ExtensionData {
+      onboardingCompleted?: boolean;
+      bloodGroup?: string;
+      medicalId?: string;
+      qrCode?: string;
+      [key: string]: any;
+    }
+    
+    interface MedicalHistoryData {
+      allergies?: string[];
+      chronicConditions?: string[];
+      organDonor?: boolean;
+      [key: string]: any;
+    }
+    
+    interface EmergencyContact {
+      name?: string;
+      relationship?: string;
+      phone?: string;
+      [key: string]: any;
+    }
+    
+    interface ContactData {
+      emergency?: EmergencyContact;
+      [key: string]: any;
+    }
+    
+    // Parse extension field to check for onboarding status
+    let extensionData: ExtensionData = {};
+    let medicalHistoryData: MedicalHistoryData = {};
+    let contactData: ContactData = {};
+    
+    console.log('DEBUG Patient data from session/me:', { 
+      id: patient.id,
+      hasExtension: !!patient.extension,
+      extensionType: patient.extension ? typeof patient.extension : 'none',
+      extensionValue: patient.extension
+    });
+    
+    try {
+      if (patient.extension && typeof patient.extension === 'string') {
+        extensionData = JSON.parse(patient.extension) as ExtensionData;
+        console.log('DEBUG Parsed extension data:', extensionData);
+      } else if (patient.extension) {
+        extensionData = patient.extension as ExtensionData;
+        console.log('DEBUG Non-string extension data:', extensionData);
+      }
+      
+      if (patient.medicalHistory && typeof patient.medicalHistory === 'string') {
+        medicalHistoryData = JSON.parse(patient.medicalHistory) as MedicalHistoryData;
+      } else if (patient.medicalHistory) {
+        medicalHistoryData = patient.medicalHistory as MedicalHistoryData;
+      }
+      
+      if (patient.contact && typeof patient.contact === 'string') {
+        contactData = JSON.parse(patient.contact) as ContactData;
+      } else if (patient.contact) {
+        contactData = patient.contact as ContactData;
+      }
+    } catch (error) {
+      console.error("Error parsing patient extension or custom fields:", error);
+    }
+    
+    // Check if onboarding is completed - make very strict comparison
+    // A newly registered user should have explicitly set onboardingCompleted: false
+    // Default to false for new users without the flag
+    let onboardingCompleted = false;
+    
+    // Only consider onboarding completed if extensionData.onboardingCompleted is explicitly true
+    if (extensionData && extensionData.onboardingCompleted === true) {
+      onboardingCompleted = true;
+    }
+    
+    console.log('DEBUG Final onboarding status:', { 
+      onboardingCompleted,
+      extensionDataExists: !!extensionData,
+      onboardingInExtension: extensionData?.onboardingCompleted
+    });
+    
+    // Extract blood group from extension
+    const bloodGroup = extensionData.bloodGroup || '';
+    
+    // Extract allergies and chronic conditions from medicalHistory
+    const allergies = medicalHistoryData.allergies || [];
+    const chronicConditions = medicalHistoryData.chronicConditions || [];
+    
+    // Extract emergency contact from contact field
+    const emergencyContact = contactData.emergency || {};
+    
     // Format the patient data for the response
     const formattedPatient = {
       ...patient,
@@ -72,12 +166,22 @@ export async function GET(req: NextRequest) {
       // Include parsed data
       nameData,
       telecomData,
-      addressData
+      addressData,
+      // Include onboarding data
+      onboardingCompleted,
+      bloodGroup,
+      allergies,
+      chronicConditions,
+      emergencyContact,
+      // Ensure basic fields are available
+      email: patient.email || '',
+      phoneNumber: patient.phone || ''
     };
     
     // Return patient data
     return NextResponse.json({
       authenticated: true,
+      onboardingCompleted,
       patient: formattedPatient
     });
   } catch (error: any) {

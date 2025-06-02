@@ -1,0 +1,441 @@
+"use client"
+
+import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { Button } from '@/components/ui/button'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
+import { Progress } from '@/components/ui/progress'
+import {
+  BasicDetailsForm,
+  HealthInfoForm,
+  EmergencyContactForm,
+  PhotoUploadForm,
+  ReviewConfirmForm
+} from './components'
+import { useCachedFetch } from '@/lib/use-cached-fetch'
+import { generateMedicalID } from '@/utils/medical-id'
+
+export default function OnboardingPage() {
+  const router = useRouter()
+  const [step, setStep] = useState(1)
+  const [patientName, setPatientName] = useState('')
+  // Keep medical ID in the background for later use (health card & welcome email)
+  const [medicalId, setMedicalId] = useState('')
+  const [formData, setFormData] = useState({
+    // Basic Details
+    fullName: '',
+    phoneNumber: '',
+    gender: '',
+    dateOfBirth: '',
+    email: '',
+    
+    // Health Info
+    bloodGroup: '',
+    allergies: [] as string[],
+    chronicConditions: [] as string[],
+    organDonor: false,
+    
+    // Emergency Contact
+    emergencyContactName: '',
+    emergencyContactRelationship: '',
+    emergencyContactPhone: '',
+    
+    // Photo
+    photo: '',
+    
+    // Generated Data
+    medicalId: '',
+    qrCode: '',
+  })
+  
+  const totalSteps = 5
+  const progressPercentage = (step / totalSteps) * 100
+  
+  // Check if user is authenticated and hasn't completed onboarding
+  const { data: patientData, isLoading, error } = useCachedFetch('/api/patients/session/me')
+  const [authChecked, setAuthChecked] = useState(false)
+  
+  // We'll generate and store the medical ID but not display it until after onboarding
+  // The Health/Medical card will be implemented in a separate page after onboarding completion
+
+  useEffect(() => {
+    // Try to get registration data from localStorage
+    const storedData = localStorage.getItem('patientRegistrationData');
+    if (storedData) {
+      try {
+        const parsedData = JSON.parse(storedData);
+        if (parsedData.fullName) {
+          setPatientName(parsedData.fullName);
+        }
+        // Store medical ID in the background for later use
+        if (parsedData.medicalId) {
+          setMedicalId(parsedData.medicalId);
+        }
+        
+        // Pre-fill form data
+        setFormData(prev => ({
+          ...prev,
+          fullName: parsedData.fullName || '',
+          phoneNumber: parsedData.phoneNumber || '',
+          gender: parsedData.gender || '',
+          dateOfBirth: parsedData.dateOfBirth || '',
+          email: parsedData.email || '',
+          medicalId: parsedData.medicalId || ''
+        }));
+      } catch (e) {
+        console.error('Error parsing stored patient data:', e);
+      }
+    }
+    
+    // Set a short timeout to prevent long loading state
+    const authCheckTimeout = setTimeout(() => {
+      setAuthChecked(true)
+    }, 500) // 500ms should be enough to check auth state
+    
+    // If not authenticated, redirect to login
+    if (!isLoading && (!patientData || !patientData.authenticated)) {
+      console.log('Onboarding: Not authenticated, redirecting to login')
+      router.push('/')
+      return
+    }
+    
+    // If authenticated and onboarding already completed, redirect to dashboard
+    if (!isLoading && patientData?.onboardingCompleted) {
+      console.log('Onboarding: Onboarding already completed, redirecting to dashboard')
+      router.push('/patient/dashboard')
+      return
+    }
+    
+    // Pre-fill data if available from the API
+    if (!isLoading && patientData) {
+      console.log('Onboarding: Pre-filling data from patient profile')
+      setFormData(prev => ({
+        ...prev,
+        fullName: typeof patientData.name === 'string' 
+          ? patientData.name 
+          : patientData.name?.[0]?.text || prev.fullName || '',
+        phoneNumber: patientData.phoneNumber || prev.phoneNumber || '',
+        gender: patientData.gender || prev.gender || '',
+        dateOfBirth: patientData.birthDate || prev.dateOfBirth || '',
+        email: patientData.email || prev.email || '',
+        medicalId: patientData.medicalId || prev.medicalId || medicalId
+      }))
+      
+      if (!patientName && typeof patientData.name === 'string') {
+        setPatientName(patientData.name);
+      }
+      
+      // Store medical ID in the background for later use
+      if (!medicalId && patientData.medicalId) {
+        setMedicalId(patientData.medicalId);
+      }
+      
+      setAuthChecked(true)
+    }
+    
+    return () => clearTimeout(authCheckTimeout)
+  }, [isLoading, patientData, router])
+  
+  const updateFormData = (stepData: Partial<typeof formData>) => {
+    setFormData(prev => ({ ...prev, ...stepData }))
+    // Save to localStorage for persistence
+    localStorage.setItem('patientOnboardingData', JSON.stringify({
+      ...formData,
+      ...stepData
+    }))
+  }
+  
+  // Load from localStorage on initial render
+  useEffect(() => {
+    const savedData = localStorage.getItem('patientOnboardingData')
+    if (savedData) {
+      try {
+        const parsedData = JSON.parse(savedData)
+        setFormData(prev => ({ ...prev, ...parsedData }))
+      } catch (e) {
+        console.error('Error parsing saved onboarding data:', e)
+      }
+    }
+  }, [])
+  
+  const handleNext = () => {
+    if (step < totalSteps) {
+      setStep(prev => prev + 1)
+    }
+  }
+  
+  const handlePrevious = () => {
+    if (step > 1) {
+      setStep(prev => prev - 1)
+    }
+  }
+  
+  const handleSubmit = async () => {
+    // Generate a 5-character alphanumeric medical ID if not already generated
+    if (!formData.medicalId) {
+      const generatedId = generateMedicalID()
+      setFormData(prev => ({ ...prev, medicalId: generatedId }))
+    }
+    
+    try {
+      // Structure the data as expected by the API endpoint
+      const structuredData = {
+        basicDetails: {
+          fullName: formData.fullName,
+          phoneNumber: formData.phoneNumber,
+          gender: formData.gender,
+          dateOfBirth: formData.dateOfBirth,
+          email: formData.email,
+        },
+        healthInfo: {
+          bloodGroup: formData.bloodGroup,
+          allergies: formData.allergies,
+          chronicConditions: formData.chronicConditions,
+          organDonor: formData.organDonor
+        },
+        emergencyContact: {
+          name: formData.emergencyContactName,
+          relationship: formData.emergencyContactRelationship,
+          phone: formData.emergencyContactPhone
+        },
+        photo: formData.photo,
+        medicalId: formData.medicalId,
+        qrCode: formData.qrCode
+      }
+      
+      // Save all data to the server
+      const response = await fetch('/api/patients/onboarding/complete', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(structuredData),
+        credentials: 'include', // Include cookies for authentication
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to save onboarding data')
+      }
+      
+      // Clear localStorage data
+      localStorage.removeItem('patientOnboardingData')
+      
+      // Redirect to dashboard
+      router.push('/patient/dashboard')
+    } catch (error) {
+      console.error('Error completing onboarding:', error)
+      alert('There was an error completing your onboarding. Please try again.')
+    }
+  }
+  
+  // Prevent closing or refreshing the page
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+      return ''
+    }
+    
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [])
+  
+  // Show a loading spinner for a very short time if necessary
+  if (isLoading && !authChecked) {
+    return (
+      <div className="container max-w-4xl py-12">
+        <h2 className="text-xl font-bold">Welcome, {patientName || 'Patient'}!</h2>
+        <p className="text-muted-foreground text-center mb-8">
+          Getting everything ready for you...
+        </p>
+        <div className="flex justify-center my-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      </div>
+
+  const handleNext = () => {
+    if (step < totalSteps) {
+      setStep(prev => prev + 1)
+    }
+  }
+  
+  const handlePrevious = () => {
+    if (step > 1) {
+      setStep(prev => prev - 1)
+    }
+  }
+  
+  const handleSubmit = async () => {
+    // Generate a 5-character alphanumeric medical ID if not already generated
+    if (!formData.medicalId) {
+      const generatedId = generateMedicalID()
+      setFormData(prev => ({ ...prev, medicalId: generatedId }))
+      setMedicalId(generatedId)
+    }
+  
+  try {
+    // Structure the data as expected by the API endpoint
+    const structuredData = {
+      basicDetails: {
+        fullName: formData.fullName,
+        phoneNumber: formData.phoneNumber,
+        gender: formData.gender,
+        dateOfBirth: formData.dateOfBirth,
+        email: formData.email,
+      },
+      healthInfo: {
+        bloodGroup: formData.bloodGroup,
+        allergies: formData.allergies,
+        chronicConditions: formData.chronicConditions,
+        organDonor: formData.organDonor
+      },
+      emergencyContact: {
+        name: formData.emergencyContactName,
+        relationship: formData.emergencyContactRelationship,
+        phone: formData.emergencyContactPhone
+      },
+      photo: formData.photo,
+      medicalId: formData.medicalId,
+      qrCode: formData.qrCode
+    }
+    
+    // Save all data to the server
+    const response = await fetch('/api/patients/onboarding/complete', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(structuredData),
+      credentials: 'include', // Include cookies for authentication
+    })
+    
+    if (!response.ok) {
+      const errorData = await response.json()
+      throw new Error(errorData.error || 'Failed to save onboarding data')
+    }
+    
+    // Clear localStorage data
+    localStorage.removeItem('patientOnboardingData')
+    
+    // On successful onboarding completion, redirect to a page with their health card
+    // For now, we'll redirect to dashboard and later implement the health card page
+    // This is where we'd trigger the welcome email with medical ID
+    router.push('/patient/dashboard')
+  } catch (error) {
+    console.error('Error completing onboarding:', error)
+    alert('There was an error completing your onboarding. Please try again.')
+  }
+}
+
+  // Prevent closing or refreshing the page
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      e.returnValue = ''
+      return ''
+    }
+    
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+    }
+  }, [])
+  
+  // Show a loading spinner for a very short time if necessary
+  if (isLoading && !authChecked) {
+    return (
+      <div className="container max-w-4xl py-12">
+        <h2 className="text-xl font-bold">Welcome!</h2>
+        <p className="text-muted-foreground text-center mb-8">
+          Getting everything ready for you...
+        </p>
+        <div className="flex justify-center my-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      </div>
+    )
+  }
+  
+  return (
+    <div className="container max-w-screen-lg mx-auto py-6 md:py-10">
+      {patientName && (
+        <Card className="mb-6 shadow-md bg-gradient-to-r from-blue-50 to-green-50 border-blue-100">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-2xl font-bold text-blue-800">Hello, {patientName}!</CardTitle>
+            <CardDescription className="text-blue-700">Complete your onboarding process to get started with Central Health</CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+      
+      <Card className="shadow-lg">
+        {/* Progress bar */}
+        <div className="p-6 border-b">
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span>Step {step} of {totalSteps}</span>
+              <span>{Math.round(progressPercentage)}% Complete</span>
+            </div>
+            <Progress value={progressPercentage} className="h-2" />
+          </div>
+        </div>
+        
+        {/* Form content */}
+        <div className="p-6">
+          {step === 1 && (
+            <BasicDetailsForm 
+              formData={formData} 
+              updateFormData={updateFormData} 
+              onNext={handleNext} 
+            />
+          )}
+          
+          {step === 2 && (
+            <HealthInfoForm 
+              formData={formData} 
+              updateFormData={updateFormData} 
+              onNext={handleNext} 
+              onPrevious={handlePrevious} 
+            />
+          )}
+          
+          {step === 3 && (
+            <EmergencyContactForm 
+              formData={formData} 
+              updateFormData={updateFormData} 
+              onNext={handleNext} 
+              onPrevious={handlePrevious} 
+            />
+          )}
+          
+          {step === 4 && (
+            <PhotoUploadForm 
+              formData={formData} 
+              updateFormData={updateFormData} 
+              onNext={handleNext} 
+              onPrevious={handlePrevious} 
+            />
+          )}
+          
+          {step === 5 && (
+            <ReviewConfirmForm 
+              formData={formData} 
+              onSubmit={handleSubmit} 
+              onPrevious={handlePrevious} 
+            />
+          )}
+        </div>
+      </Card>
+      
+      {/* Info text */}
+      <div className="text-center text-sm text-muted-foreground mt-6">
+        <p>All information is securely stored and protected by hospital privacy policies.</p>
+        <p>You cannot skip this onboarding process. It ensures your profile is complete and ready for medical services.</p>
+      </div>
+    </div>
+  )
+}
