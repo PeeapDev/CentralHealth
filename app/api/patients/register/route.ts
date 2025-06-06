@@ -4,14 +4,9 @@ import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+// Import standardized medical ID generator
+import { generateMedicalID } from '@/utils/medical-id';
 
-// Helper function to generate a patient medical number
-function generateMedicalNumber(): string {
-  // Generate a random 5-digit number for patient identifier
-  const randomDigits = Math.floor(10000 + Math.random() * 90000);
-  // Format as P + 5 digits (e.g., P12345)
-  return `P${randomDigits}`;
-}
 
 // Get JWT secret
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_fallback_secret_for_patient_authentication_do_not_use_in_production';
@@ -78,8 +73,8 @@ export async function POST(req: NextRequest) {
       phoneNumber = `+232${numberWithoutCode}`;
     }
     
-    // Generate unique medical number for the patient
-    const medicalNumber = generateMedicalNumber();
+    // Generate unique medical number for the patient using standardized format
+    const medicalNumber = generateMedicalID();
     
     // Set a default birthdate if not provided
     const birthDate = body.birthDate ? new Date(body.birthDate) : new Date('1990-01-01');
@@ -200,20 +195,38 @@ export async function POST(req: NextRequest) {
         }, { status: 400 });
       }
 
-      // Create new patient with verification code (match Prisma schema)      
+      // First create the user
+      const newUser = await prisma.user.create({
+        data: {
+          email: body.email,
+          password: hashedPassword,
+          name: `${body.firstName} ${body.lastName}`,
+          role: 'patient',
+          hospitalId: hospitalId,
+          // Optional profile image could be added here
+        }
+      });
+      
+      console.log(`User created with ID ${newUser.id}`);
+      
+      // Then create the patient linked to the user
       const newPatient = await prisma.patient.create({
         data: {
-          medicalNumber: medicalNumber,
+          // Link to the user we just created
+          userId: newUser.id,
+          
+          medicalNumber: medicalNumber, // PHN - Critical field for patient identification
           resourceType: 'Patient',
           active: true, // Set to active immediately (no email verification)
           
-          // JSON fields stored as strings
-          name: JSON.stringify(nameData),
+          // JSON fields - stored as consistent format strings
+          // Make sure name data is in FHIR format expected by the profile page
+          name: JSON.stringify(nameData), 
           gender: gender,
           birthDate: birthDate,
           email: body.email,
           phone: phoneNumber,
-          password: hashedPassword,
+          password: hashedPassword, // Note: in future iterations, we could remove this as it's in the User model
           telecom: JSON.stringify(telecomData),
           address: JSON.stringify(addressData),
           photo: '',
@@ -223,8 +236,11 @@ export async function POST(req: NextRequest) {
           resetExpiration: verificationExpiry,
           
           // Set extension with onboardingCompleted = false to trigger wizard
+          // Add more fields to ensure all required data is present for the profile page
           extension: JSON.stringify({
-            onboardingCompleted: false
+            onboardingCompleted: false,
+            medicalId: medicalNumber, // Store medicalId in extension to ensure consistency
+            userId: newUser.id // Also store userId here for redundancy
           })
         },
         select: {
@@ -244,10 +260,12 @@ export async function POST(req: NextRequest) {
       
       // Prepare patient data for response
       const nameObject = newPatient.name ? JSON.parse(newPatient.name as string) : nameData;
+      
+      // Enhanced patient response with all required fields
       const patientResponse = {
         id: newPatient.id,
-        medicalNumber: newPatient.medicalNumber,
-        firstName: body.firstName, // For convenience in response
+        medicalNumber: newPatient.medicalNumber, // Ensure PHN is included in response
+        firstName: body.firstName, 
         lastName: body.lastName,
         name: `${body.firstName} ${body.lastName}`,
         email: newPatient.email,
@@ -256,6 +274,11 @@ export async function POST(req: NextRequest) {
         birthDate: newPatient.birthDate ? new Date(newPatient.birthDate).toISOString() : null,
         createdAt: new Date(newPatient.createdAt).toISOString(),
         updatedAt: new Date(newPatient.updatedAt).toISOString(),
+        // Add extension data for debugging
+        extensionData: JSON.stringify({
+          onboardingCompleted: false,
+          medicalId: newPatient.medicalNumber  // Ensure medicalId matches medicalNumber
+        })
       };
       
       // We're no longer sending welcome email at registration time
@@ -267,13 +290,16 @@ export async function POST(req: NextRequest) {
       
       // No email is sent at this stage - welcome email with full details will be sent after onboarding
       
-      // Generate JWT token
+      // Generate JWT token with all necessary fields
       const token = jwt.sign(
         {
           id: newPatient.id,
-          medicalNumber: newPatient.medicalNumber,
+          medicalNumber: newPatient.medicalNumber, // PHN included in token
           email: newPatient.email,
           role: 'patient', // Role for authorization
+          // Add additional fields that might be needed for authentication
+          firstName: body.firstName,
+          lastName: body.lastName
         },
         JWT_SECRET,
         {

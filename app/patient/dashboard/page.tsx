@@ -83,6 +83,18 @@ type Patient = {
   phoneNumber?: string;
   email?: string;
   medicalId?: string;
+  medicalNumber?: string;
+  phn?: string;
+  bloodGroup?: string;
+  allergies?: string[];
+  chronicConditions?: string[];
+  organDonor?: boolean;
+  emergencyContact?: {
+    name?: string;
+    relationship?: string;
+    phone?: string;
+  };
+  onboardingCompleted?: boolean;
   address?: string;
   city?: string;
   state?: string;
@@ -647,6 +659,88 @@ export default function PatientDashboard() {
           {/* Overview Tab */}
           {activeTab === "overview" && (
             <div className="space-y-6">
+              {/* Patient Medical Information Card - Shows onboarding data */}
+              <Card className="mb-6 overflow-hidden border-none shadow-md">
+                <div className="h-1 bg-indigo-500"></div>
+                <CardHeader className="pb-2">
+                  <div className="flex justify-between items-center">
+                    <CardTitle>Medical Information</CardTitle>
+                    <Link href="/patient/profile" className="text-sm text-blue-600 hover:underline flex items-center">
+                      View Details <ChevronRight className="h-4 w-4 ml-1" />
+                    </Link>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <h4 className="text-sm font-medium text-muted-foreground mb-2">Patient ID</h4>
+                      <div className="flex items-center">
+                        {patient?.medicalNumber || patient?.medicalId || patient?.phn ? (
+                          <Badge variant="outline" className="font-mono text-sm py-1">
+                            {patient?.medicalNumber || patient?.medicalId || patient?.phn}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground">Not assigned</span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <h4 className="text-sm font-medium text-muted-foreground mb-2">Blood Group</h4>
+                      <div>
+                        {patient?.bloodGroup ? (
+                          <Badge variant="secondary" className="text-base">{patient.bloodGroup}</Badge>
+                        ) : (
+                          <span className="text-muted-foreground">Not specified</span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <h4 className="text-sm font-medium text-muted-foreground mb-2">Allergies</h4>
+                      <div>
+                        {patient?.allergies && patient.allergies.length > 0 ? (
+                          <span>{patient.allergies.slice(0, 2).join(', ')}{patient.allergies.length > 2 ? '...' : ''}</span>
+                        ) : (
+                          <span className="text-muted-foreground">None reported</span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <h4 className="text-sm font-medium text-muted-foreground mb-2">Organ Donor</h4>
+                      <div>
+                        {patient?.organDonor === true ? (
+                          <Badge className="bg-green-500">Yes</Badge>
+                        ) : patient?.organDonor === false ? (
+                          <Badge variant="outline">No</Badge>
+                        ) : (
+                          <span className="text-muted-foreground">Not specified</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {patient?.onboardingCompleted ? (
+                    <div className="mt-4 flex items-center text-green-600">
+                      <CheckCircle2 className="h-4 w-4 mr-2" />
+                      <span className="text-sm">Onboarding complete</span>
+                    </div>
+                  ) : (
+                    <div className="mt-4">
+                      <Button 
+                        variant="secondary" 
+                        size="sm" 
+                        onClick={() => setShowOnboardingWizard(true)}
+                        className="w-full"
+                      >
+                        Complete Onboarding
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+              
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <Card className="overflow-hidden border-none shadow-md hover:shadow-lg transition-shadow duration-300">
                   <div className="h-1 bg-blue-500"></div>

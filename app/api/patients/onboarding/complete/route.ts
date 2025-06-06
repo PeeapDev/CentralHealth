@@ -302,7 +302,8 @@ export async function POST(req: NextRequest) {
         extension: true,
         medicalHistory: true,
         contact: true,
-        phone: true // Make sure we select the phone field
+        phone: true, // Make sure we select the phone field
+        medicalNumber: true // Critical: Include the medical number (PHN) field
       }
     });
 
@@ -325,19 +326,27 @@ export async function POST(req: NextRequest) {
     let medicalHistoryData: Record<string, any> = {};
     let contactData: Record<string, any> = {};
     let nameData: any[] = [];
-
+    
     try {
       // Parse extension data (with fallback to empty object)
       if (patient.extension) {
         if (typeof patient.extension === 'string') {
           try {
             extensionData = JSON.parse(patient.extension);
+            log('Successfully parsed extension data from string');
           } catch (e) {
             log('Failed to parse extension data, using empty object');
           }
         } else if (typeof patient.extension === 'object') {
           extensionData = patient.extension;
+          log('Using extension data from object directly');
         }
+      }
+      
+      // Check if medicalId exists in extension - this is critical for PHN consistency
+      if (!extensionData.medicalId && patient.medicalNumber) {
+        log('Adding missing medicalId from medicalNumber:', patient.medicalNumber);
+        extensionData.medicalId = patient.medicalNumber;
       }
       
       // Parse medical history data (with fallback to empty object)
@@ -393,12 +402,34 @@ export async function POST(req: NextRequest) {
     }
 
     log('Updating patient data with onboarding information');
+    
+    // Keep existing extension data and add/update new fields
     extensionData.onboardingCompleted = true;
-    extensionData.medicalId = requestData.medicalId;
-    extensionData.qrCode = requestData.qrCode;
+    
+    // CRITICAL FIX: Store the medical ID from onboarding into extension data
+    // We'll update the medicalNumber field later when constructing updateData
+    if (requestData.medicalId) {
+      // Store the medicalId from onboarding in the extension data
+      extensionData.medicalId = requestData.medicalId;
+      log('Storing medicalId in extension data:', requestData.medicalId);
+      // Note: We update the actual medicalNumber field later in the update operation
+    } else if (!extensionData.medicalId && patient.medicalNumber) {
+      // Fallback to the patient's medical number if medicalId is missing
+      log('Using patient medicalNumber as medicalId fallback:', patient.medicalNumber);
+      extensionData.medicalId = patient.medicalNumber;
+    }
+    
+    // Other extension data
+    if (requestData.qrCode) {
+      extensionData.qrCode = requestData.qrCode;
+    }
+    
     if (!extensionData.registrationDate) {
       extensionData.registrationDate = new Date().toISOString();
     }
+    
+    // Log the extension data for debugging
+    log('Updated extension data:', extensionData);
     
     // Add health information from onboarding
     if (requestData.healthInfo) {
@@ -450,20 +481,78 @@ export async function POST(req: NextRequest) {
       const phoneNumber = requestData.basicDetails?.phoneNumber || 
         (patient && 'phone' in patient && typeof patient.phone === 'string' ? patient.phone : undefined);
 
-      updatedPatient = await prisma.patient.update({
+      // First, get the current patient data to ensure we preserve critical fields
+      const currentPatient = await prisma.patient.findUnique({
         where: { id: patientId },
-        data: {
-          extension: JSON.stringify(extensionData),
-          medicalHistory: JSON.stringify(medicalHistoryData),
-          contact: JSON.stringify(contactData),
-          name: JSON.stringify(nameData),
-          phone: phoneNumber,
-          email: requestData.basicDetails?.email || patient.email,
-          gender: requestData.basicDetails?.gender || undefined,
-          birthDate: requestData.basicDetails?.dateOfBirth || undefined,
-          photo: requestData.photo || undefined
+        select: {
+          id: true,
+          medicalNumber: true,
+          // Include other fields that should never be lost during update
         }
       });
+      
+      if (!currentPatient) {
+        throw new Error('Failed to retrieve current patient data before update');
+      }
+      
+      log('About to update patient with ID:', patientId);
+      log('Current medicalNumber:', currentPatient.medicalNumber);
+      
+      // Critical: Create an update that preserves the medicalNumber
+      // Define update data while explicitly preserving the medicalNumber
+      const updateData: any = {
+        // JSON fields that get updated
+        extension: JSON.stringify(extensionData),
+        medicalHistory: JSON.stringify(medicalHistoryData),
+        contact: JSON.stringify(contactData),
+        name: JSON.stringify(nameData),
+      };
+      
+      // Only add these fields if they exist in the request to avoid unwanted nullification
+      if (phoneNumber) updateData.phone = phoneNumber;
+      if (requestData.basicDetails?.email) updateData.email = requestData.basicDetails.email;
+      if (requestData.basicDetails?.gender) updateData.gender = requestData.basicDetails.gender;
+      if (requestData.basicDetails?.dateOfBirth) {
+        updateData.birthDate = new Date(requestData.basicDetails.dateOfBirth);
+      }
+      if (requestData.photo) updateData.photo = requestData.photo;
+      
+      // CRITICAL FIX: If we have a medical ID from onboarding, use it for medicalNumber field
+      // This ensures consistency between onboarding and admin panel displays
+      if (extensionData.medicalId) {
+        log('Setting medicalNumber to match extension.medicalId:', extensionData.medicalId);
+        updateData.medicalNumber = extensionData.medicalId;
+      } else {
+        log('No medicalId found in extension data, preserving existing medicalNumber');
+      }
+      
+      log('Updating patient with data:', {
+        patientId,
+        hasPhoneUpdate: !!phoneNumber,
+        hasEmailUpdate: !!requestData.basicDetails?.email,
+        extensionHasMedicalId: !!extensionData.medicalId,
+        currentMedicalNumber: currentPatient.medicalNumber
+      });
+      
+      // Update the patient record
+      updatedPatient = await prisma.patient.update({
+        where: { id: patientId },
+        data: updateData,
+        select: {
+          id: true,
+          email: true,
+          medicalNumber: true,
+          name: true,
+          extension: true,
+          gender: true,
+          birthDate: true,
+          phone: true,
+          photo: true
+        }
+      });
+      
+      // Verify the medicalNumber was preserved
+      log('After update - medicalNumber:', updatedPatient.medicalNumber);
       log('Patient record updated successfully');
     } catch (updateError) {
       log('Failed to update patient record:', updateError);
@@ -546,14 +635,25 @@ export async function POST(req: NextRequest) {
       patientEmail = requestData.recoveryEmail;
     }
     
-    // Return success response
+    // Verify that the essential fields were preserved
+    log('Verifying critical fields after update:', {
+      medicalIdInExtension: extensionData.medicalId,
+      updatedPatientMedicalNumber: updatedPatient.medicalNumber,
+    });
+    
+    // Enhanced response with more data for debugging
     log('Onboarding completed successfully');
     return NextResponse.json({
       success: true,
       message: "Patient onboarding completed successfully",
       patientId: patientId,
-      email: patientEmail || undefined // Ensure email is defined or undefined (not null)
+      email: patientEmail || undefined,
+      // Include critical fields in response for verification
+      medicalNumber: updatedPatient?.medicalNumber || null,
+      medicalId: extensionData?.medicalId || null,
+      onboardingComplete: true
     });
+
   } catch (error: any) {
     // Log the full error object for debugging
     log('Unhandled error during onboarding completion:', error);

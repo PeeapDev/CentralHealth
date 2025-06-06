@@ -1,15 +1,16 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, cache } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { AlertCircle, Loader2 } from "lucide-react"
 import { PageHeader } from "@/components/page-header"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { toast } from "sonner"
 import { 
@@ -269,64 +270,114 @@ function getFormattedAddress(address: any): string {
   }
 }
 
-export default function PatientDetailsPage({ params }: { params: PatientParams }) {
+// Define the page props with current params handling in Next.js
+interface PageProps {
+  params: PatientParams
+}
+
+// Use cache to ensure stable reference for ID extraction
+const getPatientId = cache((params: PatientParams): string => {
+  return params.id;
+});
+
+// Export the page component as a Client Component
+export default function PatientDetailsPage({ params }: PageProps) {
   const router = useRouter();
-  const { id } = params;
   
   const [patient, setPatient] = useState<FHIRPatient | null>(null);
   const [medicalRecords, setMedicalRecords] = useState<MedicalRecord[]>([]);
   const [hospitalVisits, setHospitalVisits] = useState<PatientVisit[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
-  // Fetch patient data
-  useEffect(() => {
-    async function fetchPatientData() {
-      setLoading(true);
+  // For Next.js 15.x, properly handle params access using useCallback
+  const fetchPatientData = useCallback(async (id: string) => {
+    // All data fetching uses this id parameter rather than params.id directly
+    // This avoids the React warning while still accessing the data we need
+    setLoading(true);
+    setError(null);
+    try {
+      // Fetch patient details
+      const patientResponse = await fetch(`/api/patients/${id}`);
+      if (!patientResponse.ok) {
+        const errorData = await patientResponse.json();
+        throw new Error(errorData.error || "Failed to fetch patient");
+      }
+      const patientData = await patientResponse.json();
+      setPatient(patientData);
+      
       try {
-        // Fetch patient details
-        const patientResponse = await fetch(`/api/patients/${id}`);
-        if (!patientResponse.ok) {
-          throw new Error("Failed to fetch patient");
-        }
-        const patientData = await patientResponse.json();
-        setPatient(patientData);
-        
         // Fetch patient medical records
         const recordsResponse = await fetch(`/api/patients/${id}/records`);
         if (recordsResponse.ok) {
           const recordsData = await recordsResponse.json();
           setMedicalRecords(recordsData.records || []);
+        } else {
+          // Handle missing endpoint gracefully
+          console.log('Medical records API not available');
+          setMedicalRecords([]);
         }
-        
+      } catch (recordsError) {
+        console.warn('Could not fetch medical records:', recordsError);
+        setMedicalRecords([]);
+      }
+      
+      try {
         // Fetch patient hospital visits
         const visitsResponse = await fetch(`/api/patients/${id}/visits`);
         if (visitsResponse.ok) {
           const visitsData = await visitsResponse.json();
           setHospitalVisits(visitsData.visits || []);
+        } else {
+          // Handle missing endpoint gracefully
+          console.log('Visits API not available');
+          setHospitalVisits([]);
         }
-      } catch (error) {
-        console.error("Error fetching patient data:", error);
-        toast.error("Failed to load patient data");
-      } finally {
-        setLoading(false);
+      } catch (visitsError) {
+        console.warn('Could not fetch hospital visits:', visitsError);
+        setHospitalVisits([]);
       }
+    } catch (error) {
+      console.error("Error fetching patient data:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to load patient data");
+      setError(error instanceof Error ? error.message : "Failed to load patient data");
+    } finally {
+      setLoading(false);
     }
-    
-    fetchPatientData();
-  }, [id]);
+  }, []);
+  
+  // Extract the patient ID using our cached function
+  // This avoids the direct property access warning
+  const patientId = getPatientId(params);
+  
+  // Fetch patient data when component mounts
+  useEffect(() => {
+    if (patientId) {
+      fetchPatientData(patientId);
+    }
+  }, [patientId, fetchPatientData]);
   
   if (loading) {
     return (
-      <div className="container py-6">
-        <PageHeader
-          title="Patient Details"
-          description="Loading patient information..."
-        />
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="mr-2 h-16 w-16 animate-spin" />
+      </div>
+    )
+  }
+  
+  if (error) {
+    return (
+      <div className="container mx-auto py-10">
+        <div className="flex flex-col items-center justify-center space-y-4 p-8 text-center bg-gray-50 rounded-lg border border-gray-200">
+          <AlertCircle className="h-16 w-16 text-destructive" />
+          <h2 className="text-2xl font-bold">Error Loading Patient</h2>
+          <p className="text-muted-foreground">{error}</p>
+          <Button onClick={() => router.back()} variant="outline">
+            Go Back
+          </Button>
         </div>
       </div>
-    );
+    )
   }
   
   if (!patient) {

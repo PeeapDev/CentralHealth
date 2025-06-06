@@ -11,12 +11,12 @@ export default function SuperAdminLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="h-screen w-screen overflow-hidden">
+    <div className="min-h-screen w-full">
       <SidebarProvider>
-        <div className="flex h-full w-full">
+        <div className="flex min-h-screen w-full">
           <SuperAdminSidebar />
-          <main className="flex-1 overflow-hidden ml-[3rem] md:ml-[12rem]">
-            <div className="h-full w-full overflow-auto bg-white p-0">
+          <main className="flex-1 ml-[3rem] md:ml-[6rem]">
+            <div className="w-full bg-white p-0">
               {children}
             </div>
           </main>

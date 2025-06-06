@@ -32,9 +32,20 @@ interface PatientProfile {
   name: string;
   email: string;
   medicalNumber: string;
+  medicalId?: string;
+  phn?: string;
   birthDate: string;
   gender: string;
   phone: string;
+  bloodGroup?: string;
+  allergies?: string[];
+  chronicConditions?: string[];
+  organDonor?: boolean;
+  emergencyContact?: {
+    name?: string;
+    relationship?: string;
+    phone?: string;
+  };
   address: {
     line?: string[];
     city?: string;
@@ -43,6 +54,7 @@ interface PatientProfile {
     country?: string;
   };
   photo?: string;
+  onboardingCompleted?: boolean;
 }
 
 // Form data interface for editing
@@ -213,19 +225,35 @@ export default function PatientProfilePage() {
 
       const data = await response.json();
       console.log('Patient data received:', !!data);
-      setPatient(data);
+      
+      // Extract patient from the response
+      const patientData = data.patient || data;
+      console.log('Patient profile data:', patientData);
+      setPatient(patientData);
 
       // Initialize form data with current values
       setFormData({
-        email: data.email || "",
-        phone: data.phone || "",
-        address: data.address || {
+        email: patientData.email || "",
+        phone: patientData.phone || "",
+        address: patientData.address || {
           line: [""],
           city: "",
           state: "",
           postalCode: "",
           country: ""
         }
+      });
+      
+      // Log complete patient data for debugging
+      console.log('Patient full data:', {
+        id: patientData.id,
+        medicalNumber: patientData.medicalNumber || patientData.medicalId || patientData.phn,
+        bloodGroup: patientData.bloodGroup,
+        emergencyContact: patientData.emergencyContact,
+        onboardingStatus: patientData.onboardingCompleted,
+        allergies: patientData.allergies,
+        chronicConditions: patientData.chronicConditions,
+        organDonor: patientData.organDonor
       });
     } catch (error) {
       console.error('Error fetching patient data:', error);
@@ -295,14 +323,21 @@ export default function PatientProfilePage() {
   return (
     <div className="container mx-auto px-4 py-6">
       {/* Back to Dashboard Link */}
-      <Button 
-        variant="ghost" 
-        size="sm" 
-        className="mb-4"
-        onClick={() => router.push('/patient/dashboard')}
-      >
-        <ChevronLeft className="mr-2 h-4 w-4" /> Back to Dashboard
-      </Button>
+      <div className="flex justify-between items-center mb-4">
+        <Button 
+          variant="ghost" 
+          size="sm"
+          onClick={() => router.push('/patient/dashboard')}
+        >
+          <ChevronLeft className="mr-2 h-4 w-4" /> Back to Dashboard
+        </Button>
+        
+        {patient.onboardingCompleted && (
+          <Badge className="bg-green-500 px-3 py-1">
+            <CheckCircle2 className="h-4 w-4 mr-1" /> Onboarding Complete
+          </Badge>
+        )}
+      </div>
       
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Personal Information Card */}
@@ -344,10 +379,10 @@ export default function PatientProfilePage() {
               
               <div>
                 <Label className="text-muted-foreground text-xs">Medical ID</Label>
-                {patient.medicalNumber ? (
+                {patient.medicalNumber || patient.medicalId || patient.phn ? (
                   <div className="flex items-center space-x-2">
                     <Badge variant="outline" className="font-mono text-sm py-1">
-                      {patient.medicalNumber}
+                      {patient.medicalNumber || patient.medicalId || patient.phn}
                     </Badge>
                     <Badge className="bg-green-500 hover:bg-green-600">Active</Badge>
                   </div>
@@ -358,12 +393,121 @@ export default function PatientProfilePage() {
                   </Alert>
                 )}
               </div>
+
+              {patient.onboardingCompleted !== undefined && (
+                <div>
+                  <Label className="text-muted-foreground text-xs">Onboarding Status</Label>
+                  <div className="flex items-center space-x-2">
+                    {patient.onboardingCompleted ? (
+                      <Badge className="bg-green-500">Completed</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-amber-500 border-amber-500">In Progress</Badge>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
         
+        {/* Medical Information Card */}
+        <Card className="md:col-span-1">
+          <CardHeader>
+            <CardTitle>Medical Information</CardTitle>
+            <CardDescription>Your health-related information</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-3">
+              <div>
+                <Label className="text-muted-foreground text-xs">Blood Group</Label>
+                <p className="font-medium">
+                  {patient.bloodGroup ? (
+                    <Badge variant="secondary" className="text-base">{patient.bloodGroup}</Badge>
+                  ) : "Not specified"}
+                </p>
+              </div>
+              
+              <div>
+                <Label className="text-muted-foreground text-xs">Allergies</Label>
+                <div>
+                  {patient.allergies && patient.allergies.length > 0 ? (
+                    <ul className="list-disc list-inside">
+                      {patient.allergies.map((allergy, index) => (
+                        <li key={index}>{allergy}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-muted-foreground">None reported</p>
+                  )}
+                </div>
+              </div>
+              
+              <div>
+                <Label className="text-muted-foreground text-xs">Chronic Conditions</Label>
+                <div>
+                  {patient.chronicConditions && patient.chronicConditions.length > 0 ? (
+                    <ul className="list-disc list-inside">
+                      {patient.chronicConditions.map((condition, index) => (
+                        <li key={index}>{condition}</li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-muted-foreground">None reported</p>
+                  )}
+                </div>
+              </div>
+              
+              <div>
+                <Label className="text-muted-foreground text-xs">Organ Donor</Label>
+                <p>
+                  {patient.organDonor === true ? (
+                    <Badge className="bg-green-500">Yes</Badge>
+                  ) : patient.organDonor === false ? (
+                    <Badge variant="outline">No</Badge>
+                  ) : (
+                    "Not specified"
+                  )}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        {/* Emergency Contact Card */}
+        <Card className="md:col-span-1">
+          <CardHeader>
+            <CardTitle>Emergency Contact</CardTitle>
+            <CardDescription>Who to contact in case of emergency</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {patient.emergencyContact ? (
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-muted-foreground text-xs">Contact Name</Label>
+                  <p className="font-medium">{patient.emergencyContact.name || 'Not specified'}</p>
+                </div>
+                
+                <div>
+                  <Label className="text-muted-foreground text-xs">Relationship</Label>
+                  <p>{patient.emergencyContact.relationship || 'Not specified'}</p>
+                </div>
+                
+                <div>
+                  <Label className="text-muted-foreground text-xs">Phone Number</Label>
+                  <p className="font-mono">{patient.emergencyContact.phone || 'Not provided'}</p>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-4">
+                <AlertCircle className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
+                <p className="text-muted-foreground">No emergency contact information provided</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+        
         {/* Contact Information Card */}
-        <Card className="md:col-span-2">
+        <Card className="md:col-span-1">
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
               <CardTitle>Contact Information</CardTitle>

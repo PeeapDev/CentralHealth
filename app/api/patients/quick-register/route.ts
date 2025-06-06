@@ -2,14 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { generateMedicalID } from '@/utils/medical-id';
 
-// Helper function to generate a medical number
-function generateMedicalNumber(): string {
-  const randomDigits = Math.floor(10000 + Math.random() * 90000);
-  return `P${randomDigits}`;
-}
-
-// Generate JWT token
+// Helper function to generate a JWT token
 function generateToken(patient: any) {
   const jwtSecret = process.env.JWT_SECRET || 'fallback_secret_for_development';
   
@@ -50,7 +45,7 @@ export async function POST(req: NextRequest) {
     }
     
     // Generate a medical number
-    const medicalNumber = generateMedicalNumber();
+    const medicalNumber = generateMedicalID();
     
     // Hash password
     const hashedPassword = await bcrypt.hash(body.password, 10);

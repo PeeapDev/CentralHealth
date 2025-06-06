@@ -2,19 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 export async function GET(request: NextRequest) {
+  // Track execution time for performance monitoring
+  const startTime = Date.now();
+  
   try {
-    const params = request.nextUrl.searchParams;
+    const searchParams = request.nextUrl.searchParams;
     
-    // Get query parameters for filtering and searching
-    const searchTerm = params.get('search') || '';
-    const medicalNumber = params.get('medicalNumber') || '';
-    const hospitalId = params.get('hospitalId') || '';
-    const page = parseInt(params.get('page') || '1');
-    const pageSize = parseInt(params.get('pageSize') || '20');
-    const skip = (page - 1) * pageSize;
+    // Parse query parameters for filtering and pagination
+    const page = parseInt(searchParams.get('page') || '1', 10);
+    const pageSize = parseInt(searchParams.get('pageSize') || '10', 10); // Changed default page size to 10 for better pagination
+    const search = searchParams.get('search') || '';
+    const medicalNumber = searchParams.get('medicalNumber') || '';
+    const hospitalId = searchParams.get('hospitalId') || '';
     
     // Log the request parameters for debugging
-    console.log('Patient search parameters:', { searchTerm, medicalNumber, hospitalId, page, pageSize });
+    console.log('Patient search parameters:', { search, medicalNumber, hospitalId, page, pageSize });
     
     // Build the where clause for the search
     const whereClause: any = {
@@ -36,19 +38,19 @@ export async function GET(request: NextRequest) {
     }
     
     // If a search term is provided, search across multiple fields
-    if (searchTerm) {
+    if (search) {
       whereClause.OR = [
         // Search in medical number
         {
           medicalNumber: {
-            contains: searchTerm,
+            contains: search,
             mode: 'insensitive',
           },
         },
         // Search in email
         {
           email: {
-            contains: searchTerm,
+            contains: search,
             mode: 'insensitive',
           },
         },
@@ -56,7 +58,7 @@ export async function GET(request: NextRequest) {
         // Search in name field (JSON)
         {
           name: {
-            contains: searchTerm,
+            contains: search,
             mode: 'insensitive',
           },
         },
@@ -65,9 +67,9 @@ export async function GET(request: NextRequest) {
     }
     
     // If search term looks like a phone number, add a custom raw query condition
-    if (searchTerm && /\d/.test(searchTerm)) {
+    if (search && /\d/.test(search)) {
       // This is likely a phone number search, we'll handle it with a more advanced query later
-      console.log('Phone number search detected:', searchTerm);
+      console.log('Phone number search detected:', search);
     }
     
     // If hospitalId is provided, filter by it
@@ -107,7 +109,10 @@ export async function GET(request: NextRequest) {
     let total = 0;
     
     try {
+      console.log('About to query the database for patients, where clause:', JSON.stringify(whereClause));
+      
       // Use a more targeted select to avoid querying fields that might not exist
+      const queryStartTime = Date.now();
       [patients, total] = await Promise.all([
         prisma.patient.findMany({
           where: whereClause,
@@ -124,8 +129,13 @@ export async function GET(request: NextRequest) {
             email: true,
             phone: true,
             hospitalId: true,
+            telecom: true, // Include telecom for contact info
+            address: true, // Include address information
+            extension: true, // Include extension for additional data
             createdAt: true,
             updatedAt: true,
+            // Note: User relation appears to be missing in schema currently
+            // Will handle any user-related data in post-processing
             hospital: {
               select: {
                 name: true,
@@ -141,26 +151,21 @@ export async function GET(request: NextRequest) {
             // Exclude potentially problematic fields
             password: false,
           },
-        orderBy: {
-          createdAt: 'desc', // Show newest patients first
-        },
-        skip,
-        take: pageSize,
-      }),
-      prisma.patient.count({ where: whereClause }),
-    ]);
-    
-    // Log the result for debugging
-    console.log(`Found ${patients.length} patients out of ${total} total`);
-    
-    // Log the raw patient data for debugging
-    console.log(`Retrieved ${patients.length} patients from database`);
-    if (patients.length > 0) {
-      console.log('First patient sample (id, medical number):', {
-        id: patients[0].id,
-        medicalNumber: patients[0].medicalNumber
-      });
-    }
+        }),
+        prisma.patient.count({ where: whereClause }),
+      ]);
+      
+      // Log the result for debugging
+      console.log(`Found ${patients.length} patients out of ${total} total`);
+      
+      // Log the raw patient data for debugging
+      console.log(`Retrieved ${patients.length} patients from database`);
+      if (patients.length > 0) {
+        console.log('First patient sample (id, medical number):', {
+          id: patients[0].id,
+          medicalNumber: patients[0].medicalNumber
+        });
+      }
     } catch (error) {
       console.error('Error fetching patients:', error);
       // Continue with empty results rather than failing the request
@@ -168,51 +173,139 @@ export async function GET(request: NextRequest) {
       total = 0;
     }
 
-    // Process patients to ensure JSON fields are properly formatted
+    // Process patients to ensure JSON fields are properly formatted and merge User data
     const processedPatients = patients.map(patient => {
-      const processedPatient: any = { ...patient };
+      const processedPatient = {
+        ...patient,
+      };
       
       // Remove password from response for security
       delete processedPatient.password;
       
-      // Process JSON fields if they're stored as strings
-      try {
-        if (processedPatient.name && typeof processedPatient.name === 'string') {
+      // Parse all JSON fields that might be stored as strings
+      if (typeof processedPatient.name === 'string') {
+        try {
           processedPatient.name = JSON.parse(processedPatient.name);
+        } catch (error) {
+          processedPatient.name = [];
         }
-        
-        if (processedPatient.telecom && typeof processedPatient.telecom === 'string') {
+      }
+      
+      if (typeof processedPatient.telecom === 'string') {
+        try {
           processedPatient.telecom = JSON.parse(processedPatient.telecom);
+        } catch (error) {
+          processedPatient.telecom = [];
         }
-        
-        if (processedPatient.address && typeof processedPatient.address === 'string') {
+      }
+      
+      if (typeof processedPatient.address === 'string') {
+        try {
           processedPatient.address = JSON.parse(processedPatient.address);
+        } catch (error) {
+          processedPatient.address = [];
         }
-        
-        // Add a computed full name property for convenience
-        if (processedPatient.name) {
-          const nameObj = processedPatient.name;
-          let fullName = '';
-          if (nameObj.given && Array.isArray(nameObj.given)) {
-            fullName += nameObj.given.join(' ');
-          }
-          
-          if (nameObj.family) {
-            fullName += ' ' + nameObj.family;
-          }
-          
-          processedPatient.fullName = fullName.trim();
+      }
+      
+      if (typeof processedPatient.extension === 'string') {
+        try {
+          processedPatient.extension = JSON.parse(processedPatient.extension);
+        } catch (error) {
+          processedPatient.extension = null;
         }
-        
-        // Extract phone from telecom for easier access
-        if (processedPatient.telecom && Array.isArray(processedPatient.telecom)) {
-          const phoneEntry = processedPatient.telecom.find((entry: { system: string; value: string }) => entry.system === 'phone');
-          if (phoneEntry) {
-            processedPatient.phoneNumber = phoneEntry.value;
+      }
+      
+      // Handle medical number display consistently
+      // IMPORTANT: We should NOT generate random medical numbers here, as this causes inconsistency
+      // between what's shown to the user during onboarding and what appears in the admin
+      
+      // For frontend display, we'll use the original medicalNumber field
+      // - Never modify the original medicalNumber field
+      // - Only use the displayMedicalNumber field for display purposes
+      
+      // Add displayMedicalNumber field for frontend use
+      processedPatient.displayMedicalNumber = processedPatient.medicalNumber;
+      
+      // If the medical number starts with 'P', we'll display it without the prefix
+      if (processedPatient.medicalNumber && processedPatient.medicalNumber.startsWith('P')) {
+        processedPatient.displayMedicalNumber = processedPatient.medicalNumber.substring(1);
+      }
+      
+      // If there's no medical number at all, display 'Not Assigned' instead of generating a random one
+      if (!processedPatient.medicalNumber || processedPatient.medicalNumber === 'null') {
+        processedPatient.displayMedicalNumber = 'Not Assigned';
+      }
+      
+      // Initialize name variables for each patient
+      let firstName = '';
+      let lastName = '';
+      let fullName = '';
+      
+      // Extract name from patient data in FHIR format
+      if (processedPatient.name) {
+        try {
+          // Handle array format (most common in this system)
+          if (Array.isArray(processedPatient.name) && processedPatient.name.length > 0) {
+            const nameObj = processedPatient.name[0]; // Use first name entry
+            
+            if (nameObj && nameObj.given && Array.isArray(nameObj.given)) {
+              firstName = nameObj.given.map((name: string) => 
+                // Capitalize first letter of each given name
+                name.charAt(0).toUpperCase() + name.slice(1).toLowerCase()
+              ).join(' ');
+              fullName = firstName;
+            }
+            
+            if (nameObj && nameObj.family) {
+              // Capitalize family name
+              lastName = typeof nameObj.family === 'string' ? 
+                nameObj.family.charAt(0).toUpperCase() + nameObj.family.slice(1).toLowerCase() : '';
+              fullName += fullName ? ' ' + lastName : lastName;
+            }
+          } 
+          // Handle direct object format
+          else if (typeof processedPatient.name === 'object') {
+            const nameObj = processedPatient.name;
+            
+            if (nameObj && nameObj.given && Array.isArray(nameObj.given)) {
+              firstName = nameObj.given.map((name: string) => 
+                // Capitalize first letter of each given name
+                name.charAt(0).toUpperCase() + name.slice(1).toLowerCase()
+              ).join(' ');
+              fullName = firstName;
+            }
+            
+            if (nameObj && nameObj.family) {
+              // Capitalize family name
+              lastName = typeof nameObj.family === 'string' ? 
+                nameObj.family.charAt(0).toUpperCase() + nameObj.family.slice(1).toLowerCase() : '';
+              fullName += fullName ? ' ' + lastName : lastName;
+            }
           }
+        } catch (error) {
+          console.error('Error extracting patient name:', error);
         }
-      } catch (e) {
-        console.error('Error processing patient JSON fields:', e);
+      }
+      
+      // Set the processed name fields
+      // Add processed name fields to patient record
+      processedPatient.firstName = firstName || 'Unknown';
+      processedPatient.lastName = lastName || 'Unknown';
+      processedPatient.fullName = fullName.trim() || 'Unknown';
+      processedPatient.displayName = processedPatient.fullName;
+      
+      // Use patient email if available
+      processedPatient.email = processedPatient.email || 'Unknown';
+      
+      // Set profile image (in future, this could come from patient.photo)
+      processedPatient.profileImage = processedPatient.photo || null;
+      
+      // Extract phone from telecom for easier access
+      if (processedPatient.telecom && Array.isArray(processedPatient.telecom)) {
+        const phoneEntry = processedPatient.telecom.find((entry: { system: string; value: string }) => entry.system === 'phone');
+        if (phoneEntry) {
+          processedPatient.phoneNumber = phoneEntry.value;
+        }
       }
       
       // Add formatted display name for convenience
@@ -282,26 +375,42 @@ export async function GET(request: NextRequest) {
       return dateB.getTime() - dateA.getTime();
     });
     
-    // Prepare the response
+    // Calculate execution time
+    const executionTime = Date.now() - startTime;
+    console.log(`Query execution time: ${executionTime}ms`);
+    
+    // Return a standard response with pagination info
     return NextResponse.json({
-      total,
-      page,
-      pageSize,
-      totalPages: Math.ceil(total / pageSize),
-      patients: mergedPatients
+      success: true,
+      patients: mergedPatients,
+      meta: {
+        total,
+        page,
+        pageSize,
+        totalPages: Math.ceil(total / pageSize),
+        hasMore: page * pageSize < total,
+        search,
+        filter: {
+          medicalNumber,
+          hospitalId
+        },
+        executionTimeMs: executionTime
+      }
     });
   } catch (error) {
     console.error("Error fetching patients:", error);
     // Return empty array instead of error to handle gracefully on the frontend
     return NextResponse.json({ 
+      success: false,
       patients: [],
-      pagination: {
+      meta: {
         total: 0,
         page: 1,
         pageSize: 20,
-        totalPages: 0,
+        totalPages: 0
       },
-    }, { status: 200 });
+      error: 'Failed to fetch patients'
+    }, { status: 500 });
   }
 }
 
@@ -373,24 +482,27 @@ export async function POST(request: NextRequest) {
     // Fetch patients
     const patients = await prisma.patient.findMany({
       where: whereClause,
-      select: {
-        id: true,
-        medicalNumber: true,
-        mrn: true,
-        resourceType: true,
-        active: true,
-        name: true,
-        telecom: true,
-        gender: true,
-        birthDate: true,
-        address: true,
-        photo: true,
-        email: true,
-        hospitalId: true,
-        createdAt: true,
-        updatedAt: true,
-        // Exclude sensitive info
-        password: false,
+      include: {
+        hospital: {
+          select: {
+            name: true,
+            subdomain: true
+          }
+        },
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            profileImage: true,
+          }
+        },
+        appointments: {
+          select: {
+            id: true
+          }
+        }
       },
       take: pageSize,
     });

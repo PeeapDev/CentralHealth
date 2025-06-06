@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { PageHeader } from "@/components/page-header"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -113,11 +114,16 @@ interface FHIRPatient {
 }
 
 export default function PatientManagementPage() {
+  const router = useRouter();
   const [patients, setPatients] = useState<FHIRPatient[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [filteredPatients, setFilteredPatients] = useState<FHIRPatient[]>([]);
   const [activeTab, setActiveTab] = useState<string>("all-patients");
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [itemsPerPage] = useState<number>(20); // Show 20 patients per page
   
   // Fetch patients data with enhanced debugging
   useEffect(() => {
@@ -185,11 +191,14 @@ export default function PatientManagementPage() {
       
       // Then fetch patients with cache busting parameters
       const timestamp = new Date().getTime();
-      const response = await fetch(`/api/patients?t=${timestamp}`, {
+      const response = await fetch(`/api/patients?t=${timestamp}&forceRefresh=true`, {
         cache: 'no-store',
         headers: {
-          'Pragma': 'no-cache'
-        }
+          'Pragma': 'no-cache',
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        },
+        // Force revalidate the data with the server
+        next: { revalidate: 0 }
       });
       
       console.log('Refresh API response status:', response.status);
@@ -228,6 +237,9 @@ export default function PatientManagementPage() {
   
   // Filter patients when search term or patients change
   useEffect(() => {
+    // Reset to first page whenever search term changes
+    setCurrentPage(1);
+    
     if (searchTerm.trim() === "") {
       setFilteredPatients(patients);
     } else {
@@ -541,50 +553,74 @@ export default function PatientManagementPage() {
                       <TableRow>
                         <TableHead>Patient</TableHead>
                         <TableHead>Medical #</TableHead>
+                        <TableHead>Email/Phone</TableHead>
                         <TableHead>Gender</TableHead>
                         <TableHead>Age</TableHead>
                         <TableHead>Status</TableHead>
-                        <TableHead>Registered</TableHead>
                         <TableHead aria-label="Actions"></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredPatients.map((patient) => {
+                      {/* Apply pagination to filtered patients */}
+                      {filteredPatients
+                        .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+                        .map((patient) => {
                         const patientName = formatFhirName(patient.name);
                         const patientInitials = getInitialsFromFhirName(patient.name);
                         const patientAge = patient.birthDate ? calculateAge(patient.birthDate) : '--';
-                        const formattedDate = new Date(patient.createdAt).toLocaleDateString();
                         
                         // Extract phone number from telecom
                         let phoneNumber = '';
-                        if (patient.telecom && Array.isArray(patient.telecom)) {
-                          const phoneEntry = patient.telecom.find(entry => entry.system === 'phone');
-                          if (phoneEntry) {
-                            phoneNumber = phoneEntry.value;
+                        try {
+                          if (patient.telecom) {
+                            // Parse telecom if it's a string
+                            const telecomData = typeof patient.telecom === 'string'
+                              ? JSON.parse(patient.telecom)
+                              : patient.telecom;
+                              
+                            if (Array.isArray(telecomData)) {
+                              const phoneEntry = telecomData.find(entry => entry.system === 'phone');
+                              if (phoneEntry) {
+                                phoneNumber = phoneEntry.value;
+                              }
+                            }
                           }
+                        } catch (e) {
+                          console.error('Error parsing telecom:', e);
                         }
                         
                         // Get registration date
                         const registrationDate = patient.createdAt 
                           ? new Date(patient.createdAt).toLocaleDateString() 
                           : 'Unknown';
-                        
+                          
                         return (
                           <TableRow key={patient.id}>
                             <TableCell>
                               <div className="flex items-center gap-4">
                                 <Avatar>
-                                  <AvatarImage src={patient.photo || ''} alt={formatFhirName(patient.name)} />
-                                  <AvatarFallback>{getInitialsFromFhirName(patient.name)}</AvatarFallback>
+                                  <AvatarImage src={patient.photo || ''} alt={patient.fullName || patient.displayName || formatFhirName(patient.name)} />
+                                  <AvatarFallback>{patient.firstName?.charAt(0)?.toUpperCase() || getInitialsFromFhirName(patient.name)}</AvatarFallback>
                                 </Avatar>
                                 <div>
-                                  <div className="font-semibold">{formatFhirName(patient.name)}</div>
+                                  <div className="font-semibold">{patient.fullName || patient.displayName || formatFhirName(patient.name)}</div>
                                   <div className="text-xs text-gray-500">Registered: {registrationDate}</div>
                                 </div>
                               </div>
                             </TableCell>
                             <TableCell>
-                              <div className="font-medium">{patient.medicalNumber || patient.mrn || 'N/A'}</div>
+                              <div className="font-medium">
+                                {/* Priorities: 
+                                    1. displayMedicalNumber (from API with P prefix removed) 
+                                    2. Individual consistent medical ID from registration
+                                    3. mrn as last resort
+                                 */}
+                                {console.log('Medical ID for patient', patient.id, ':', { 
+                                   displayMedicalNumber: patient.displayMedicalNumber, 
+                                   medicalNumber: patient.medicalNumber 
+                                })}
+                                {patient.displayMedicalNumber || patient.medicalNumber || patient.mrn || 'Not Assigned'}
+                              </div>
                             </TableCell>
                             <TableCell>
                               <div className="flex flex-col gap-1">
@@ -603,16 +639,24 @@ export default function PatientManagementPage() {
                                 )}
                               </div>
                             </TableCell>
-                            <TableCell>{patient.gender || 'Unknown'}</TableCell>
-                            <TableCell>{patientAge}</TableCell>
                             <TableCell>
-                              <Badge variant={patient.active ? "default" : "destructive"}>
-                                {patient.active ? 'Active' : 'Inactive'}
+                              <div className="text-sm">{patient.gender || 'Unknown'}</div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="text-sm">{patientAge}</div>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={patient.active ? "default" : "outline"}>
+                                {patient.active ? "Active" : "Inactive"}
                               </Badge>
                             </TableCell>
                             <TableCell>
-                              <div className="flex items-center gap-2">
-                                <Button variant="ghost" size="icon" asChild>
+                              <div className="flex justify-end gap-2">
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon"
+                                  asChild
+                                >
                                   <Link href={`/superadmin/users/patient/${patient.id}`}>
                                     <FileText className="h-4 w-4" />
                                   </Link>
@@ -636,9 +680,72 @@ export default function PatientManagementPage() {
                   </p>
                 </div>
               )}
-              <CardFooter className="pt-6 pb-2 px-0 flex justify-between text-sm text-muted-foreground">
-                <div>Showing {filteredPatients.length} of {patients.length} patients</div>
-                <div>FHIR compliant patient records</div>
+              <CardFooter className="pt-6 pb-2 px-0 flex flex-col sm:flex-row justify-between items-center gap-4 text-sm text-muted-foreground">
+                <div>
+                  Showing {Math.min(itemsPerPage, filteredPatients.length)} of {filteredPatients.length} patients 
+                  (page {currentPage} of {Math.max(1, Math.ceil(filteredPatients.length / itemsPerPage))})
+                </div>
+                
+                {/* Pagination Controls */}
+                {filteredPatients.length > itemsPerPage && (
+                  <div className="flex items-center gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                      disabled={currentPage === 1}
+                    >
+                      Previous
+                    </Button>
+                    
+                    <div className="flex items-center gap-1">
+                      {Array.from({ length: Math.min(5, Math.ceil(filteredPatients.length / itemsPerPage)) }, (_, i) => {
+                        // Logic to show page buttons around current page
+                        const totalPages = Math.ceil(filteredPatients.length / itemsPerPage);
+                        let pageNum;
+                        
+                        if (totalPages <= 5) {
+                          // If 5 or fewer pages, show all page numbers
+                          pageNum = i + 1;
+                        } else if (currentPage <= 3) {
+                          // If near start, show first 5 pages
+                          pageNum = i + 1;
+                        } else if (currentPage >= totalPages - 2) {
+                          // If near end, show last 5 pages
+                          pageNum = totalPages - 4 + i;
+                        } else {
+                          // Otherwise show 2 before and 2 after current page
+                          pageNum = currentPage - 2 + i;
+                        }
+                        
+                        return (
+                          <Button
+                            key={pageNum}
+                            variant={currentPage === pageNum ? "default" : "outline"}
+                            size="sm"
+                            className="w-8 h-8 p-0"
+                            onClick={() => setCurrentPage(pageNum)}
+                          >
+                            {pageNum}
+                          </Button>
+                        );
+                      })}
+                    </div>
+                    
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => setCurrentPage(prev => 
+                        Math.min(Math.ceil(filteredPatients.length / itemsPerPage), prev + 1)
+                      )}
+                      disabled={currentPage >= Math.ceil(filteredPatients.length / itemsPerPage)}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                )}
+                
+                <div className="hidden sm:block">FHIR compliant patient records</div>
               </CardFooter>
             </CardContent>
           </Card>
