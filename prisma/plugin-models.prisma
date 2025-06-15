@@ -1,0 +1,144 @@
+// Plugin System Models
+// These models should be added to your schema.prisma file
+
+// Core plugin registration
+model Plugin {
+  id                      String   @id @default(uuid())
+  name                    String
+  version                 String
+  category                String
+  author                  String
+  description             String
+  medicalReference        String   @default("byMedicalNumber")
+  hiddenFromGit           Boolean  @default(false)
+  crossHospitalCompatible Boolean  @default(true)
+  path                    String   // Path to plugin directory
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  
+  // Relations
+  hospitalSettings        HospitalPluginSettings[]
+  accessLogs              PatientAccessLog[]
+  
+  @@unique([name, version])
+}
+
+// Hospital-specific plugin settings and activation
+model HospitalPluginSettings {
+  id             String    @id @default(uuid())
+  hospitalId     String
+  pluginId       String
+  pluginName     String    // Denormalized for faster queries
+  isActive       Boolean   @default(false)
+  settings       Json      // Hospital-specific settings
+  activatedAt    DateTime?
+  activatedById  String?   // User who activated the plugin
+  modifiedAt     DateTime  @updatedAt
+  
+  // Relations
+  hospital       Hospital  @relation(fields: [hospitalId], references: [id])
+  plugin         Plugin    @relation(fields: [pluginId], references: [id])
+  activatedBy    User?     @relation("PluginActivator", fields: [activatedById], references: [id])
+  
+  @@unique([hospitalId, pluginId])
+}
+
+// Track plugin access to patient data
+model PatientAccessLog {
+  id            String   @id @default(uuid())
+  patientId     String
+  medicalNumber String
+  hospitalId    String
+  userId        String
+  action        String   // e.g. "view", "update", "create"
+  pluginId      String
+  pluginName    String   // Denormalized for easier querying
+  context       Json?    // Additional context about the access
+  timestamp     DateTime @default(now())
+  
+  // Relations
+  patient       Patient  @relation(fields: [patientId], references: [id])
+  hospital      Hospital @relation(fields: [hospitalId], references: [id])
+  user          User     @relation(fields: [userId], references: [id])
+  plugin        Plugin   @relation(fields: [pluginId], references: [id])
+  
+  @@index([patientId, timestamp])
+  @@index([hospitalId, pluginName])
+  @@index([userId, timestamp])
+}
+
+// Plugin-specific role permissions
+model PluginRolePermission {
+  id           String  @id @default(uuid())
+  hospitalId   String
+  pluginId     String
+  roleId       String  
+  permissions  Json    // Map of permission keys to boolean values
+  
+  // Relations
+  hospital     Hospital @relation(fields: [hospitalId], references: [id])
+  // This assumes you have a Role model
+  // role         Role     @relation(fields: [roleId], references: [id])
+  
+  @@unique([hospitalId, pluginId, roleId])
+}
+
+// Plugin-specific patient data
+model PatientPluginData {
+  id                 String   @id @default(uuid())
+  patientId          String
+  pluginId           String
+  pluginName         String   // Denormalized for easier querying
+  data               Json     // Plugin-specific data for this patient
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  createdByUserId    String
+  updatedByUserId    String
+  createdByHospitalId String
+  updatedByHospitalId String
+  
+  // Relations
+  patient            Patient  @relation(fields: [patientId], references: [id])
+  
+  @@unique([patientId, pluginName])
+  @@index([patientId, pluginName])
+  @@index([createdByHospitalId])
+}
+
+// Plugin sync tracking for offline mode
+model PluginSyncQueue {
+  id               String    @id @default(uuid())
+  pluginId         String
+  pluginName       String    // Denormalized for easier querying
+  modelName        String    // Name of the model within the plugin context
+  recordId         String    // ID of the record in the local database
+  operation        String    // create, update, delete
+  status           String    @default("pending")
+  payload          Json      // Data being synced
+  errorMessage     String?
+  conflictResolved Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  attemptCount     Int       @default(0)
+  lastAttemptAt    DateTime?
+  userId           String
+  hospitalId       String
+  
+  @@index([status, pluginName])
+  @@index([hospitalId, status])
+}
+
+// Required modifications to existing models:
+
+// Add to Hospital model:
+// pluginSettings    HospitalPluginSettings[]
+// patientAccessLogs PatientAccessLog[]
+// pluginPermissions PluginRolePermission[]
+
+// Add to User model:
+// activatedPlugins  HospitalPluginSettings[] @relation("PluginActivator")
+// patientAccessLogs PatientAccessLog[]
+
+// Add to Patient model:
+// accessLogs        PatientAccessLog[]
+// pluginData        PatientPluginData[]

@@ -11,6 +11,25 @@ export function extractTokenFromHeader(authHeader: string | null): string | unde
   return type === 'Bearer' && token ? token : undefined
 }
 
+/**
+ * Verify a token from Authorization header
+ * @param authHeader Authorization header string (Bearer token)
+ * @returns JWTPayload if valid, null if invalid
+ */
+export async function verifyAuthHeader(authHeader: string | null): Promise<JWTPayload | null> {
+  try {
+    if (!authHeader) return null
+    
+    const token = extractTokenFromHeader(authHeader)
+    if (!token) return null
+    
+    return await verifyToken(token)
+  } catch (error) {
+    console.error('JWT verification error:', error)
+    return null
+  }
+}
+
 export interface JWTPayload {
   userId: string
   hospitalId: string

@@ -599,7 +599,23 @@ export default function PatientManagementPage() {
                             <TableCell>
                               <div className="flex items-center gap-4">
                                 <Avatar>
-                                  <AvatarImage src={patient.photo || ''} alt={patient.fullName || patient.displayName || formatFhirName(patient.name)} />
+                                  <AvatarImage 
+                                    src={patient.photo || localStorage.getItem(`patientPhoto_${patient.id}`) || ''} 
+                                    alt={patient.fullName || patient.displayName || formatFhirName(patient.name)} 
+                                    onLoad={() => console.log(`Photo loaded for patient ${patient.id}`)}  
+                                    onError={(e) => {
+                                      // Try to find photo in localStorage under different keys
+                                      const localPhoto = localStorage.getItem('patientProfilePhoto') || 
+                                                        localStorage.getItem('photo') || 
+                                                        localStorage.getItem('userPhoto');
+                                      if (localPhoto) {
+                                        console.log(`Found backup photo for ${patient.id} in localStorage`)
+                                        e.currentTarget.src = localPhoto;
+                                        // Cache it for this patient
+                                        localStorage.setItem(`patientPhoto_${patient.id}`, localPhoto);
+                                      }
+                                    }}
+                                  />
                                   <AvatarFallback>{patient.firstName?.charAt(0)?.toUpperCase() || getInitialsFromFhirName(patient.name)}</AvatarFallback>
                                 </Avatar>
                                 <div>

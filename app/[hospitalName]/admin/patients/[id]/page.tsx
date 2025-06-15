@@ -91,8 +91,8 @@ export default function PatientDetailsPage({ params }: PatientDetailsPageProps) 
     return (
       <div className="container mx-auto py-6">
         <PageHeader
-          heading="Patient Details"
-          text="Loading patient information..."
+          title="Patient Details"
+          description="Loading patient information..."
         >
           <Button variant="outline" onClick={handleBack}>
             <ChevronLeft className="mr-2 h-4 w-4" /> Back to Patients
@@ -119,8 +119,8 @@ export default function PatientDetailsPage({ params }: PatientDetailsPageProps) 
     return (
       <div className="container mx-auto py-6">
         <PageHeader
-          heading="Patient Not Found"
-          text="The requested patient could not be found."
+          title="Patient Not Found"
+          description="The requested patient could not be found."
         >
           <Button variant="outline" onClick={handleBack}>
             <ChevronLeft className="mr-2 h-4 w-4" /> Back to Patients
@@ -143,8 +143,8 @@ export default function PatientDetailsPage({ params }: PatientDetailsPageProps) 
   return (
     <div className="container mx-auto py-6">
       <PageHeader
-        heading={patient.name}
-        text={patient.medicalNumber ? `Medical ID: ${patient.medicalNumber}` : "No Medical ID assigned"}
+        title={patient.name}
+        description={patient.medicalNumber ? `Medical ID: ${patient.medicalNumber}` : "No Medical ID assigned"}
       >
         <Button variant="outline" onClick={handleBack}>
           <ChevronLeft className="mr-2 h-4 w-4" /> Back to Patients

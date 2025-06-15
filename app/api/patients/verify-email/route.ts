@@ -118,13 +118,13 @@ export async function PUT(request: NextRequest) {
       }, { status: 400 });
     }
     
-    // Verify against stored OTP
-    const verificationCodes = global as any;
-    const storedData = verificationCodes.otpCodes?.[email];
+    // Verify against stored OTP from our new cache implementation
+    const otpCache = (global as any).otpCache || {};
+    const storedData = otpCache[email];
     
     console.log(`Verifying code for ${email}:`, { 
       provided: otp, 
-      stored: storedData?.code,
+      stored: storedData?.otp,
       expires: storedData?.expires
     });
     
@@ -144,7 +144,19 @@ export async function PUT(request: NextRequest) {
     }
     
     // Check if code matches
-    if (storedData.code !== otp) {
+    if (storedData.otp !== otp) {
+      // Increment attempt counter
+      storedData.attempts++;
+      
+      // If too many attempts, invalidate the code
+      if (storedData.attempts >= 3) {
+        delete (global as any).otpCache[email];
+        return NextResponse.json({
+          success: false,
+          error: 'Too many failed attempts. Please request a new code.'
+        }, { status: 400 });
+      }
+      
       return NextResponse.json({
         success: false,
         error: 'Invalid verification code'
@@ -152,7 +164,7 @@ export async function PUT(request: NextRequest) {
     }
     
     // Code is valid - mark as verified
-    delete verificationCodes.otpCodes[email]; // Clean up after successful verification
+    delete (global as any).otpCache[email]; // Clean up after successful verification
     
     return NextResponse.json({
       success: true,

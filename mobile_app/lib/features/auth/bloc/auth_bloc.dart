@@ -41,50 +41,79 @@ class RegisterRequested extends AuthEvent {
 
 class LogoutRequested extends AuthEvent {}
 
+// Removed SetUserRole event - this is now a patient-only app
+
 class CheckAuthStatus extends AuthEvent {}
 
 // States
 abstract class AuthState extends Equatable {
-  const AuthState();
+  final String? role;
+  
+  const AuthState({this.role});
 
   @override
   List<Object?> get props => [];
 }
 
-class AuthInitial extends AuthState {}
-
-class AuthLoading extends AuthState {}
-
-class Authenticated extends AuthState {
-  final AuthUser user;
-
-  const Authenticated(this.user);
-
+class AuthInitial extends AuthState {
+  const AuthInitial() : super(role: null);
+  
   @override
-  List<Object?> get props => [user];
+  List<Object?> get props => [];
 }
 
-class Unauthenticated extends AuthState {}
+class AuthLoading extends AuthState {
+  const AuthLoading({String? role}) : super(role: role);
+  
+  @override
+  List<Object?> get props => [role];
+}
+
+class Authenticated extends AuthState {
+  final String userId;
+  final String token;
+
+  const Authenticated({
+    required this.userId, 
+    required this.token,
+    String? role,
+  }) : super(role: role);
+
+  @override
+  List<Object?> get props => [userId, token, role];
+}
+
+class Unauthenticated extends AuthState {
+  const Unauthenticated({String? role}) : super(role: role);
+  
+  @override
+  List<Object?> get props => [role];
+}
 
 class AuthError extends AuthState {
   final String message;
 
-  const AuthError(this.message);
+  const AuthError(this.message, {String? role}) : super(role: role);
 
   @override
-  List<Object?> get props => [message];
+  List<Object?> get props => [message, role];
 }
 
 // BLoC
 class AuthBloc extends Bloc<AuthEvent, AuthState> {
   final AuthService _authService;
+  // Always use patient role in this patient-only app
+  final String _selectedRole = 'patient';
 
   AuthBloc(this._authService) : super(AuthInitial()) {
     on<LoginRequested>(_onLoginRequested);
     on<RegisterRequested>(_onRegisterRequested);
     on<LogoutRequested>(_onLogoutRequested);
     on<CheckAuthStatus>(_onCheckAuthStatus);
+    // This is a patient-only app, no role selection needed
   }
+  
+  // Patient-only app, removed _onSetUserRole handler
 
   Future<void> _onLoginRequested(
     LoginRequested event,
@@ -98,7 +127,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           password: event.password,
         ),
       );
-      emit(Authenticated(user));
+      emit(Authenticated(
+        userId: user.id,
+        token: user.accessToken,
+        role: state.role,
+      ));
     } catch (e) {
       emit(AuthError(e.toString()));
     }
@@ -117,7 +150,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
           name: event.name,
         ),
       );
-      emit(Authenticated(user));
+      emit(Authenticated(
+        userId: user.id,
+        token: user.accessToken,
+        role: state.role,
+      ));
     } catch (e) {
       emit(AuthError(e.toString()));
     }
@@ -144,7 +181,11 @@ class AuthBloc extends Bloc<AuthEvent, AuthState> {
       emit(AuthLoading());
       final user = await _authService.getCurrentUser();
       if (user != null) {
-        emit(Authenticated(user));
+        emit(Authenticated(
+          userId: user.id,
+          token: user.accessToken,
+          role: user.role,
+        ));
       } else {
         emit(Unauthenticated());
       }

@@ -1,0 +1,25 @@
+{
+  "name": "Medication Reminder",
+  "version": "1.0.0",
+  "category": "pharmacy",
+  "author": "Hospital FHIR Team",
+  "description": "Patient medication reminder system with notifications and adherence tracking",
+  "medicalReference": "byMedicalNumber",
+  "hiddenFromGit": false,
+  "crossHospitalCompatible": true,
+  "analytics": {
+    "patient": "analytics/patient.tsx",
+    "staff": "analytics/staff.tsx",
+    "hospital": "analytics/hospital.tsx",
+    "central": "analytics/central.tsx"
+  },
+  "setupWizard": "setup.tsx",
+  "mainScreen": "main.tsx",
+  "additionalScreens": {
+    "schedule": "screens/schedule.tsx",
+    "adherence": "screens/adherence.tsx",
+    "history": "screens/history.tsx"
+  },
+  "sidebarIcon": "pill.svg",
+  "requiredPermissions": ["pharmacy.read", "patient.notification.write"]
+}

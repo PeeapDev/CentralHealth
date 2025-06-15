@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
+import { storeUserEmail, storePatientId } from "@/hooks/use-patient-storage"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -10,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Heart, User, Loader2, CheckCircle } from "lucide-react"
 
 // Define validation error and form data interfaces
@@ -234,10 +236,25 @@ export default function PatientRegistration() {
       const data = await response.json();
       
       if (response.ok) {
-        // Registration successful - redirect to onboarding
-        console.log('Registration successful, redirecting to onboarding page');
+        // Registration successful - store user email and patient ID for dashboard
+        console.log('Registration successful');
+        
+        // Save patient info for access in the dashboard
+        storeUserEmail(formData.email);
+        if (data.patientId) {
+          storePatientId(data.patientId);
+        }
+        
+        // Redirect to onboarding or dashboard
+        console.log('Redirecting to patient dashboard');
         setIsLoading(false); // Ensure we stop loading before redirect
-        router.push('/onboarding');
+        
+        // Check onboarding status from API response
+        if (data.onboardingRequired || !data.onboardingCompleted) {
+          router.push('/onboarding');
+        } else {
+          router.push('/patient/profile');
+        }
         return; // Important: return to prevent further execution
       } else {
         // Registration failed
@@ -638,14 +655,12 @@ export default function PatientRegistration() {
               
               <div className="space-y-2">
                 <Label htmlFor="gender">Gender</Label>
-                <select
-                  id="gender"
-                  name="gender"
+                <Select
                   value={formData.gender}
-                  onChange={(e) => {
+                  onValueChange={(value) => {
                     setFormData(prev => ({
                       ...prev,
-                      gender: e.target.value
+                      gender: value
                     }));
                     
                     // Clear validation error for gender if it exists
@@ -656,12 +671,19 @@ export default function PatientRegistration() {
                       }));
                     }
                   }}
-                  className={`flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${validationErrors.gender ? "border-destructive" : ""}`}
                 >
-                  <option value="male">Male</option>
-                  <option value="female">Female</option>
-                  <option value="other">Other</option>
-                </select>
+                  <SelectTrigger 
+                    id="gender"
+                    className={validationErrors.gender ? "border-destructive" : ""}
+                  >
+                    <SelectValue placeholder="Select your gender" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="male">Male</SelectItem>
+                    <SelectItem value="female">Female</SelectItem>
+                    <SelectItem value="other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
                 {validationErrors.gender && (
                   <p className="text-destructive text-xs mt-1">{validationErrors.gender}</p>
                 )}

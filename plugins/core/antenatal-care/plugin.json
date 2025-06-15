@@ -1,0 +1,24 @@
+{
+  "name": "Antenatal Care",
+  "version": "1.0.0",
+  "category": "care",
+  "author": "Hospital FHIR Team",
+  "description": "Complete antenatal care tracking and monitoring system for pregnant patients",
+  "medicalReference": "byMedicalNumber",
+  "crossHospitalCompatible": true,
+  "mainScreen": "./components/Main.jsx",
+  "setupWizard": "./components/Setup.jsx",
+  "analytics": {
+    "patient": "./components/PatientAnalytics.jsx",
+    "staff": "./components/StaffAnalytics.jsx",
+    "hospital": "./components/HospitalAnalytics.jsx"
+  },
+  "defaultSettings": {
+    "general_enableRiskAssessment": true,
+    "general_gestationalAgeMethod": "LMP",
+    "notifications_enableReminders": true,
+    "notifications_reminderDaysBefore": 3,
+    "laboratory_displayUnits": "metric",
+    "laboratory_requiredTests": ["CBC", "Blood Type", "Glucose", "HIV", "HBsAg"]
+  }
+}

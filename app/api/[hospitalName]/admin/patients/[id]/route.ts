@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import prisma from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
 
 /**
  * GET individual patient details
@@ -7,10 +7,11 @@ import prisma from "@/lib/prisma";
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { hospitalName: string; id: string } }
+  { params }: { params: { hospitalName: string | Promise<string>; id: string | Promise<string> } }
 ) {
   try {
-    const { hospitalName, id } = params;
+    const hospitalName = await params.hospitalName;
+    const id = await params.id;
 
     if (!id) {
       return NextResponse.json(

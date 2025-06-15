@@ -1,1092 +1,550 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect } from 'react'
 import { useRouter } from "next/navigation"
-import { useCachedFetch } from "@/lib/use-cached-fetch"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
+import {
+  Activity,
+  AlertTriangle,
+  Calendar,
+  Clock,
+  Heart,
+  MessageSquare,
+  Phone,
+  Pill,
+  Plus,
+  PlusCircle,
+  Stethoscope,
+  Thermometer,
+  User,
+  Users,
+  FileText,
+  TrendingUp,
+} from "lucide-react"
+
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { 
-  Calendar, 
-  FileText, 
-  User, 
-  Activity, 
-  Pill, 
-  Heart, 
-  Home, 
-  Settings, 
-  Bell,
-  Shield,
-  LogOut,
-  Plus,
-  ChevronRight,
-  Clock,
-  Search,
-  Edit,
-  Mail,
-  Phone,
-  MapPin,
-  AlertCircle,
-  Loader2,
-  Save,
-  CheckCircle2
-} from "lucide-react"
-import Link from "next/link"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
-import { Alert, AlertDescription } from "@/components/ui/alert"
+import { DashboardLayout } from "@/components/patients/dashboard/dashboard-layout"
+import { usePatientProfile } from "@/hooks/use-patient-profile"
+import { DEFAULT_HOSPITAL } from "@/lib/hospital-context"
+import { useHospitalContext } from "@/hooks/use-hospital-context"
+import { Spinner } from "@/components/ui/spinner"
+import { getInitialsFromFhirName, formatFhirName } from "@/utils/fhir-helpers"
 
-// Type definitions for patient data and related objects
-type Appointment = {
-  id: string;
-  doctor: string;
-  specialty: string;
-  date: string;
-  time: string;
-  status: string;
-};
-
-type Medication = {
-  id: string;
-  name: string;
-  dosage: string;
-  frequency: string;
-  refillDate: string;
-  status: string;
-};
-
-type Vaccination = {
-  id: string;
-  name: string;
-  date: string;
-  status: string;
-};
-
-type VitalSigns = {
-  lastChecked: string;
-  bloodPressure: string;
-  heartRate: number;
-  temperature: string;
-  oxygenLevel: number;
-};
-
-// Type for patient data
-type Patient = {
-  id: string;
-  firstName: string;
-  lastName: string;
-  gender: string;
-  dateOfBirth: string;
-  phoneNumber?: string;
-  email?: string;
-  medicalId?: string;
-  medicalNumber?: string;
-  phn?: string;
-  bloodGroup?: string;
-  allergies?: string[];
-  chronicConditions?: string[];
-  organDonor?: boolean;
-  emergencyContact?: {
-    name?: string;
-    relationship?: string;
-    phone?: string;
-  };
-  onboardingCompleted?: boolean;
-  address?: string;
-  city?: string;
-  state?: string;
-  zip?: string;
-  country?: string;
-  addressData?: Array<{
-    line?: string[];
-    city?: string;
-    state?: string;
-    postalCode?: string;
-    country?: string;
-  }>;
-  phone?: string;
-  appointments?: Appointment[];
-  medications?: Medication[];
-  vaccinations?: Vaccination[];
-  vitalSigns?: VitalSigns;
-};
-
-// Form data type
-type FormData = {
-  email: string;
-  phone: string;
-  address: {
-    line: string[];
-    city: string;
-    state: string;
-    postalCode: string;
-    country: string;
-  };
-}
-
-// Format address as a string
-const formatAddress = (address: any) => {
-  if (!address) return "No address provided";
+export default function PatientDashboardPage() {
+  const router = useRouter()
+  const [currentPage, setCurrentPage] = useState("dashboard")
+  const [isOverview, setIsOverview] = useState(true) // Always true on dashboard
   
-  try {
-    const addressObj = typeof address === 'string' ? JSON.parse(address) : address;
-    const line = addressObj.line && addressObj.line.length > 0 ? addressObj.line.join(", ") : "";
-    const city = addressObj.city || "";
-    const state = addressObj.state || "";
-    const postalCode = addressObj.postalCode || "";
-    const country = addressObj.country || "";
-    
-    return [line, city, state, postalCode, country].filter(Boolean).join(", ");
-  } catch (e) {
-    return typeof address === 'string' ? address : "Invalid address format";
-  }
-};
-
-// Format name for display
-const formatName = (name: any) => {
-  if (!name) return "Unknown";
+  // Use our hospital context to avoid "hospital not found" errors
+  const { hospital } = useHospitalContext()
   
-  try {
-    const nameData = typeof name === 'string' ? JSON.parse(name) : name;
-    const nameObj = Array.isArray(nameData) ? nameData[0] : nameData;
-    
-    if (nameObj.text) return nameObj.text;
-    
-    const given = nameObj.given ? nameObj.given.join(' ') : '';
-    const family = nameObj.family || '';
-    
-    return `${given} ${family}`.trim() || "Unknown";
-  } catch (e) {
-    return typeof name === 'string' ? name : "Unknown";
-  }
-};
-
-// Calculate age from birthdate
-const calculateAge = (birthDate: string) => {
-  if (!birthDate) return "";
-  const today = new Date();
-  const birthDateObj = new Date(birthDate);
-  let age = today.getFullYear() - birthDateObj.getFullYear();
-  const m = today.getMonth() - birthDateObj.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birthDateObj.getDate())) {
-    age--;
-  }
-  return age;
-};
-
-export default function PatientDashboard() {
-  const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [patientData, setPatientData] = useState<any>({
-    email: '',
-    phone: '',
-    address: {
-      line: [''],
-      city: '',
-      state: '',
-      postalCode: '',
-      country: ''
-    }
-  });
-  const [activeTab, setActiveTab] = useState<"overview" | "appointments" | "medications" | "vaccinations" | "medical-records" | "profile">("overview");
-  const [editing, setEditing] = useState<boolean>(false);
-  const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [showOnboardingWizard, setShowOnboardingWizard] = useState<boolean>(false);
-  const [formData, setFormData] = useState({
-    email: "",
-    phone: "",
-    address: {
-      line: [""],
-      city: "",
-      state: "",
-      postalCode: "",
-      country: ""
-    }
-  });
-
-  // Use our optimized cached fetch hook with faster loading
-  const { 
-    data: patientResponse, 
-    isLoading, 
-    error: patientError,
-    revalidate: revalidatePatient
-  } = useCachedFetch('/api/patients/session/me', {
-    cacheTime: 2 * 60 * 1000, // 2 minutes cache
-    revalidateOnFocus: true,
-    timeout: 5000 // 5 second timeout to fail faster on slow connections
-  });
+  // Fetch patient profile data
+  const { profile, isLoading, error } = usePatientProfile()
   
-  // Patient data derived from the fetch response
-  const patient = patientResponse?.patient;
+  // Load patient photo from localStorage with appropriate fallbacks
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null)
   
-  // Setup authentication state and form data when patient data loads
   useEffect(() => {
-    if (patientResponse) {
-      setIsAuthenticated(!!patientResponse.authenticated);
+    console.log('DEBUG: Attempting to load patient photo from all possible sources...')
+    
+    // Try multiple sources for the patient photo
+    const attemptPhotoLoad = () => {
+      // Check 1: Direct localStorage key
+      const storedPhoto = localStorage.getItem('patientProfilePhoto')
+      if (storedPhoto) {
+        console.log('SUCCESS: Found patient photo in localStorage')
+        setProfilePhoto(storedPhoto)
+        return true
+      }
       
-      if (patientResponse.patient) {
-        // Set form data from patient
-        setPatientData({
-          email: patientResponse.patient.email || '',
-          phone: patientResponse.patient.phone || '',
-          address: {
-            line: patientResponse.patient.addressData?.[0]?.line || [''],
-            city: patientResponse.patient.addressData?.[0]?.city || '',
-            state: patientResponse.patient.addressData?.[0]?.state || '',
-            postalCode: patientResponse.patient.addressData?.[0]?.postalCode || '',
-            country: patientResponse.patient.addressData?.[0]?.country || ''
+      // Check 2: Registration data
+      try {
+        const registrationData = localStorage.getItem('patientRegistrationData')
+        if (registrationData) {
+          const parsedData = JSON.parse(registrationData)
+          if (parsedData.photo) {
+            console.log('SUCCESS: Found patient photo in registration data')
+            localStorage.setItem('patientProfilePhoto', parsedData.photo)
+            setProfilePhoto(parsedData.photo)
+            return true
           }
-        });
-        
-        // Using session-based authentication, no need for localStorage caching
-        
-        console.log('Patient data loaded:', patientResponse.patient);
-      }
-    }
-    
-    if (patientError) {
-      console.error('Error loading patient data:', patientError);
-      setIsAuthenticated(false);
-    }
-  }, [patientResponse, patientError]);
-
-  // Handle profile form data changes
-  const handleProfileInputChange = (field: string, value: string) => {
-    setFormData(prevFormData => {
-      if (field.startsWith('address.')) {
-        const addressField = field.split('.')[1];
-        if (addressField === 'line') {
-          return {
-            ...prevFormData,
-            address: {
-              ...prevFormData.address,
-              line: [value]
-            }
-          };
-        } else {
-          return {
-            ...prevFormData,
-            address: {
-              ...prevFormData.address,
-              [addressField]: value
-            }
-          };
         }
-      } else {
-        return {
-          ...prevFormData,
-          [field]: value
-        };
+      } catch (err) {
+        console.error('Error parsing registration data:', err)
       }
-    });
-  };
-
-  // Handle profile form submission
-  const handleProfileSubmit = async () => {
-    try {
-      setIsSaving(true);
-      const response = await fetch('/api/patients/profile/update', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
-        credentials: 'include', // Important for sending cookies
-      });
-
-      if (!response.ok) {
-        throw new Error(`Error: ${response.status}`);
+      
+      // Check 3: Try legacy keys
+      const legacyPhoto = localStorage.getItem('photo') || localStorage.getItem('userPhoto')
+      if (legacyPhoto) {
+        console.log('SUCCESS: Found patient photo in legacy storage')
+        localStorage.setItem('patientProfilePhoto', legacyPhoto) 
+        setProfilePhoto(legacyPhoto)
+        return true
       }
-
-      const updatedData = await response.json();
-      // Refresh patient data after update
-      revalidatePatient();
-      setPatientData((prevData: any) => ({
-        ...prevData, 
-        email: updatedData.email,
-        phone: updatedData.phone,
-        address: updatedData.address
-      }));
-      setEditing(false);
-      // Show success toast or message
-      console.log('Profile updated successfully');
-    } catch (error) {
-      console.error('Error updating profile:', error);
-      // Show error toast or message
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  // Handle authentication and onboarding requirements silently in the background
-  useEffect(() => {
-    // Debug onboarding conditions
-    console.log('Debug onboarding conditions:', {
-      authenticated: patientResponse?.authenticated,
-      onboardingCompleted: patientResponse?.onboardingCompleted,
-      patientExists: !!patientResponse?.patient,
-      extensionData: patientResponse?.patient?.extension
-    });
-    
-    // If authentication explicitly fails, redirect to login without showing errors to user
-    if (patientResponse && !patientResponse.authenticated) {
-      console.log('Authentication failed, redirecting to landing');
-      window.location.href = '/';
-      return;
+      
+      // Fallback: Set a default photo for demo purposes
+      console.log('No patient photo found in any storage location, using demo photo')
+      // Set a data URL for a default avatar (base64 encoded small blue avatar)
+      const defaultPhoto = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzNiODJmNiIgZD0iTTEyIDJDNi41IDIgMiA2LjUgMiAxMnM0LjUgMTAgMTAgMTAgMTAtNC41IDEwLTEwUzE3LjUgMiAxMiAyek0xMiA1YTMgMyAwIDEgMSAwIDYgMyAzIDAgMCAxIDAtNnptMCAxM2MtMi43IDAtNS4xLTEuNC02LjUtMy41LjMtMS4xIDMuMi0xLjcgNi41LTEuNyAzLjMgMCA2LjIuNiA2LjUgMS43QzE3LjEgMTYuNiAxNC43IDE4IDEyIDE4eiIvPjwvc3ZnPg=='
+      setProfilePhoto(defaultPhoto)
+      localStorage.setItem('patientProfilePhoto', defaultPhoto)
+      return false
     }
     
-    // IMPORTANT: Show the onboarding wizard for a new registration
-    // We make the check more aggressive by considering anything not explicitly
-    // marked as completed as needing onboarding
-    if (patientResponse && patientResponse.authenticated && patientResponse.onboardingCompleted !== true) {
-      console.log('Onboarding not explicitly completed, showing wizard');
-      setShowOnboardingWizard(true);
-      
-      // Force this to run after a slight delay to ensure the UI has updated
-      setTimeout(() => {
-        console.log('Delayed check - wizard shown:', showOnboardingWizard);
-        if (!showOnboardingWizard) {
-          console.log('Forcing wizard to show!');
-          setShowOnboardingWizard(true);
-        }
-      }, 1000);
-      
-      return;
+    // Try to load the photo
+    attemptPhotoLoad()
+    
+    // Cleanup function
+    return () => {
+      console.log('Cleaning up photo loading effect')
+    }
+  }, [])
+
+  // Handle navigation from sidebar
+  const handleNavigation = (page: string) => {
+    // Set overview mode based on current page
+    setIsOverview(page === "dashboard")
+    
+    if (page === "dashboard") {
+      setCurrentPage("dashboard")
     } else {
-      console.log('Onboarding conditions not met, wizard hidden');
+      router.push(`/patient/${page}`)
     }
-    
-    // If there's a network/server error, don't immediately redirect
-    // Just log it and let the app continue with whatever data it has
-    if (patientError) {
-      console.error('Error fetching patient data:', patientError);
-    }
-  }, [patientResponse, patientError, router]);
-  
-  // Setup form data when patient data is loaded
-  useEffect(() => {
-    if (patient) {
-      setFormData({
-        email: patient.email || '',
-        phone: patient.phone || '',
-        address: {
-          line: patient.addressData?.[0]?.line || [''],
-          city: patient.addressData?.[0]?.city || '',
-          state: patient.addressData?.[0]?.state || '',
-          postalCode: patient.addressData?.[0]?.postalCode || '',
-          country: patient.addressData?.[0]?.country || ''
-        }
-      });
-    }
-  }, [patient]);
+  }
 
-  // Onboarding wizard dialog
-  const OnboardingWizardDialog = () => (
-    <Dialog open={showOnboardingWizard} onOpenChange={setShowOnboardingWizard}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Welcome to Central Health!</DialogTitle>
-          <DialogDescription>
-            Complete your patient profile to access all features of the patient portal.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="flex flex-col space-y-2">
-            <h3 className="font-medium">Complete your onboarding process to:</h3>
-            <ul className="list-disc pl-5 space-y-1">
-              <li>Update your personal and health information</li>
-              <li>Add emergency contacts</li>
-              <li>Record important medical details</li>
-              <li>Get your digital medical ID</li>
-            </ul>
-          </div>
-          
-          {/* Debug info for admins */}
-          <div className="border-t pt-2 mt-2 text-xs text-gray-500">
-            <p>Debug info:</p>
-            <p>onboardingCompleted: {String(patientResponse?.onboardingCompleted)}</p>
-            <p>isAuthenticated: {String(patientResponse?.authenticated)}</p>
+  // Already declared at the top of the component
+
+  if (isLoading) {
+    return (
+      <DashboardLayout 
+        currentPage={currentPage}
+        onNavigate={handleNavigation}
+        breadcrumbs={[{ label: "Dashboard" }]}
+      >
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-center h-[60vh]">
+            <div className="text-center">
+              <Spinner className="w-10 h-10 mb-2" />
+              <p className="text-gray-500">Loading patient dashboard...</p>
+            </div>
           </div>
         </div>
-        <DialogFooter className="sm:justify-between">
-          <div>
-            <Button 
-              type="button" 
-              variant="default"
-              onClick={() => {
-                setShowOnboardingWizard(false);
-                router.push('/onboarding');
-              }}
-            >
-              Start Onboarding
-            </Button>
-            <Button 
-              type="button" 
-              variant="outline"
-              className="ml-2"
-              onClick={() => setShowOnboardingWizard(false)}
-            >
-              Later
-            </Button>
+      </DashboardLayout>
+    )
+  }
+
+  if (error) {
+    return (
+      <DashboardLayout 
+        currentPage={currentPage}
+        onNavigate={handleNavigation}
+        breadcrumbs={[{ label: "Dashboard" }]}
+      >
+        <div className="max-w-7xl mx-auto">
+          <div className="p-6 rounded-lg border border-red-200 bg-red-50">
+            <h2 className="text-red-700 text-lg font-medium mb-2">Error Loading Dashboard</h2>
+            <p className="text-red-600">{error}</p>
+            <div className="flex gap-4 mt-4">
+              <Button variant="outline" onClick={() => window.location.reload()}>
+                Try Again
+              </Button>
+              <Button onClick={() => {
+                // Clear all stored data and redirect to sign-in
+                if (typeof window !== 'undefined') {
+                  console.log('Clearing all browser storage...');
+                  localStorage.clear();
+                  sessionStorage.clear();
+                  window.location.href = '/auth/login';
+                }
+              }}>
+                Sign In
+              </Button>
+            </div>
           </div>
-          
-          {/* Force toggle button for debugging - only visible for admins */}
-          <Button 
-            type="button" 
-            variant="ghost"
-            size="sm"
-            className="text-xs opacity-50 hover:opacity-100"
-            onClick={() => {
-              console.log('Forcing onboarding dialog toggle:', !showOnboardingWizard);
-              setShowOnboardingWizard(!showOnboardingWizard);
-            }}
-          >
-            Toggle
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  if (!profile) {
+    return null
+  }
+
+  // Get the exact medical ID shown in the dashboard
+  const dashboardMedicalID = profile?.patientId || profile?.medicalNumber || profile?.id || "";
+  
+  // Store this exact ID in localStorage for consistency across pages
+  if (dashboardMedicalID) {
+    localStorage.setItem('medicalNumber', dashboardMedicalID);
+  }
+  
+  // Prepare profile data to pass to sidebar using ONLY the dashboard medical ID
+  const profileDataForSidebar = {
+    name: profile?.name || "", 
+    medicalNumber: dashboardMedicalID, // Use exactly the same ID as shown on dashboard
+    profileImage: profilePhoto || undefined,
+  };
+  
+  // Store the current patient name in localStorage to ensure consistency across pages
+  if (profile?.name) {
+    localStorage.setItem('currentPatientName', profile.name);
+  }
+  
+  // Make sure profile photo is always stored in localStorage
+  if (profilePhoto) {
+    localStorage.setItem('patientProfilePhoto', profilePhoto);
+  }
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      {/* Sidebar */}
-      <div className="hidden md:flex flex-col w-64 bg-white border-r border-gray-200 shadow-sm">
-        <div className="p-4 border-b border-gray-200 flex items-center">
-          <div className="bg-primary/10 rounded-md p-2 mr-2">
-            <Heart className="h-5 w-5 text-primary" />
-          </div>
-          <h1 className="text-lg font-bold">Patient Portal</h1>
-        </div>
-        
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center space-x-3">
-            <Avatar>
-              <AvatarImage src="" />
-              <AvatarFallback className="bg-primary/10 text-primary">
-                {patient?.name?.charAt(0) || 'P'}
-              </AvatarFallback>
-            </Avatar>
-            <div>
-              <p className="font-medium">{patient?.name}</p>
-              <p className="text-sm text-muted-foreground">MRN: {patient?.medicalNumber}</p>
-            </div>
-          </div>
-        </div>
-        
-        <nav className="flex-1 p-4 space-y-1">
-          <Button 
-            variant={activeTab === "overview" ? "secondary" : "ghost"} 
-            className="w-full justify-start" 
-            onClick={() => setActiveTab("overview")}
-          >
-            <Home className="mr-2 h-4 w-4" />
-            Overview
-          </Button>
-          
-          <Button 
-            variant={activeTab === "appointments" ? "secondary" : "ghost"} 
-            className="w-full justify-start" 
-            onClick={() => setActiveTab("appointments")}
-          >
-            <Calendar className="mr-2 h-4 w-4" />
-            Appointments
-          </Button>
-          
-          <Button 
-            variant={activeTab === "medications" ? "secondary" : "ghost"} 
-            className="w-full justify-start" 
-            onClick={() => setActiveTab("medications")}
-          >
-            <Pill className="mr-2 h-4 w-4" />
-            Medications
-          </Button>
-          
-          <Button 
-            variant={activeTab === "vaccinations" ? "secondary" : "ghost"} 
-            className="w-full justify-start" 
-            onClick={() => setActiveTab("vaccinations")}
-          >
-            <Shield className="mr-2 h-4 w-4" />
-            Vaccinations
-          </Button>
-          
-          <Button 
-            variant={activeTab === "medical-records" ? "secondary" : "ghost"} 
-            className="w-full justify-start" 
-            onClick={() => setActiveTab("medical-records")}
-          >
-            <FileText className="mr-2 h-4 w-4" />
-            Medical Records
-          </Button>
-        </nav>
-        
-        <div className="p-4 border-t border-gray-200">
-          {/* Profile link button */}
-          <Button 
-            variant={activeTab === "profile" ? "secondary" : "outline"} 
-            className="w-full justify-start mb-2" 
-            onClick={() => setActiveTab("profile")}
-          >
-            <User className="mr-2 h-4 w-4" />
-            Profile
-          </Button>
-          
-          {/* Logout button */}
-          <Button 
-            variant="outline" 
-            className="w-full justify-start" 
-            onClick={async () => {
-              try {
-                const response = await fetch('/api/patients/session/logout', {
-                  method: 'POST',
-                  credentials: 'include',
-                  headers: {
-                    'Content-Type': 'application/json'
-                  }
-                });
-                
-                if (response.ok) {
-                  console.log('Logged out successfully');
-                  // Redirect to landing page after successful logout
-                  router.push('/');
-                } else {
-                  console.error('Logout failed');
-                }
-              } catch (error) {
-                console.error('Error during logout:', error);
-              }
-            }}
-          >
-            <LogOut className="mr-2 h-4 w-4" />
-            Logout
-          </Button>
-        </div>
-      </div>
-      
-      {/* Mobile Header */}
-      <div className="flex flex-col flex-1">
-        <header className="sticky top-0 z-10 bg-white border-b border-gray-200 shadow-sm md:hidden">
-          <div className="flex items-center justify-between p-4">
+    <DashboardLayout 
+      currentPage={currentPage} 
+      onNavigate={handleNavigation}
+      hideProfileHeader={isOverview} // Hide profile in sidebar when on overview
+      profileData={profileDataForSidebar}
+      breadcrumbs={[{ label: "Dashboard" }]}
+    >
+      <div className="max-w-7xl mx-auto">
+        {/* Patient Info Header with improved layout */}
+        <div className="bg-white rounded-lg shadow-md border border-gray-100 p-6 mb-8 transition-all hover:shadow-lg duration-300">
+          <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
-              <div className="bg-primary/10 rounded-md p-2">
-                <Heart className="h-5 w-5 text-primary" />
-              </div>
-              <h1 className="text-lg font-bold">Patient Portal</h1>
-            </div>
-            
-            <div className="flex items-center space-x-2">
-              <Button variant="ghost" size="icon">
-                <Bell className="h-5 w-5" />
-              </Button>
-              
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                onClick={() => setActiveTab("profile")}
-                title="Profile"
-              >
-                <User className="h-5 w-5" />
-              </Button>
-              
-              <Avatar className="h-8 w-8">
-                <AvatarImage src="" />
-                <AvatarFallback className="bg-primary/10 text-primary">
-                  {patient?.name?.charAt(0) || 'P'}
+              {/* Enhanced avatar with animation */}
+              <Avatar className="h-16 w-16 ring-4 ring-blue-50 shadow-sm transition-transform hover:scale-105 duration-300">
+                <AvatarImage 
+                  src={profilePhoto || "/placeholder.svg?height=64&width=64"} 
+                  alt={profile.name || "Patient"} 
+                />
+                <AvatarFallback className="bg-blue-600 text-white text-lg">
+                  {getInitialsFromFhirName({ given: profile.name.split(' '), family: profile.name.split(' ').slice(-1)[0] })}
                 </AvatarFallback>
               </Avatar>
-            </div>
-          </div>
-        </header>
-          
-        {/* Mobile Tab Navigation */}
-        <div className="p-0 border-t border-gray-200 md:hidden">
-          <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as any)} className="w-full">
-            <TabsList className="w-full justify-start overflow-x-auto p-0 h-12">
-              <TabsTrigger value="overview" className="flex-1">
-                <Home className="h-4 w-4 md:mr-2" />
-                <span className="hidden md:inline">Overview</span>
-              </TabsTrigger>
-                
-                <TabsTrigger value="appointments" className="flex-1">
-                  <Calendar className="h-4 w-4 md:mr-2" />
-                  <span className="hidden md:inline">Appointments</span>
-                </TabsTrigger>
-                
-                <TabsTrigger value="medications" className="flex-1">
-                  <Pill className="h-4 w-4 md:mr-2" />
-                  <span className="hidden md:inline">Medications</span>
-                </TabsTrigger>
-                
-                <TabsTrigger value="vaccinations" className="flex-1">
-                  <Shield className="h-4 w-4 md:mr-2" />
-                  <span className="hidden md:inline">Vaccinations</span>
-                </TabsTrigger>
-                
-                <TabsTrigger value="medical-records" className="flex-1">
-                  <FileText className="h-4 w-4 md:mr-2" />
-                  <span className="hidden md:inline">Records</span>
-                </TabsTrigger>
-                
-                <TabsTrigger value="profile" className="flex-1">
-                  <User className="h-4 w-4 md:mr-2" />
-                  <span className="hidden md:inline">Profile</span>
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </div>
-        
-        {/* Main Content */}
-        <div className="flex-1 p-4 md:p-6">
-          {/* Dashboard Header */}
-          <div className="bg-gradient-to-r from-blue-600 to-indigo-700 rounded-xl p-6 mb-6 shadow-lg text-white">
-            <div className="flex justify-between items-center">
-              <div>
-                <h2 className="text-2xl font-bold mb-1">Welcome back, {patient?.name?.split(' ')[0] || 'Patient'}!</h2>
-                <p className="text-blue-100">Let's keep track of your health today</p>
-              </div>
-              <div className="hidden md:block bg-white/20 backdrop-blur-sm p-3 rounded-lg">
-                <div className="text-sm">Today's Date</div>
-                <div className="text-xl font-semibold">{new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</div>
+              <div className="pl-1">
+                <h2 className="text-2xl font-bold text-gray-900">{profile.name || "Unknown Patient"}</h2>
+                <p className="text-gray-600 flex items-center">
+                  <span className="inline-block w-2 h-2 bg-green-400 rounded-full mr-2"></span>
+                  Medical Number: {profile.patientId || profile.medicalNumber || profile.id}
+                </p>
+                <div className="flex items-center flex-wrap gap-3 mt-2 text-sm text-gray-500">
+                  <span className="bg-gray-50 px-2 py-0.5 rounded-full">Age: {profile.age}</span>
+                  <span className="bg-gray-50 px-2 py-0.5 rounded-full">Gender: {profile.gender}</span>
+                  <span className="bg-gray-50 px-2 py-0.5 rounded-full">Blood: {profile.bloodType || "Unknown"}</span>
+                </div>  
               </div>
             </div>
+            <div className="text-right">
+              <Badge variant="secondary" className="mb-2">
+                Admitted
+              </Badge>
+              <p className="text-sm text-gray-500">Admitted: {profile.admittedDate || "N/A"}</p>
+              <p className="text-sm text-gray-500">Dr. {profile.attendingDoctor || "N/A"}</p>
+            </div>
           </div>
-          
-          {/* Overview Tab */}
-          {activeTab === "overview" && (
-            <div className="space-y-6">
-              {/* Patient Medical Information Card - Shows onboarding data */}
-              <Card className="mb-6 overflow-hidden border-none shadow-md">
-                <div className="h-1 bg-indigo-500"></div>
-                <CardHeader className="pb-2">
-                  <div className="flex justify-between items-center">
-                    <CardTitle>Medical Information</CardTitle>
-                    <Link href="/patient/profile" className="text-sm text-blue-600 hover:underline flex items-center">
-                      View Details <ChevronRight className="h-4 w-4 ml-1" />
-                    </Link>
+        </div>
+
+        {/* Health Alerts */}
+        <div className="mb-8">
+          <Card className="border-orange-200 bg-orange-50">
+            <CardHeader className="pb-3">
+              <div className="flex items-center space-x-2">
+                <AlertTriangle className="h-5 w-5 text-orange-600" />
+                <CardTitle className="text-orange-800">Health Alerts</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-orange-700">Blood pressure slightly elevated</span>
+                  <Badge variant="outline" className="text-orange-600 border-orange-300">
+                    Monitor
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-orange-700">Medication due in 30 minutes</span>
+                  <Badge variant="outline" className="text-orange-600 border-orange-300">
+                    Reminder
+                  </Badge>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Left Column - Vitals & Metrics */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Vital Signs */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center space-x-2">
+                  <Activity className="h-5 w-5" />
+                  <span>Vital Signs</span>
+                </CardTitle>
+                <CardDescription>Latest readings from today</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="text-center p-4 bg-red-50 rounded-lg">
+                    <Heart className="h-8 w-8 text-red-600 mx-auto mb-2" />
+                    <div className="text-2xl font-bold text-red-700">72</div>
+                    <div className="text-sm text-red-600">Heart Rate</div>
+                    <div className="text-xs text-gray-500">bpm</div>
                   </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="text-center p-4 bg-blue-50 rounded-lg">
+                    <TrendingUp className="h-8 w-8 text-blue-600 mx-auto mb-2" />
+                    <div className="text-2xl font-bold text-blue-700">120/80</div>
+                    <div className="text-sm text-blue-600">Blood Pressure</div>
+                    <div className="text-xs text-gray-500">mmHg</div>
+                  </div>
+                  <div className="text-center p-4 bg-green-50 rounded-lg">
+                    <Thermometer className="h-8 w-8 text-green-600 mx-auto mb-2" />
+                    <div className="text-2xl font-bold text-green-700">98.6°F</div>
+                    <div className="text-sm text-green-600">Temperature</div>
+                    <div className="text-xs text-gray-500">Normal</div>
+                  </div>
+                  <div className="text-center p-4 bg-purple-50 rounded-lg">
+                    <Activity className="h-8 w-8 text-purple-600 mx-auto mb-2" />
+                    <div className="text-2xl font-bold text-purple-700">98%</div>
+                    <div className="text-sm text-purple-600">Oxygen Sat</div>
+                    <div className="text-xs text-gray-500">SpO2</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Recent Test Results */}
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <FileText className="mr-2 h-5 w-5 text-blue-500" />
+                    <CardTitle>Recent Test Results</CardTitle>
+                  </div>
+                  <Button variant="ghost" size="sm">View All</Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between pb-2 border-b">
                     <div>
-                      <h4 className="text-sm font-medium text-muted-foreground mb-2">Patient ID</h4>
-                      <div className="flex items-center">
-                        {patient?.medicalNumber || patient?.medicalId || patient?.phn ? (
-                          <Badge variant="outline" className="font-mono text-sm py-1">
-                            {patient?.medicalNumber || patient?.medicalId || patient?.phn}
-                          </Badge>
-                        ) : (
-                          <span className="text-muted-foreground">Not assigned</span>
-                        )}
-                      </div>
+                      <p className="font-medium">Complete Blood Count (CBC)</p>
+                      <p className="text-sm text-gray-500">June 5, 2025</p>
                     </div>
-                    
+                    <Badge className="bg-green-100 text-green-800">Normal</Badge>
+                    <Button variant="outline" size="sm">View</Button>
+                  </div>
+                  <div className="flex items-center justify-between pb-2 border-b">
                     <div>
-                      <h4 className="text-sm font-medium text-muted-foreground mb-2">Blood Group</h4>
-                      <div>
-                        {patient?.bloodGroup ? (
-                          <Badge variant="secondary" className="text-base">{patient.bloodGroup}</Badge>
-                        ) : (
-                          <span className="text-muted-foreground">Not specified</span>
-                        )}
-                      </div>
+                      <p className="font-medium">Basic Metabolic Panel</p>
+                      <p className="text-sm text-gray-500">June 5, 2025</p>
                     </div>
-                    
+                    <Badge className="bg-yellow-100 text-yellow-800">Review</Badge>
+                    <Button variant="outline" size="sm">View</Button>
+                  </div>
+                  <div className="flex items-center justify-between">
                     <div>
-                      <h4 className="text-sm font-medium text-muted-foreground mb-2">Allergies</h4>
-                      <div>
-                        {patient?.allergies && patient.allergies.length > 0 ? (
-                          <span>{patient.allergies.slice(0, 2).join(', ')}{patient.allergies.length > 2 ? '...' : ''}</span>
-                        ) : (
-                          <span className="text-muted-foreground">None reported</span>
-                        )}
-                      </div>
+                      <p className="font-medium">Urinalysis</p>
+                      <p className="text-sm text-gray-500">June 5, 2025</p>
                     </div>
-                    
-                    <div>
-                      <h4 className="text-sm font-medium text-muted-foreground mb-2">Organ Donor</h4>
-                      <div>
-                        {patient?.organDonor === true ? (
-                          <Badge className="bg-green-500">Yes</Badge>
-                        ) : patient?.organDonor === false ? (
-                          <Badge variant="outline">No</Badge>
-                        ) : (
-                          <span className="text-muted-foreground">Not specified</span>
-                        )}
-                      </div>
+                    <Badge className="bg-green-100 text-green-800">Normal</Badge>
+                    <Button variant="outline" size="sm">View</Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Treatment Progress */}
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center">
+                  <Activity className="mr-2 h-5 w-5 text-indigo-500" />
+                  <CardTitle>Treatment Progress</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <p className="font-medium">Cardiac Rehabilitation</p>
+                      <span className="text-sm text-gray-500">80% Complete</span>
+                    </div>
+                    <div className="w-full h-2 bg-gray-200 rounded-full">
+                      <div className="h-2 bg-green-500 rounded-full" style={{ width: '80%' }}></div>
                     </div>
                   </div>
                   
-                  {patient?.onboardingCompleted ? (
-                    <div className="mt-4 flex items-center text-green-600">
-                      <CheckCircle2 className="h-4 w-4 mr-2" />
-                      <span className="text-sm">Onboarding complete</span>
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <p className="font-medium">Physical Therapy</p>
+                      <span className="text-sm text-gray-500">60% Complete</span>
                     </div>
-                  ) : (
-                    <div className="mt-4">
-                      <Button 
-                        variant="secondary" 
-                        size="sm" 
-                        onClick={() => setShowOnboardingWizard(true)}
-                        className="w-full"
-                      >
-                        Complete Onboarding
-                      </Button>
+                    <div className="w-full h-2 bg-gray-200 rounded-full">
+                      <div className="h-2 bg-blue-500 rounded-full" style={{ width: '60%' }}></div>
                     </div>
-                  )}
-                </CardContent>
-              </Card>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <Card className="overflow-hidden border-none shadow-md hover:shadow-lg transition-shadow duration-300">
-                  <div className="h-1 bg-blue-500"></div>
-                  <CardHeader className="pb-2">
-                    <div className="flex justify-between items-center">
-                      <CardTitle className="text-sm font-medium">Upcoming Appointments</CardTitle>
-                      <Calendar className="h-4 w-4 text-blue-500" />
+                  </div>
+                  
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <p className="font-medium">Nutrition Plan</p>
+                      <span className="text-sm text-gray-500">45% Complete</span>
                     </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{patient?.appointments?.filter((a: Appointment) => a.status === 'scheduled').length || 0}</div>
-                    <p className="text-xs text-muted-foreground">Next: {patient?.appointments?.find((a: Appointment) => a.status === 'scheduled')?.date || 'N/A'}</p>
-                    <div className="mt-3">
-                      <Button variant="outline" size="sm" className="w-full text-xs border-blue-500 text-blue-500 hover:bg-blue-50">
-                        <Plus className="h-3 w-3 mr-1" /> Book Appointment
-                      </Button>
+                    <div className="w-full h-2 bg-gray-200 rounded-full">
+                      <div className="h-2 bg-orange-500 rounded-full" style={{ width: '45%' }}></div>
                     </div>
-                  </CardContent>
-                </Card>
-                
-                <Card className="overflow-hidden border-none shadow-md hover:shadow-lg transition-shadow duration-300">
-                  <div className="h-1 bg-green-500"></div>
-                  <CardHeader className="pb-2">
-                    <div className="flex justify-between items-center">
-                      <CardTitle className="text-sm font-medium">Active Medications</CardTitle>
-                      <Pill className="h-4 w-4 text-green-500" />
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{patient?.medications?.filter((m: Medication) => m.status === 'active').length || 0}</div>
-                    <p className="text-xs text-muted-foreground">Next refill: {patient?.medications?.find((m: Medication) => m.status === 'active')?.refillDate || 'N/A'}</p>
-                    <div className="mt-3">
-                      <Badge className="bg-green-50 text-green-600 hover:bg-green-100 border-none">Active</Badge>
-                    </div>
-                  </CardContent>
-                </Card>
-                
-                <Card className="overflow-hidden border-none shadow-md hover:shadow-lg transition-shadow duration-300">
-                  <div className="h-1 bg-red-500"></div>
-                  <CardHeader className="pb-2">
-                    <div className="flex justify-between items-center">
-                      <CardTitle className="text-sm font-medium">Blood Pressure</CardTitle>
-                      <Activity className="h-4 w-4 text-red-500" />
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{patient?.vitalSigns?.bloodPressure || 'Not recorded'}</div>
-                    <p className="text-xs text-muted-foreground">Last checked: {patient?.vitalSigns?.lastChecked || 'N/A'}</p>
-                    <div className="mt-3 h-1 bg-gray-200 rounded-full overflow-hidden">
-                      <div className="h-full bg-red-500 rounded-full" style={{ width: '75%' }}></div>
-                    </div>
-                    <div className="flex justify-between text-xs mt-1">
-                      <span>Low</span>
-                      <span>Normal</span>
-                      <span>High</span>
-                    </div>
-                  </CardContent>
-                </Card>
-                
-                <Card className="overflow-hidden border-none shadow-md hover:shadow-lg transition-shadow duration-300">
-                  <div className="h-1 bg-purple-500"></div>
-                  <CardHeader className="pb-2">
-                    <div className="flex justify-between items-center">
-                      <CardTitle className="text-sm font-medium">Heart Rate</CardTitle>
-                      <Heart className="h-4 w-4 text-purple-500" />
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-2xl font-bold">{patient?.vitalSigns?.heartRate || 0} BPM</div>
-                    <p className="text-xs text-muted-foreground">Last checked: {patient?.vitalSigns?.lastChecked || 'N/A'}</p>
-                    <div className="mt-3">
-                      <div className="flex items-end gap-2">
-                        <div className="text-2xl font-bold">{patient?.vitalSigns?.oxygenLevel}%</div>
-                        <Progress value={patient?.vitalSigns?.oxygenLevel} className="h-2 mt-2 w-20" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-              
-              {/* Recent Activity */}
-              <div className="space-y-3 mt-4">
-                <h3 className="font-medium">Upcoming Schedule</h3>
-                <div className="space-y-2">
-                  {patient?.appointments?.length > 0 ? patient.appointments.sort((a: Appointment, b: Appointment) => new Date(a.date).getTime() - new Date(b.date).getTime()).slice(0, 3).map((appointment: Appointment, i: number) => (
-                    <div key={appointment.id} className="flex items-start space-x-4 p-3 bg-white rounded-lg shadow-sm border border-gray-100">
-                      <div className="flex-shrink-0 bg-blue-100 text-blue-800 p-2 rounded-lg">
-                        <Calendar className="h-5 w-5" />
-                      </div>
-                      <div className="flex-1">
-                        <p className="font-medium">{appointment.doctor}</p>
-                        <p className="text-sm text-gray-600">{appointment.specialty}</p>
-                        <div className="flex items-center mt-1 text-sm text-gray-500">
-                          <Clock className="h-3 w-3 mr-1" />
-                          <span>{appointment.date} at {appointment.time}</span>
-                        </div>
-                      </div>
-                      <Button variant="ghost" size="sm" className="shrink-0">
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  )) : <div className="text-center py-4 text-muted-foreground">No upcoming appointments</div>}
+                  </div>
                 </div>
-              </div>
-            </div>
-          )}
-          
-          {/* Appointments Tab */}
-          {activeTab === "appointments" && (
-            <div className="space-y-6">
-              <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
-                <div>
-                  <h1 className="text-2xl font-bold">Appointments</h1>
-                  <p className="text-muted-foreground">Manage your upcoming and past appointments</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Right Column - Appointments & Medications */}
+          <div className="space-y-6">
+            {/* Current Medications */}
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <Pill className="mr-2 h-5 w-5 text-purple-500" />
+                    <CardTitle>Current Medications</CardTitle>
+                  </div>
+                  <Button variant="ghost" size="sm">View All</Button>
                 </div>
-                
-                <Button>
-                  <Plus className="mr-2 h-4 w-4" />
-                  New Appointment
-                </Button>
-              </div>
-              
-              <div className="space-y-4">
-                {patient?.appointments?.map((appointment: Appointment) => (
-                  <Card key={appointment.id}>
-                    <CardHeader>
-                      <div className="flex justify-between items-center">
-                        <CardTitle>{appointment.doctor}</CardTitle>
-                        <Badge variant={appointment.status === 'scheduled' ? 'outline' : 'secondary'}>
-                          {appointment.status === 'scheduled' ? 'Upcoming' : 'Completed'}
-                        </Badge>
-                      </div>
-                      <CardDescription>{appointment.specialty}</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex items-center">
-                        <Calendar className="mr-2 h-4 w-4 text-muted-foreground" />
-                        <span>{appointment.date} at {appointment.time}</span>
-                      </div>
-                    </CardContent>
-                    <CardFooter className="flex justify-end gap-2">
-                      <Button variant="outline" size="sm">Reschedule</Button>
-                      <Button variant="default" size="sm">View Details</Button>
-                    </CardFooter>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          )}
-          
-          {/* Medications Tab */}
-          {activeTab === "medications" && (
-            <div className="space-y-6">
-              <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
-                <div>
-                  <h1 className="text-2xl font-bold">Medications</h1>
-                  <p className="text-muted-foreground">Track your prescriptions and medication history</p>
-                </div>
-                
-                <Button>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Request Refill
-                </Button>
-              </div>
-              
-              <div className="space-y-4">
-                {patient?.medications?.map((medication: Medication) => (
-                  <Card key={medication.id} className={medication.status === 'active' ? 'border-l-4 border-l-green-500' : ''}>
-                    <CardHeader>
-                      <div className="flex justify-between items-center">
-                        <CardTitle>{medication.name}</CardTitle>
-                        <Badge variant={medication.status === 'active' ? 'default' : 'secondary'}>
-                          {medication.status === 'active' ? 'Active' : 'Inactive'}
-                        </Badge>
-                      </div>
-                      <CardDescription>{medication.dosage} - {medication.frequency}</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex items-center">
-                        <Calendar className="mr-2 h-4 w-4 text-muted-foreground" />
-                        <span>Refill by: {medication.refillDate}</span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          )}
-          
-          {/* Vaccinations Tab */}
-          {activeTab === "vaccinations" && (
-            <div className="space-y-6">
-              <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
-                <div>
-                  <h1 className="text-2xl font-bold">Vaccinations</h1>
-                  <p className="text-muted-foreground">Track your immunization history</p>
-                </div>
-                
-                <Button>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Vaccination
-                </Button>
-              </div>
-              
-              <div className="space-y-4">
-                {patient?.vaccinations?.map((vaccination: Vaccination) => (
-                  <Card key={vaccination.id}>
-                    <CardHeader>
-                      <div className="flex justify-between items-center">
-                        <CardTitle>{vaccination.name}</CardTitle>
-                        <Badge variant="default">
-                          {vaccination.status}
-                        </Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex items-center">
-                        <Calendar className="mr-2 h-4 w-4 text-muted-foreground" />
-                        <span>Date: {vaccination.date}</span>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            </div>
-          )}
-          
-          {/* Medical Records Tab */}
-          {activeTab === "medical-records" && (
-            <div className="space-y-6">
-              <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
-                <div>
-                  <h1 className="text-2xl font-bold">Medical Records</h1>
-                  <p className="text-muted-foreground">Access and download your medical history</p>
-                </div>
-                
-                <Button>
-                  <FileText className="mr-2 h-4 w-4" />
-                  Request Records
-                </Button>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Lab Results</CardTitle>
-                    <CardDescription>Blood work and diagnostic tests</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <p className="font-medium">Complete Blood Count</p>
-                          <p className="text-sm text-muted-foreground">Jan 15, 2023</p>
-                        </div>
-                        <Button variant="outline" size="sm">
-                          View
-                        </Button>
-                      </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">Lisinopril 10mg</p>
+                      <p className="text-xs text-gray-500">1 tablet daily</p>
                     </div>
-                  </CardContent>
-                </Card>
-                
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Medical History</CardTitle>
-                    <CardDescription>Diagnoses and conditions</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <p className="font-medium">Annual Physical</p>
-                          <p className="text-sm text-muted-foreground">Mar 10, 2023</p>
-                        </div>
-                        <Button variant="outline" size="sm">
-                          View
-                        </Button>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Avatar>
-                          <AvatarImage src="/placeholder-user.jpg" />
-                          <AvatarFallback>Dr</AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="font-semibold">Your Doctor</div>
-                          <div className="text-sm text-muted-foreground">Appointment Today</div>
-                        </div>
-                      </div>
+                    <Badge className="bg-blue-100 text-blue-800">Morning</Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">Metoprolol 25mg</p>
+                      <p className="text-xs text-gray-500">1 tablet twice daily</p>
                     </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          )}
-          
-          {/* Profile Tab */}
-          {activeTab === "profile" && (
-            <div className="space-y-6">
-              <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
-                <div>
-                  <h1 className="text-2xl font-bold">Profile</h1>
-                  <p className="text-muted-foreground">View and edit your profile information</p>
+                    <Badge className="bg-purple-100 text-purple-800">Morning/Night</Badge>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium">Aspirin 81mg</p>
+                      <p className="text-xs text-gray-500">1 tablet daily</p>
+                    </div>
+                    <Badge className="bg-blue-100 text-blue-800">Morning</Badge>
+                  </div>
                 </div>
-                
-                {!editing ? (
-                  <Button onClick={() => setEditing(true)}>
-                    <Edit className="mr-2 h-4 w-4" />
-                    Edit Profile
+              </CardContent>
+            </Card>
+
+            {/* Upcoming Appointments */}
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <Calendar className="mr-2 h-5 w-5 text-teal-500" />
+                    <CardTitle>Upcoming Appointments</CardTitle>
+                  </div>
+                  <Button variant="ghost" size="sm">Schedule</Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between p-2 rounded-lg bg-gray-50">
+                    <div>
+                      <p className="font-medium">Cardiology Follow-up</p>
+                      <p className="text-sm text-gray-500">June 10, 2025 10:00 AM</p>
+                      <p className="text-xs mt-1">Dr. Sarah Johnson</p>
+                    </div>
+                    <Button variant="outline" size="sm">Reschedule</Button>
+                  </div>
+                  <div className="flex items-start justify-between p-2 rounded-lg bg-gray-50">
+                    <div>
+                      <p className="font-medium">Physical Therapy</p>
+                      <p className="text-sm text-gray-500">June 12, 2025 02:30 PM</p>
+                      <p className="text-xs mt-1">Dr. Michael Chen</p>
+                    </div>
+                    <Button variant="outline" size="sm">Reschedule</Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Care Team */}
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center">
+                  <Users className="mr-2 h-5 w-5 text-cyan-500" />
+                  <CardTitle>Care Team</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-3">
+                    <Avatar>
+                      <AvatarFallback>SJ</AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="font-medium">Dr. Sarah Johnson</p>
+                      <p className="text-sm text-gray-500">Cardiology</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <Avatar>
+                      <AvatarFallback>MC</AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="font-medium">Dr. Michael Chen</p>
+                      <p className="text-sm text-gray-500">Physical Therapy</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <Avatar>
+                      <AvatarFallback>LW</AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <p className="font-medium">Linda Wilson</p>
+                      <p className="text-sm text-gray-500">Nurse Practitioner</p>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Quick Actions */}
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center">
+                  <PlusCircle className="mr-2 h-5 w-5 text-green-500" />
+                  <CardTitle>Quick Actions</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button variant="outline" className="justify-start">
+                    <Calendar className="mr-2 h-4 w-4" />
+                    Schedule Visit
                   </Button>
-                ) : (
-                  <Button variant="outline" onClick={() => setEditing(false)}>
-                    Cancel
+                  <Button variant="outline" className="justify-start">
+                    <FileText className="mr-2 h-4 w-4" />
+                    Request Records
                   </Button>
-                )}
-              </div>
-              
-              <div className="space-y-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Personal Information</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <p className="font-medium">Name</p>
-                          <p className="text-sm text-muted-foreground">{patient?.name || 'Not provided'}</p>
-                        </div>
-                      </div>
-                      <div className="flex justify-between items-center">
-                        <div>
-                          <p className="font-medium">Email</p>
-                          <p className="text-sm text-muted-foreground">{patient?.email || 'Not provided'}</p>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </div>
-          )}
+                  <Button variant="outline" className="justify-start">
+                    <Pill className="mr-2 h-4 w-4" />
+                    Refill Rx
+                  </Button>
+                  <Button variant="outline" className="justify-start">
+                    <Stethoscope className="mr-2 h-4 w-4" />
+                    Nurse Chat
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </div>
-      {/* Render the onboarding wizard */}
-      <OnboardingWizardDialog />
-    </div>
-  );
+    </DashboardLayout>
+  )
 }

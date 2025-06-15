@@ -151,6 +151,7 @@ export async function GET(
     let firstName = '';
     let lastName = '';
     let fullName = '';
+    let photo = '';
 
     try {
       // Handle array format (most common in this system)
@@ -199,6 +200,40 @@ export async function GET(
     processedPatient.lastName = lastName || 'Unknown';
     processedPatient.fullName = fullName.trim() || 'Unknown';
     processedPatient.displayName = processedPatient.fullName;
+
+    // Add photo from user profile image or registration data
+    if (patient.user?.profileImage) {
+      photo = patient.user.profileImage;
+    } else if (patient.user?.id) {
+      try {
+        // Try to get photo from registration data using raw SQL query
+        // This is needed because 'registration_data' is a JSON field that's not properly defined in the Prisma schema
+        const regDataQuery = `SELECT id, registration_data FROM User WHERE id = ?;`;
+        const regDataResult = await prisma.$queryRawUnsafe(regDataQuery, patient.user.id);
+        
+        if (regDataResult && Array.isArray(regDataResult) && regDataResult.length > 0) {
+          const userData = regDataResult[0] as any;
+          if (userData?.id && userData?.registration_data) {
+            try {
+              const regData = typeof userData.registration_data === 'string'
+                ? JSON.parse(userData.registration_data)
+                : userData.registration_data;
+                
+              if (regData?.photo) {
+                photo = regData.photo;
+              }
+            } catch (parseError) {
+              console.error('Error parsing registration data:', parseError);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error retrieving user photo from registration data:', error);
+      }
+    }
+    
+    // Add photo to patient response
+    processedPatient.photo = photo;
 
     return NextResponse.json(processedPatient);
   } catch (error) {

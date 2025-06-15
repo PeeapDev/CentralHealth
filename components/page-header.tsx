@@ -1,4 +1,5 @@
 import { ChevronRight } from "lucide-react"
+import { ReactNode } from "react"
 
 interface PageHeaderProps {
   title: string
@@ -7,9 +8,10 @@ interface PageHeaderProps {
     label: string
     href?: string
   }>
+  children?: ReactNode
 }
 
-export function PageHeader({ title, description, breadcrumbs }: PageHeaderProps) {
+export function PageHeader({ title, description, breadcrumbs, children }: PageHeaderProps) {
   return (
     <div className="space-y-4">
       {/* Breadcrumbs */}
@@ -27,9 +29,12 @@ export function PageHeader({ title, description, breadcrumbs }: PageHeaderProps)
       )}
 
       {/* Title and Description */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
-        {description && <p className="text-muted-foreground mt-2">{description}</p>}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">{title}</h1>
+          {description && <p className="text-muted-foreground mt-2">{description}</p>}
+        </div>
+        {children && <div className="flex items-center space-x-2">{children}</div>}
       </div>
     </div>
   )

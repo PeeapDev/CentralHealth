@@ -81,18 +81,18 @@ class _AddObservationDialogState extends State<AddObservationDialog> {
       _formKey.currentState?.save();
 
       final observation = Observation(
-        status: ObservationStatus.final_,
+        status: FhirCode('final'),
         code: CodeableConcept(
           coding: [
             Coding(
               system: FhirUri('http://loinc.org'),
-              code: Code(_code),
+              code: FhirCode(_code),
               display: _code,
             ),
           ],
         ),
         valueQuantity: Quantity(
-          value: Decimal(double.parse(_value)),
+          value: FhirDecimal(double.parse(_value)),
           unit: _unit,
           system: FhirUri('http://unitsofmeasure.org'),
         ),

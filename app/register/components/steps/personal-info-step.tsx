@@ -193,13 +193,13 @@ export function PersonalInfoStep({ formData, updateFormData }: PersonalInfoStepP
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="gender">Gender</Label>
-          <Select
-            value={formData.gender}
+          <Label htmlFor="gender">Gender/Sex <span className="text-red-500">*</span></Label>
+          <Select 
+            value={formData.gender && formData.gender !== "" ? formData.gender : undefined} 
             onValueChange={(value) => updateFormData({ gender: value })}
           >
-            <SelectTrigger id="gender">
-              <SelectValue placeholder="Select gender" />
+            <SelectTrigger id="gender" className={formData.gender ? "" : "text-muted-foreground"}>
+              <SelectValue placeholder="-- Select gender --" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="male">Male</SelectItem>
@@ -207,6 +207,9 @@ export function PersonalInfoStep({ formData, updateFormData }: PersonalInfoStepP
               <SelectItem value="other">Other</SelectItem>
             </SelectContent>
           </Select>
+          {(!formData.gender || formData.gender === "") && 
+            <p className="text-xs text-red-500 mt-1">Please select your gender</p>
+          }
         </div>
         
         <div className="space-y-2">

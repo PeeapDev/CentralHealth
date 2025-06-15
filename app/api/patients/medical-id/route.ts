@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateMedicalID, isValidMedicalID } from "@/utils/medical-id";
-import prisma from "@/lib/prisma";
+import { prisma } from "@/lib/prisma";
 
 /**
  * Generate a new medical ID for a patient
@@ -100,8 +100,8 @@ export async function POST(request: NextRequest) {
         name: true,
         medicalNumber: true,
         email: true,
-        phoneNumber: true,
         hospitalId: true,
+        // phoneNumber field was removed as it doesn't exist in the Patient schema
       }
     });
 

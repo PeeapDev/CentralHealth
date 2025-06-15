@@ -79,15 +79,25 @@ const config: Config = {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
+        "slideIn": {
+          '0%': { transform: 'translateY(-20px)', opacity: '0' },
+          '100%': { transform: 'translateY(0)', opacity: '1' },
+        },
         "fadeIn": {
-          from: { opacity: "0" },
-          to: { opacity: "1" },
+          '0%': { opacity: '0' },
+          '100%': { opacity: '1' },
+        },
+        "roll": {
+          '0%': { transform: 'rotate(-180deg)', opacity: '0' },
+          '100%': { transform: 'rotate(0)', opacity: '1' },
         },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
-        "fadeIn": "fadeIn 0.3s ease-out",
+        "slideIn": "slideIn 0.5s ease-out",
+        "fadeIn": "fadeIn 0.6s ease-in",
+        "roll": "roll 0.5s ease-out",
       },
     },
   },

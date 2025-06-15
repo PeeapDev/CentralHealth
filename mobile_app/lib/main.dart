@@ -1,122 +1,193 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:provider/provider.dart';
+import 'features/auth/bloc/auth_bloc.dart';
+import 'features/auth/data/auth_service.dart';
+import 'features/auth/data/auth_debug.dart';
+// Patient-only app, no role selection needed
+import 'features/auth/presentation/screens/login_screen.dart';
+import 'features/auth/presentation/screens/register_screen.dart';
+import 'features/patient/presentation/screens/patient_home_screen.dart';
+// Onboarding and setup screens
+import 'features/onboarding/presentation/screens/onboarding_screen.dart';
+import 'features/setup/presentation/screens/setup_wizard_screen.dart';
+import 'features/profile/presentation/screens/profile_setup_wizard.dart';
+import 'features/setup/data/config_provider.dart';
+import 'features/patients/provider/patients_provider.dart';
+import 'features/appointments/provider/appointments_provider.dart';
+import 'features/profile/provider/profile_provider.dart';
+import 'features/profile/data/profile_repository.dart';
+import 'core/services/api_service.dart';
+import 'core/network/api_client.dart';
+import 'core/storage/secure_storage.dart';
+import 'core/constants/app_constants.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:developer' as developer;
 
-void main() {
-  runApp(const MyApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
+  
+  // Get stored configuration
+  final serverUrl = prefs.getString('server_url');
+  final apiVersion = prefs.getString('api_version');
+  
+  // Create ConfigProvider and wait for it to init
+  final configProvider = ConfigProvider();
+  await configProvider.init();
+  
+  // Initialize secure storage for authentication tokens
+  final secureStorage = SecureStorage();
+  
+  // Initialize debug tools
+  final authDebugTools = AuthDebugTools(secureStorage, prefs);
+  
+  // Set up test environment for debugging
+  await authDebugTools.initTestEnvironment();
+  
+  // Create API client with the saved URL if available
+  final apiClient = ApiClient();
+  if (serverUrl != null && serverUrl.isNotEmpty) {
+    developer.log('Main: Setting API client base URL to: $serverUrl');
+    apiClient.updateBaseUrl(serverUrl);
+  }
+  
+  // Initialize authentication service
+  final authService = AuthService(apiClient, prefs);
+  
+  // Restore authentication token if available
+  final accessToken = await secureStorage.getAccessToken();
+  if (accessToken != null) {
+    developer.log('Main: Restoring authentication token');
+    apiClient.setAuthToken(accessToken);
+  }
+  
+  runApp(
+    MultiProvider(
+      providers: [
+        // Core providers
+        ChangeNotifierProvider<ConfigProvider>(
+          create: (_) => configProvider,
+        ),
+        Provider<AuthService>(
+          create: (_) => authService,
+        ),
+        BlocProvider(
+          create: (_) => AuthBloc(authService)..add(CheckAuthStatus()),
+        ),
+        // Core services
+        Provider(
+          create: (_) => ApiService(apiClient),
+        ),
+        // Feature repositories
+        Provider(
+          create: (context) => ProfileRepository(context.read<ApiService>()),
+        ),
+        // Feature providers
+        ChangeNotifierProvider(
+          create: (_) => PatientsProvider(),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AppointmentsProvider(),
+        ),
+        ChangeNotifierProvider(
+          create: (context) => ProfileProvider(repository: context.read<ProfileRepository>()),
+        ),
+      ],
+      child: MyApp(
+        authService: authService,
+        configProvider: configProvider,
+      ),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final AuthService authService;
+  final ConfigProvider configProvider;
 
-  // This widget is the root of your application.
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
-    );
-  }
-}
-
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
-  }
+  const MyApp({
+    Key? key,
+    required this.authService,
+    required this.configProvider,
+  }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+    return Consumer<ConfigProvider>(
+      builder: (context, config, child) {
+        return MaterialApp(
+          title: 'Central Health App',
+          theme: ThemeData(
+            primarySwatch: Colors.blue,
+            visualDensity: VisualDensity.adaptivePlatformDensity,
+            appBarTheme: const AppBarTheme(
+              elevation: 0,
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.black,
             ),
-          ],
-        ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+            elevatedButtonTheme: ElevatedButtonThemeData(
+              style: ElevatedButton.styleFrom(
+                elevation: 2,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+          initialRoute: '/',
+          routes: {
+            '/': (context) => FutureBuilder<SharedPreferences>(
+              future: SharedPreferences.getInstance(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) {
+                  return const Scaffold(
+                    body: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                
+                final prefs = snapshot.data!;
+                final bool onboardingComplete = prefs.getBool(AppConstants.onboardingCompleteKey) ?? false;
+                
+                // If onboarding is not complete, show onboarding screen
+                if (!onboardingComplete) {
+                  return const OnboardingScreen();
+                }
+                
+                // Otherwise, determine if user is authenticated
+                return BlocBuilder<AuthBloc, AuthState>(
+                  builder: (context, state) {
+                    if (state is Authenticated) {
+                      // Check if setup wizard is complete
+                      final bool setupWizardComplete = prefs.getBool(AppConstants.setupWizardCompleteKey) ?? false;
+                      final profileProvider = Provider.of<ProfileProvider>(context, listen: false);
+                      
+                      if (!setupWizardComplete) {
+                        // Setup wizard not complete, show ProfileSetupWizard
+                        return const ProfileSetupWizard();
+                      } else {
+                        // Setup complete, show home screen
+                        return const PatientHomeScreen();
+                      }
+                    } else if (state is AuthLoading) {
+                      return const Scaffold(
+                        body: Center(child: CircularProgressIndicator()),
+                      );
+                    } else {
+                      // Not authenticated, go to login screen
+                      return const LoginScreen();
+                    }
+                  },
+                );
+              },
+            ),
+            '/setup': (context) => const SetupWizardScreen(),
+            '/onboarding': (context) => const OnboardingScreen(),
+            '/profile_setup': (context) => const ProfileSetupWizard(),
+            '/login': (context) => const LoginScreen(),
+            '/register': (context) => const RegisterScreen(),
+            '/patient_home': (context) => const PatientHomeScreen(),
+          },
+        );
+      },
     );
   }
 }

@@ -272,6 +272,147 @@ export default async function HomePage() {
         </div>
       </section>
 
+      {/* Offline Application Section */}
+      <section className="py-20 lg:py-32 bg-gradient-to-br from-blue-50 via-white to-green-50 dark:from-blue-950/20 dark:via-background dark:to-green-950/20">
+        <div className="container px-4 md:px-6">
+          <div className="text-center mb-16">
+            <Badge variant="outline" className="mb-4">
+              <Smartphone className="w-3 h-3 mr-1" />
+              Offline Access
+            </Badge>
+            <h2 className="text-3xl font-bold tracking-tighter sm:text-5xl mb-4">Work Anywhere, Anytime</h2>
+            <p className="max-w-[900px] mx-auto text-muted-foreground md:text-xl/relaxed">
+              Download our desktop application for seamless offline access to your patients and records
+            </p>
+          </div>
+          
+          <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3 max-w-5xl mx-auto">
+            {/* App Features */}
+            <div className="col-span-full md:col-span-1">
+              <Card className="h-full">
+                <CardHeader>
+                  <CardTitle>Key Features</CardTitle>
+                  <CardDescription>Why use our offline application?</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-start gap-2">
+                    <div className="p-1 bg-blue-100 rounded-md dark:bg-blue-900">
+                      <Zap className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <div>
+                      <p className="font-medium">Work Without Internet</p>
+                      <p className="text-muted-foreground text-sm">Full functionality even with no connectivity</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <div className="p-1 bg-blue-100 rounded-md dark:bg-blue-900">
+                      <Shield className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <div>
+                      <p className="font-medium">Secure Local Data</p>
+                      <p className="text-muted-foreground text-sm">Encrypted SQLite storage with session protection</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <div className="p-1 bg-blue-100 rounded-md dark:bg-blue-900">
+                      <Activity className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    </div>
+                    <div>
+                      <p className="font-medium">Automatic Sync</p>
+                      <p className="text-muted-foreground text-sm">Changes sync automatically when online</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+            
+            {/* Download Options */}
+            <div className="col-span-full md:col-span-1 md:row-span-2">
+              <Card className="relative h-full overflow-hidden">
+                <div className="absolute -top-20 -right-20 w-40 h-40 bg-blue-500/10 rounded-full blur-2xl" />
+                <div className="absolute -bottom-20 -left-20 w-40 h-40 bg-green-500/10 rounded-full blur-2xl" />
+                <CardHeader className="text-center">
+                  <CardTitle className="text-xl">Download Offline Application</CardTitle>
+                  <CardDescription>Version 1.0.0 | Released June 1, 2025</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6 relative z-10">
+                  <div className="space-y-3">
+                    <Button className="w-full" size="lg" asChild>
+                      <Link href="/downloads/medicore-windows-v1.0.0.exe">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                          <rect x="2" y="2" width="12" height="12" rx="2" />
+                          <path d="M2 8h12M8 2v12" />
+                        </svg>
+                        Windows (64-bit)
+                      </Link>
+                    </Button>
+                    <Button className="w-full" variant="outline" size="lg" asChild>
+                      <Link href="/downloads/medicore-mac-v1.0.0.dmg">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                          <circle cx="8" cy="8" r="6" />
+                          <path d="M8 5v3M8 11h.01" />
+                        </svg>
+                        macOS (Intel/Apple Silicon)
+                      </Link>
+                    </Button>
+                    <Button className="w-full" variant="outline" size="lg" asChild>
+                      <Link href="/downloads/medicore-linux-v1.0.0.deb">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                          <polygon points="8 2 2 8 8 14 14 8" />
+                        </svg>
+                        Linux (.deb)
+                      </Link>
+                    </Button>
+                  </div>
+                  <div className="pt-2 text-center">
+                    <Link href="/download/release-notes" className="text-sm text-blue-600 dark:text-blue-400 hover:underline inline-flex items-center">
+                      View Release Notes
+                      <ArrowRight className="ml-1 h-3 w-3" />
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+            
+            {/* Requirements */}
+            <div className="col-span-full md:col-span-1">
+              <Card className="h-full">
+                <CardHeader>
+                  <CardTitle>System Requirements</CardTitle>
+                  <CardDescription>Minimum specs needed</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4 text-sm">
+                  <div>
+                    <p className="font-medium">Windows:</p>
+                    <ul className="list-disc pl-5 text-muted-foreground space-y-1">
+                      <li>Windows 10 or newer</li>
+                      <li>4GB RAM minimum</li>
+                      <li>500MB disk space</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <p className="font-medium">macOS:</p>
+                    <ul className="list-disc pl-5 text-muted-foreground space-y-1">
+                      <li>macOS 12 or newer</li>
+                      <li>4GB RAM minimum</li>
+                      <li>500MB disk space</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <p className="font-medium">Linux:</p>
+                    <ul className="list-disc pl-5 text-muted-foreground space-y-1">
+                      <li>Ubuntu 20.04+ or equivalent</li>
+                      <li>4GB RAM minimum</li>
+                      <li>500MB disk space</li>
+                    </ul>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Demo Accounts Section */}
       <section className="py-20 lg:py-32">
         <div className="container px-4 md:px-6">

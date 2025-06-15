@@ -1,657 +1,501 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState, useEffect } from "react"
+import QRCode from "react-qr-code"
 import { useRouter } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
+import {
+  AlertCircle,
+  Heart,
+  Mail,
+  MapPin,
+  Phone,
+  Shield,
+  User,
+  FileText,
+  Printer,
+  Download,
+  Share2,
+  Calendar,
+} from "lucide-react"
+
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { 
-  User, 
-  Mail,
-  Phone,
-  MapPin,
-  Shield,
-  Edit,
-  ChevronLeft,
-  Loader2,
-  AlertCircle,
-  CheckCircle2,
-  Pencil,
-  Save
-} from "lucide-react"
-import { toast } from "sonner"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Separator } from "@/components/ui/separator"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { DashboardLayout } from "@/components/patients/dashboard/dashboard-layout"
+import { Spinner } from "@/components/ui/spinner"
+import { usePatientProfile } from "@/hooks/use-patient-profile"
+import { generateHospitalMedicalID } from "@/utils/medical-id"
+import { DEFAULT_HOSPITAL } from "@/lib/hospital-context"
 
-// Types
-interface PatientProfile {
-  id: string;
-  name: string;
-  email: string;
-  medicalNumber: string;
-  medicalId?: string;
-  phn?: string;
-  birthDate: string;
-  gender: string;
-  phone: string;
-  bloodGroup?: string;
-  allergies?: string[];
-  chronicConditions?: string[];
-  organDonor?: boolean;
-  emergencyContact?: {
-    name?: string;
-    relationship?: string;
-    phone?: string;
-  };
-  address: {
-    line?: string[];
-    city?: string;
-    state?: string;
-    postalCode?: string;
-    country?: string;
-  };
-  photo?: string;
-  onboardingCompleted?: boolean;
-}
-
-// Form data interface for editing
-interface FormData {
-  email: string;
-  phone: string;
-  address: {
-    line: string[];
-    city: string;
-    state: string;
-    postalCode: string;
-    country: string;
-  };
-}
-
-export default function PatientProfilePage() {
-  const router = useRouter();
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [patient, setPatient] = useState<PatientProfile | null>(null);
-  const [editing, setEditing] = useState<boolean>(false);
-  const [isSaving, setIsSaving] = useState<boolean>(false);
-  const [formData, setFormData] = useState<FormData>({
-    email: "",
-    phone: "",
-    address: {
-      line: [""],
-      city: "",
-      state: "",
-      postalCode: "",
-      country: ""
-    }
-  });
-
-  // Calculate age from birthdate
-  const calculateAge = (birthDate: string) => {
-    if (!birthDate) return "";
-    const today = new Date();
-    const birthDateObj = new Date(birthDate);
-    let age = today.getFullYear() - birthDateObj.getFullYear();
-    const m = today.getMonth() - birthDateObj.getMonth();
-    if (m < 0 || (m === 0 && today.getDate() < birthDateObj.getDate())) {
-      age--;
-    }
-    return age;
-  };
-
-  // Format address as a string
-  const formatAddress = (address: any) => {
-    if (!address) return "No address provided";
-    
-    try {
-      const addressObj = typeof address === 'string' ? JSON.parse(address) : address;
-      const line = addressObj.line && addressObj.line.length > 0 ? addressObj.line.join(", ") : "";
-      const city = addressObj.city || "";
-      const state = addressObj.state || "";
-      const postalCode = addressObj.postalCode || "";
-      const country = addressObj.country || "";
-      
-      return [line, city, state, postalCode, country].filter(Boolean).join(", ");
-    } catch (e) {
-      return typeof address === 'string' ? address : "Invalid address format";
-    }
-  };
-
-  // Format name for display
-  const formatName = (name: any) => {
-    if (!name) return "Unknown";
-    
-    try {
-      const nameData = typeof name === 'string' ? JSON.parse(name) : name;
-      const nameObj = Array.isArray(nameData) ? nameData[0] : nameData;
-      
-      if (nameObj.text) return nameObj.text;
-      
-      const given = nameObj.given ? nameObj.given.join(' ') : '';
-      const family = nameObj.family || '';
-      
-      return `${given} ${family}`.trim() || "Unknown";
-    } catch (e) {
-      return typeof name === 'string' ? name : "Unknown";
-    }
-  };
-
-  // Handle form data changes
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prevFormData => {
-      if (field.startsWith('address.')) {
-        const addressField = field.split('.')[1];
-        if (addressField === 'line') {
-          return {
-            ...prevFormData,
-            address: {
-              ...prevFormData.address,
-              line: [value]
-            }
-          };
-        } else {
-          return {
-            ...prevFormData,
-            address: {
-              ...prevFormData.address,
-              [addressField]: value
-            }
-          };
-        }
-      } else {
-        return {
-          ...prevFormData,
-          [field]: value
-        };
-      }
-    });
-  };
-
-  // Handle form submission
-  const handleSubmit = async () => {
-    try {
-      setIsSaving(true);
-      const response = await fetch('/api/patients/profile/update', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
-        credentials: 'include', // Important for sending cookies
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update profile');
-      }
-
-      const updatedData = await response.json();
-      setPatient(updatedData);
-      setEditing(false);
-      toast('Profile updated successfully');
-    } catch (error) {
-      console.error('Error updating profile:', error);
-      toast('Failed to update profile. Please try again.');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  // Fetch patient data
-  const fetchPatientData = async () => {
-    setIsLoading(true);
-    try {
-      console.log('Fetching patient data for profile...');
-      const response = await fetch('/api/patients/session/me', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include', // Important for sending cookies
-      });
-
-      console.log('Profile API response status:', response.status);
-
-      if (!response.ok) {
-        if (response.status === 401) {
-          console.log('Authentication failed, but staying on profile page');
-          setError('You are not authenticated. Please login again.');
-          return;
-        }
-        throw new Error(`API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('Patient data received:', !!data);
-      
-      // Extract patient from the response
-      const patientData = data.patient || data;
-      console.log('Patient profile data:', patientData);
-      setPatient(patientData);
-
-      // Initialize form data with current values
-      setFormData({
-        email: patientData.email || "",
-        phone: patientData.phone || "",
-        address: patientData.address || {
-          line: [""],
-          city: "",
-          state: "",
-          postalCode: "",
-          country: ""
-        }
-      });
-      
-      // Log complete patient data for debugging
-      console.log('Patient full data:', {
-        id: patientData.id,
-        medicalNumber: patientData.medicalNumber || patientData.medicalId || patientData.phn,
-        bloodGroup: patientData.bloodGroup,
-        emergencyContact: patientData.emergencyContact,
-        onboardingStatus: patientData.onboardingCompleted,
-        allergies: patientData.allergies,
-        chronicConditions: patientData.chronicConditions,
-        organDonor: patientData.organDonor
-      });
-    } catch (error) {
-      console.error('Error fetching patient data:', error);
-      setError('Failed to load your profile. Please try again later.');
-      // We'll stay on the page and show error instead of redirecting
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    console.log('Profile component mounted');
-    fetchPatientData();
-  }, []);
-
-  // Loading state
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4" />
-          <h2 className="text-xl font-semibold">Loading your profile...</h2>
-          <p className="text-muted-foreground">Please wait while we fetch your information</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Show error state
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-center max-w-md">
-          <Alert variant="destructive" className="mb-4">
-            <AlertTitle>Error</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-          <Button className="mr-2" onClick={() => fetchPatientData()}>
-            Try Again
-          </Button>
-          <Button variant="outline" onClick={() => router.push('/patient/dashboard')}>
-            Return to Dashboard
-          </Button>
-        </div>
-      </div>
-    );
-  }
+export default function PatientProfile() {
+  const router = useRouter()
+  const [currentPage, setCurrentPage] = useState("profile")
+  const [activeTab, setActiveTab] = useState("profile")
+  const [profileImage, setProfileImage] = useState<string | null>(null)
+  const [isOverview, setIsOverview] = useState(false) // Default to false since we're on profile page
   
-  // Show not authenticated state
-  if (!patient) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold">Not Authenticated</h1>
-          <p className="mt-2">Please log in to view your profile</p>
-          <Button className="mr-2 mt-4" onClick={() => router.push('/auth/login')}>
-            Go to Login
-          </Button>
-          <Button variant="outline" className="mt-4" onClick={() => router.push('/patient/dashboard')}>
-            Return to Dashboard
-          </Button>
-        </div>
-      </div>
-    );
+  // Use hook to fetch patient profile data and generate medical ID
+  const { profile, isLoading, error } = usePatientProfile()
+  // Use default hospital code if none is provided in the profile
+  const hospitalCode = profile?.hospitalCode || DEFAULT_HOSPITAL.id
+  
+  // Always use the exact same medical ID that's shown on the dashboard
+  const [medicalID, setMedicalID] = useState("")
+  const [qrCodeValue, setQrCodeValue] = useState("")
+  
+  // Load profile image and medical ID from localStorage when component mounts
+  useEffect(() => {
+    // Try to get patient data from localStorage
+    const loadPatientData = () => {
+      try {
+        // First try to get the medical ID that matches the dashboard exactly
+        // Dashboard uses profile.patientId || profile.medicalNumber || profile.id
+        const dashboardMedicalID = profile?.patientId || profile?.medicalNumber || profile?.id || "";
+        
+        // If we have a medical ID from the dashboard, use that as the source of truth
+        if (dashboardMedicalID) {
+          setMedicalID(dashboardMedicalID);
+          // Store this ID in localStorage for consistency across the app
+          localStorage.setItem('medicalNumber', dashboardMedicalID);
+          
+          // Generate QR code value from the dashboard medical ID
+          const qrData = JSON.stringify({
+            medicalId: dashboardMedicalID,
+            hospitalCode: hospitalCode,
+            timestamp: new Date().toISOString()
+          });
+          setQrCodeValue(qrData);
+        } 
+        // Fall back to localStorage if needed
+        else {
+          const storedMedicalNumber = localStorage.getItem('medicalNumber');
+          if (storedMedicalNumber) {
+            setMedicalID(storedMedicalNumber);
+            // Generate QR code value
+            const qrData = JSON.stringify({
+              medicalId: storedMedicalNumber,
+              hospitalCode: hospitalCode,
+              timestamp: new Date().toISOString()
+            });
+            setQrCodeValue(qrData);
+          }
+        }
+        
+        // Next try to get profile image
+        // First check if we have one from onboarding
+        const registrationData = localStorage.getItem('patientRegistrationData');
+        if (registrationData) {
+          const parsedData = JSON.parse(registrationData);
+          if (parsedData.photo) {
+            setProfileImage(parsedData.photo);
+            // Store the photo in localStorage for consistency
+            localStorage.setItem('patientProfilePhoto', parsedData.photo);
+          }
+        } else {
+          // Fallback to direct photo storage
+          const storedPhoto = localStorage.getItem('patientProfilePhoto');
+          if (storedPhoto) {
+            setProfileImage(storedPhoto);
+          }
+        }
+      } catch (error) {
+        console.error('Error loading patient data:', error);
+      }
+    };
+    
+    loadPatientData();
+  }, [profile, hospitalCode]);
+
+  // Handle navigation from sidebar
+  const handleNavigation = (page: string) => {
+    // Set overview mode to true ONLY when navigating to dashboard
+    setIsOverview(page === "dashboard");
+    
+    if (page === "profile") {
+      setCurrentPage("profile")
+    } else {
+      router.push(`/patient/${page}`)
+    }
   }
 
-  return (
-    <div className="container mx-auto px-4 py-6">
-      {/* Back to Dashboard Link */}
-      <div className="flex justify-between items-center mb-4">
-        <Button 
-          variant="ghost" 
-          size="sm"
-          onClick={() => router.push('/patient/dashboard')}
-        >
-          <ChevronLeft className="mr-2 h-4 w-4" /> Back to Dashboard
-        </Button>
-        
-        {patient.onboardingCompleted && (
-          <Badge className="bg-green-500 px-3 py-1">
-            <CheckCircle2 className="h-4 w-4 mr-1" /> Onboarding Complete
-          </Badge>
-        )}
-      </div>
-      
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Personal Information Card */}
-        <Card className="md:col-span-1">
-          <CardHeader>
-            <CardTitle>Personal Information</CardTitle>
-            <CardDescription>Your basic personal details</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex justify-center mb-6">
-              <Avatar className="h-24 w-24">
-                <AvatarImage src={patient.photo || ""} />
-                <AvatarFallback className="text-2xl bg-primary/10 text-primary">
-                  {patient.name ? patient.name.charAt(0).toUpperCase() : "P"}
-                </AvatarFallback>
-              </Avatar>
-            </div>
-            
-            <div className="space-y-3">
-              <div>
-                <Label className="text-muted-foreground text-xs">Full Name</Label>
-                <p className="font-medium text-lg">{formatName(patient.name)}</p>
-              </div>
-              
-              <div>
-                <Label className="text-muted-foreground text-xs">Gender</Label>
-                <p>{patient.gender || "Not specified"}</p>
-              </div>
-              
-              <div>
-                <Label className="text-muted-foreground text-xs">Date of Birth</Label>
-                <p>{patient.birthDate ? new Date(patient.birthDate).toLocaleDateString() : "Not specified"}</p>
-              </div>
-              
-              <div>
-                <Label className="text-muted-foreground text-xs">Age</Label>
-                <p>{patient.birthDate ? `${calculateAge(patient.birthDate)} years` : "Not specified"}</p>
-              </div>
-              
-              <div>
-                <Label className="text-muted-foreground text-xs">Medical ID</Label>
-                {patient.medicalNumber || patient.medicalId || patient.phn ? (
-                  <div className="flex items-center space-x-2">
-                    <Badge variant="outline" className="font-mono text-sm py-1">
-                      {patient.medicalNumber || patient.medicalId || patient.phn}
-                    </Badge>
-                    <Badge className="bg-green-500 hover:bg-green-600">Active</Badge>
-                  </div>
-                ) : (
-                  <Alert className="mt-2 py-2">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>No Medical ID assigned yet</AlertDescription>
-                  </Alert>
-                )}
-              </div>
 
-              {patient.onboardingCompleted !== undefined && (
-                <div>
-                  <Label className="text-muted-foreground text-xs">Onboarding Status</Label>
-                  <div className="flex items-center space-x-2">
-                    {patient.onboardingCompleted ? (
-                      <Badge className="bg-green-500">Completed</Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-amber-500 border-amber-500">In Progress</Badge>
-                    )}
+  // Get patient name from profile data
+  const patientName = profile?.name || "";
+  
+  // Prepare profile data to pass to sidebar
+  const profileDataForSidebar = {
+    name: patientName,
+    medicalNumber: medicalID || "",
+    profileImage: profileImage || undefined, // Convert null to undefined for TypeScript
+  };
+  
+  return (
+    <DashboardLayout 
+      currentPage={currentPage}
+      onNavigate={handleNavigation}
+      breadcrumbs={[{ label: "Profile" }]}
+      hideProfileHeader={isOverview} // Show in sidebar when NOT on overview
+      profileData={profileDataForSidebar}
+    >
+      <div className="max-w-7xl mx-auto">
+        {isLoading ? (
+          <div className="flex items-center justify-center h-[60vh]">
+            <div className="text-center">
+              <Spinner className="w-10 h-10 mb-2" />
+              <p className="text-gray-500">Loading patient profile...</p>
+            </div>
+          </div>
+        ) : error ? (
+          <div className="p-6 rounded-lg border border-red-200 bg-red-50">
+            <h2 className="text-red-700 text-lg font-medium mb-2">Error Loading Data</h2>
+            <p className="text-red-600">{error}</p>
+            <Button className="mt-4" onClick={() => window.location.reload()}>
+              Try Again
+            </Button>
+          </div>
+        ) : profile ? (
+          <div>
+            {/* Medical ID Card */}
+            <div className="mb-8">
+              <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Shield className="h-5 w-5 text-blue-600" />
+                      <CardTitle className="text-blue-800">Medical ID Card</CardTitle>
+                    </div>
+                    <Badge variant="secondary" className="text-blue-700 bg-blue-100">
+                      Active
+                    </Badge>
                   </div>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-        
-        {/* Medical Information Card */}
-        <Card className="md:col-span-1">
-          <CardHeader>
-            <CardTitle>Medical Information</CardTitle>
-            <CardDescription>Your health-related information</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-3">
-              <div>
-                <Label className="text-muted-foreground text-xs">Blood Group</Label>
-                <p className="font-medium">
-                  {patient.bloodGroup ? (
-                    <Badge variant="secondary" className="text-base">{patient.bloodGroup}</Badge>
-                  ) : "Not specified"}
-                </p>
-              </div>
-              
-              <div>
-                <Label className="text-muted-foreground text-xs">Allergies</Label>
-                <div>
-                  {patient.allergies && patient.allergies.length > 0 ? (
-                    <ul className="list-disc list-inside">
-                      {patient.allergies.map((allergy, index) => (
-                        <li key={index}>{allergy}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-muted-foreground">None reported</p>
-                  )}
-                </div>
-              </div>
-              
-              <div>
-                <Label className="text-muted-foreground text-xs">Chronic Conditions</Label>
-                <div>
-                  {patient.chronicConditions && patient.chronicConditions.length > 0 ? (
-                    <ul className="list-disc list-inside">
-                      {patient.chronicConditions.map((condition, index) => (
-                        <li key={index}>{condition}</li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-muted-foreground">None reported</p>
-                  )}
-                </div>
-              </div>
-              
-              <div>
-                <Label className="text-muted-foreground text-xs">Organ Donor</Label>
-                <p>
-                  {patient.organDonor === true ? (
-                    <Badge className="bg-green-500">Yes</Badge>
-                  ) : patient.organDonor === false ? (
-                    <Badge variant="outline">No</Badge>
-                  ) : (
-                    "Not specified"
-                  )}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-        
-        {/* Emergency Contact Card */}
-        <Card className="md:col-span-1">
-          <CardHeader>
-            <CardTitle>Emergency Contact</CardTitle>
-            <CardDescription>Who to contact in case of emergency</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {patient.emergencyContact ? (
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-muted-foreground text-xs">Contact Name</Label>
-                  <p className="font-medium">{patient.emergencyContact.name || 'Not specified'}</p>
-                </div>
-                
-                <div>
-                  <Label className="text-muted-foreground text-xs">Relationship</Label>
-                  <p>{patient.emergencyContact.relationship || 'Not specified'}</p>
-                </div>
-                
-                <div>
-                  <Label className="text-muted-foreground text-xs">Phone Number</Label>
-                  <p className="font-mono">{patient.emergencyContact.phone || 'Not provided'}</p>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-4">
-                <AlertCircle className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
-                <p className="text-muted-foreground">No emergency contact information provided</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-        
-        {/* Contact Information Card */}
-        <Card className="md:col-span-1">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <div>
-              <CardTitle>Contact Information</CardTitle>
-              <CardDescription>Your contact details and address</CardDescription>
-            </div>
-            
-            {!editing ? (
-              <Button size="sm" onClick={() => setEditing(true)}>
-                <Edit className="mr-2 h-4 w-4" /> Edit
-              </Button>
-            ) : (
-              <div className="space-x-2">
-                <Button size="sm" variant="outline" onClick={() => setEditing(false)}>
-                  Cancel
-                </Button>
-                <Button size="sm" onClick={handleSubmit} disabled={isSaving}>
-                  {isSaving ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="mr-2 h-4 w-4" />
-                      Save
-                    </>
-                  )}
-                </Button>
-              </div>
-            )}
-          </CardHeader>
-          
-          <CardContent>
-            <div className="space-y-6">
-              {/* Email */}
-              <div className="space-y-2">
-                <div className="flex items-start">
-                  <Mail className="mr-2 h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <Label className="text-muted-foreground text-xs">Email Address</Label>
-                    {!editing ? (
-                      <p>{patient.email || "No email provided"}</p>
-                    ) : (
-                      <Input 
-                        value={formData.email} 
-                        onChange={(e) => handleInputChange('email', e.target.value)}
-                        placeholder="Enter your email address"
-                        className="mt-1"
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-col md:flex-row items-center md:items-start gap-6">
+                    <div className="bg-white p-3 rounded-lg shadow-sm flex-shrink-0">
+                      <QRCode 
+                        value={qrCodeValue || `patient-id:${medicalID || profile?.medicalNumber || 'NA'}`} 
+                        size={130} 
+                        style={{ height: "auto", maxWidth: "100%", width: "100%" }}
+                        viewBox={`0 0 256 256`}
                       />
-                    )}
-                  </div>
-                </div>
-              </div>
-              
-              {/* Phone */}
-              <div className="space-y-2">
-                <div className="flex items-start">
-                  <Phone className="mr-2 h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <Label className="text-muted-foreground text-xs">Phone Number</Label>
-                    {!editing ? (
-                      <p>{patient.phone || "No phone number provided"}</p>
-                    ) : (
-                      <Input 
-                        value={formData.phone} 
-                        onChange={(e) => handleInputChange('phone', e.target.value)}
-                        placeholder="Enter your phone number"
-                        className="mt-1"
-                      />
-                    )}
-                  </div>
-                </div>
-              </div>
-              
-              <Separator />
-              
-              {/* Address */}
-              <div className="space-y-4">
-                <div className="flex items-start">
-                  <MapPin className="mr-2 h-5 w-5 text-muted-foreground" />
-                  <div className="w-full">
-                    <Label className="text-muted-foreground text-xs">Address</Label>
-                    {!editing ? (
-                      <p>{formatAddress(patient.address) || "No address provided"}</p>
-                    ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-2">
-                        <div className="md:col-span-2">
-                          <Label>Street Address</Label>
-                          <Input 
-                            value={formData.address.line[0] || ""} 
-                            onChange={(e) => handleInputChange('address.line', e.target.value)}
-                            placeholder="Street address"
-                            className="mt-1"
+                    </div>
+                    <div className="flex-grow space-y-4">
+                      <div className="flex items-center gap-4">
+                        {/* Add the Avatar component to display the patient's photo */}
+                        <Avatar className="h-20 w-20 ring-4 ring-blue-50 shadow-md border border-blue-100">
+                          <AvatarImage 
+                            src={profileImage || "/placeholder.svg?height=80&width=80"} 
+                            alt={profile?.name || "Patient"} 
                           />
-                        </div>
-                        
+                          <AvatarFallback className="bg-blue-600 text-white text-lg">
+                            {profile?.name?.substring(0, 2).toUpperCase() || "P"}
+                          </AvatarFallback>
+                        </Avatar>
+
                         <div>
-                          <Label>City</Label>
-                          <Input 
-                            value={formData.address.city} 
-                            onChange={(e) => handleInputChange('address.city', e.target.value)}
-                            placeholder="City"
-                            className="mt-1"
-                          />
-                        </div>
-                        
-                        <div>
-                          <Label>State/Province</Label>
-                          <Input 
-                            value={formData.address.state} 
-                            onChange={(e) => handleInputChange('address.state', e.target.value)}
-                            placeholder="State or province"
-                            className="mt-1"
-                          />
-                        </div>
-                        
-                        <div>
-                          <Label>Postal Code</Label>
-                          <Input 
-                            value={formData.address.postalCode} 
-                            onChange={(e) => handleInputChange('address.postalCode', e.target.value)}
-                            placeholder="Postal code"
-                            className="mt-1"
-                          />
-                        </div>
-                        
-                        <div>
-                          <Label>Country</Label>
-                          <Input 
-                            value={formData.address.country} 
-                            onChange={(e) => handleInputChange('address.country', e.target.value)}
-                            placeholder="Country"
-                            className="mt-1"
-                          />
+                          <h3 className="text-xl font-bold text-gray-900">{profile?.name}</h3>
+                          <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500">
+                            <span>Age: {profile?.age}</span>
+                            <span>•</span>
+                            <span>{profile?.gender}</span>
+                            <span>•</span>
+                            <span>Blood Type: {profile?.bloodType}</span>
+                          </div>
+                          <div className="mt-2">
+                            <span className="text-gray-500">Medical Number:</span>{" "}
+                            <span className="font-medium">{medicalID || profile?.patientId || profile?.id}</span>
+                          </div>
                         </div>
                       </div>
-                    )}
+                    </div>
                   </div>
-                </div>
-              </div>
+                </CardContent>
+                <CardFooter className="pt-0 border-t">
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" className="gap-1">
+                      <Printer className="h-4 w-4" />
+                      <span>Print ID Card</span>
+                    </Button>
+                    <Button size="sm" variant="outline" className="gap-1">
+                      <Download className="h-4 w-4" />
+                      <span>Download</span>
+                    </Button>
+                    <Button size="sm" variant="outline" className="gap-1">
+                      <Share2 className="h-4 w-4" />
+                      <span>Share</span>
+                    </Button>
+                  </div>
+                </CardFooter>
+              </Card>
             </div>
-          </CardContent>
-        </Card>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Left Column - Emergency Contacts & Insurance */}
+              <div className="lg:col-span-1 space-y-6">
+                {/* Emergency Contacts */}
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center space-x-2">
+                      <Shield className="h-5 w-5 text-indigo-500" />
+                      <CardTitle>Insurance Information</CardTitle>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Provider</label>
+                        <div className="text-gray-700">{profile?.insurance?.provider}</div>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Policy Number</label>
+                        <div className="text-gray-700">{profile?.insurance?.policyNumber}</div>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Group Number</label>
+                        <div className="text-xs text-gray-500">Medical Number: {medicalID || profile?.medicalNumber || "N/A"}</div>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Expiration Date</label>
+                        <div className="text-gray-700">{profile?.insurance?.expirationDate}</div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+          </div>
+
+          {/* Right Column - Detailed Patient Information */}
+          <div className="lg:col-span-2">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+              <TabsList className="grid grid-cols-4 w-full mb-6">
+                <TabsTrigger value="profile">Profile</TabsTrigger>
+                <TabsTrigger value="medical">Medical</TabsTrigger>
+                <TabsTrigger value="history">History</TabsTrigger>
+                <TabsTrigger value="documents">Documents</TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="profile" className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <User className="mr-2 h-5 w-5 text-gray-500" />
+                      Personal Information
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-y-4 gap-x-8">
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Full Name</label>
+                        <p className="font-medium">{profile?.name}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Date of Birth</label>
+                        <p className="font-medium">{profile?.dob}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Gender</label>
+                        <p className="font-medium">{profile?.gender}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Age</label>
+                        <p className="font-medium">{profile?.age}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Height</label>
+                        <p className="font-medium">{profile?.height}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Weight</label>
+                        <p className="font-medium">{profile?.weight}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <MapPin className="mr-2 h-5 w-5 text-gray-500" />
+                      Contact Details
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-y-4 gap-x-8">
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Email Address</label>
+                        <p className="font-medium">{profile?.email}</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium text-gray-500">Phone Number</label>
+                        <p className="font-medium">{profile?.phone}</p>
+                      </div>
+                      <div className="md:col-span-2">
+                        <label className="text-sm font-medium text-gray-500">Home Address</label>
+                        <p className="font-medium">{profile?.address}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+              
+              <TabsContent value="medical" className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <AlertCircle className="mr-2 h-5 w-5 text-red-500" />
+                      Allergies
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {profile?.allergies && profile.allergies.length > 0 ? profile.allergies.map((allergy, index) => (
+                        <div key={index} className="flex items-center justify-between">
+                          <div className="font-medium">{allergy.name}</div>
+                          <Badge 
+                            className={
+                              allergy.severity === "Severe" 
+                                ? "bg-red-100 text-red-800" 
+                                : allergy.severity === "Moderate"
+                                  ? "bg-orange-100 text-orange-800"
+                                  : "bg-yellow-100 text-yellow-800"
+                            }
+                          >
+                            {allergy.severity}
+                          </Badge>
+                        </div>
+                      )) : <p>No allergies found.</p>}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <Heart className="mr-2 h-5 w-5 text-blue-500" />
+                      Medical Conditions
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {profile?.conditions && profile.conditions.length > 0 ? profile.conditions.map((condition, index) => (
+                        <div key={index} className="flex items-center">
+                          <div className="h-2 w-2 bg-blue-500 rounded-full mr-2"></div>
+                          <div className="font-medium">{condition}</div>
+                        </div>
+                      )) : <p>No medical conditions found.</p>}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <FileText className="mr-2 h-5 w-5 text-purple-500" />
+                      Medications
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      {profile?.medications && profile.medications.length > 0 ? profile.medications.map((med, index) => (
+                        <div key={index} className="flex items-start justify-between pb-3 border-b last:border-b-0 last:pb-0">
+                          <div>
+                            <p className="font-medium">{med.name}</p>
+                            <p className="text-sm text-gray-500">{med.dosage}</p>
+                          </div>
+                          <Badge variant="outline" className="text-purple-600 border-purple-300">
+                            {med.frequency}
+                          </Badge>
+                        </div>
+                      )) : <p>No medications found.</p>}
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+              
+              <TabsContent value="history">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <Calendar className="mr-2 h-5 w-5 text-teal-500" />
+                      Visit History
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="border-b pb-3">
+                        <p className="font-medium">Annual Physical Examination</p>
+                        <p className="text-sm text-gray-500">October 10, 2024</p>
+                        <p className="text-sm mt-1">Dr. Sarah Johnson - Cardiology</p>
+                      </div>
+                      <div className="border-b pb-3">
+                        <p className="font-medium">Follow-up Consultation</p>
+                        <p className="text-sm text-gray-500">August 22, 2024</p>
+                        <p className="text-sm mt-1">Dr. Michael Chen - Internal Medicine</p>
+                      </div>
+                      <div className="pb-3">
+                        <p className="font-medium">Emergency Room Visit</p>
+                        <p className="text-sm text-gray-500">June 5, 2024</p>
+                        <p className="text-sm mt-1">Dr. Alicia Rodriguez - Emergency Medicine</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+              
+              <TabsContent value="documents">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <FileText className="mr-2 h-5 w-5 text-gray-500" />
+                      Medical Documents
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center">
+                          <FileText className="h-5 w-5 text-blue-500 mr-3" />
+                          <div>
+                            <p className="font-medium">Lab Results - CBC</p>
+                            <p className="text-xs text-gray-500">10/10/2024 - Dr. Johnson</p>
+                          </div>
+                        </div>
+                        <Button variant="outline" size="sm">View</Button>
+                      </div>
+                      
+                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center">
+                          <FileText className="h-5 w-5 text-blue-500 mr-3" />
+                          <div>
+                            <p className="font-medium">EKG Results</p>
+                            <p className="text-xs text-gray-500">10/10/2024 - Dr. Johnson</p>
+                          </div>
+                        </div>
+                        <Button variant="outline" size="sm">View</Button>
+                      </div>
+                      
+                      <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center">
+                          <FileText className="h-5 w-5 text-blue-500 mr-3" />
+                          <div>
+                            <p className="font-medium">Discharge Summary</p>
+                            <p className="text-xs text-gray-500">06/06/2024 - Dr. Rodriguez</p>
+                          </div>
+                        </div>
+                        <Button variant="outline" size="sm">View</Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
+          </div>
+          </div>
+        </div>
+        ) : null}
       </div>
-    </div>
-  );
+    </DashboardLayout>
+  )
 }

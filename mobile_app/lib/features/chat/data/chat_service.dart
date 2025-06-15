@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import '../../../core/config/api_config.dart';
@@ -75,8 +76,9 @@ class ChatService {
       $userMessage
       ''';
 
-      final response = await model.generateContent(prompt);
-      final aiMessage = response.text;
+      final content = Content.text(prompt);
+      final response = await model.generateContent([content]);
+      final aiMessage = response.text ?? 'I apologize, but I was unable to generate a response. Please try again.';
 
       return ChatMessage(
         id: DateTime.now().millisecondsSinceEpoch.toString(),

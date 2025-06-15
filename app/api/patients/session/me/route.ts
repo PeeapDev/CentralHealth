@@ -2,8 +2,38 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPatientSession } from "@/lib/patient-session";
 import { prisma } from "@/lib/prisma";
 
-// Debug flag
-const DEBUG = true;
+// Define the FormattedPatient interface to fix TypeScript errors
+interface FormattedPatient {
+  id: string;
+  name?: string;
+  firstName?: string;
+  lastName?: string;
+  nameData?: any;
+  telecomData?: any;
+  addressData?: any;
+  onboardingCompleted?: boolean;
+  bloodGroup?: string;
+  allergies?: any;
+  chronicConditions?: any;
+  emergencyContact?: any;
+  medicalId?: string;
+  medicalNumber?: string;
+  phn?: string;
+  email?: string;
+  phoneNumber?: string;
+  userId?: string;
+  userProfile?: {
+    id: string;
+    role?: string;
+    name?: string;
+    email?: string;
+    profileImage?: string;
+  };
+  [key: string]: any; // Allow additional properties
+}
+
+// Debug flag - turn off in production for better performance
+const DEBUG = false;
 
 export const dynamic = "force-dynamic";
 
@@ -26,12 +56,24 @@ export async function GET(req: NextRequest) {
     if (DEBUG) console.log('DEBUG: Looking up patient with:', { patientId, patientEmail });
     
     // Get the patient with its linked user using the proper one-to-one relation
-    const patientWithUser = await prisma.patient.findUnique({
-      where: { id: patientId },
-      include: {
-        user: true
-      }
-    });
+    // Add better error handling and logging
+    let patientWithUser;
+    try {
+      patientWithUser = await prisma.patient.findUnique({
+        where: { id: patientId },
+        include: {
+          user: true
+        }
+      });
+      
+      if (DEBUG) console.log('DEBUG: Patient found:', { id: patientId, found: !!patientWithUser });
+    } catch (findError) {
+      console.error('Failed to fetch patient data from database:', findError);
+      return NextResponse.json(
+        { error: "Database error while fetching patient data" },
+        { status: 500 }
+      );
+    }
     
     if (!patientWithUser) {
       return NextResponse.json(
@@ -45,6 +87,16 @@ export async function GET(req: NextRequest) {
     let telecomData;
     let addressData;
     
+    // For debugging
+    if (DEBUG) {
+      console.log('DEBUG: Raw patient data structure:', {
+        nameType: typeof patientWithUser.name,
+        telecomType: typeof patientWithUser.telecom,
+        addressType: typeof patientWithUser.address,
+        nameValue: typeof patientWithUser.name === 'string' ? patientWithUser.name.substring(0, 100) : null
+      });
+    }
+    
     try {
       // Ensure all fields are strings before parsing
       const nameString = typeof patientWithUser.name === 'string' ? patientWithUser.name : JSON.stringify([]);
@@ -54,8 +106,11 @@ export async function GET(req: NextRequest) {
       nameData = JSON.parse(nameString);
       telecomData = JSON.parse(telecomString);
       addressData = JSON.parse(addressString);
+      
+      if (DEBUG) console.log('DEBUG: Successfully parsed JSON data');
     } catch (error) {
       console.error("Error parsing patient JSON fields:", error);
+      // Provide fallback empty arrays
       nameData = [];
       telecomData = [];
       addressData = [];
@@ -151,21 +206,49 @@ export async function GET(req: NextRequest) {
       console.error("Error parsing patient extension or custom fields:", error);
     }
     
-    // Check if onboarding is completed - make very strict comparison
+    // Check if onboarding is completed - with multiple detection methods
     // A newly registered user should have explicitly set onboardingCompleted: false
     // Default to false for new users without the flag
     let onboardingCompleted = false;
     
-    // Only consider onboarding completed if extensionData.onboardingCompleted is explicitly true
+    // Method 1: Check extension data (primary source)
     if (extensionData && extensionData.onboardingCompleted === true) {
       onboardingCompleted = true;
     }
     
-    console.log('DEBUG Final onboarding status:', { 
-      onboardingCompleted,
-      extensionDataExists: !!extensionData,
-      onboardingInExtension: extensionData?.onboardingCompleted
-    });
+    // Method 2: Check direct field on patient if available
+    // Some implementations might store onboardingCompleted directly on patient record
+    // Use optional chaining and type safety to avoid TypeScript errors
+    const patientAny = patientWithUser as any;
+    if (!onboardingCompleted && patientAny?.onboardingCompleted === true) {
+      onboardingCompleted = true;
+    }
+    
+    // Method 3: Inference from profile completeness
+    // If patient has key fields populated, infer onboarding completion
+    const hasValidMedicalId = !!(extensionData?.medicalId || patientWithUser.medicalNumber);
+    const hasValidName = !!(nameData && Array.isArray(nameData) && nameData.length > 0 && 
+      ((nameData[0]?.given && nameData[0]?.given.length > 0) || nameData[0]?.family));
+    const hasValidContact = !!(patientWithUser.email || telecomData?.find((t: any) => t.system === 'email' || t.system === 'phone'));
+    
+    // If patient has all core profile data, consider onboarding complete
+    const profileComplete = hasValidMedicalId && hasValidName && hasValidContact;
+    if (!onboardingCompleted && profileComplete) {
+      onboardingCompleted = true;
+    }
+    
+    if (DEBUG) {
+      console.log('DEBUG Final onboarding status:', { 
+        onboardingCompleted,
+        extensionDataExists: !!extensionData,
+        onboardingInExtension: extensionData?.onboardingCompleted,
+        directField: (patientWithUser as any).onboardingCompleted,
+        profileComplete,
+        hasValidMedicalId,
+        hasValidName, 
+        hasValidContact
+      });
+    }
     
     // Extract important data from extension
     const bloodGroup = extensionData.bloodGroup || '';
@@ -178,18 +261,38 @@ export async function GET(req: NextRequest) {
     // Extract emergency contact from contact field
     const emergencyContact = contactData.emergency || {};
     
+    // Determine first name and last name from available data sources
+    let firstName = nameData?.[0]?.given?.[0] || "";
+    let lastName = nameData?.[0]?.family || "";
+    
+    // Attempt to derive first and last name from the user profile if not in nameData
+    if (!firstName && patientWithUser.user?.name) {
+      const nameParts = patientWithUser.user.name.split(' ');
+      firstName = nameParts[0] || "";
+      lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : "";
+    }
+    
+    // Fallback to email prefix if no name is available
+    if (!firstName && patientWithUser.email) {
+      firstName = patientWithUser.email.split('@')[0] || "Patient";
+    }
+    
+    // Final fallback
+    if (!firstName) firstName = "Patient";
+    
     // Format the patient data for the response - merge with user data if available
     const formattedPatient = {
       ...patientWithUser,
-      firstName: nameData?.[0]?.given?.[0] || "",
-      lastName: nameData?.[0]?.family || "",
-      name: `${nameData?.[0]?.given?.[0] || ""} ${nameData?.[0]?.family || ""}`.trim(),
+      firstName: firstName,
+      lastName: lastName,
+      // Ensure name is never empty
+      name: firstName && lastName ? `${firstName} ${lastName}`.trim() : firstName || "Patient",
       // Include parsed data
       nameData,
       telecomData,
       addressData,
-      // Include onboarding data
-      onboardingCompleted,
+      // Include onboarding data - explicitly override with true if we've previously detected it
+      onboardingCompleted: onboardingCompleted === true,
       bloodGroup,
       allergies,
       chronicConditions,
@@ -204,21 +307,33 @@ export async function GET(req: NextRequest) {
       phoneNumber: patientWithUser.phone || ''
     };
     
+    // Ensure logging to debug welcome message issues
+    if (DEBUG) {
+      console.log('DEBUG: Formatted patient name data:', { 
+        firstName, 
+        lastName, 
+        fullName: formattedPatient.name,
+        hasValidName: !!formattedPatient.name
+      });
+    }
+    
     // Create the formatted patient with proper typing
     const formattedPatientWithUser: FormattedPatient = { 
       ...formattedPatient,
+      // Initialize userId as undefined by default (to match FormattedPatient type)
+      userId: undefined
     };
     
     // If we have user data, combine it with patient data
-    if (patientWithUser.user) {
-      // Add user information to the patient record
-      formattedPatientWithUser.userId = patientWithUser.user.id;
+    if (patientWithUser.user && patientWithUser.user.id) {
+      // Add user information to the patient record - ensure it's a string and not null
+      formattedPatientWithUser.userId = patientWithUser.user.id || undefined; // Convert null to undefined if needed
       formattedPatientWithUser.userProfile = {
         id: patientWithUser.user.id,
         role: patientWithUser.user.role,
         name: patientWithUser.user.name || formattedPatientWithUser.name,
         email: patientWithUser.user.email,
-        profileImage: patientWithUser.user.profileImage || patientWithUser.photo as string
+        profileImage: patientWithUser.user.profileImage || (typeof patientWithUser.photo === 'string' ? patientWithUser.photo : '')
       };
       
       // Since we're using one-to-one relation, we don't need to update extension anymore

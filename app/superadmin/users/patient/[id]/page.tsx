@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, cache } from "react"
+import React, { useState, useEffect, useCallback, cache } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { AlertCircle, Loader2 } from "lucide-react"
@@ -272,7 +272,7 @@ function getFormattedAddress(address: any): string {
 
 // Define the page props with current params handling in Next.js
 interface PageProps {
-  params: PatientParams
+  params: Promise<PatientParams>
 }
 
 // Use cache to ensure stable reference for ID extraction
@@ -282,6 +282,8 @@ const getPatientId = cache((params: PatientParams): string => {
 
 // Export the page component as a Client Component
 export default function PatientDetailsPage({ params }: PageProps) {
+  // Correctly unwrap params using React.use()
+  const resolvedParams = React.use(params);
   const router = useRouter();
   
   const [patient, setPatient] = useState<FHIRPatient | null>(null);
@@ -346,16 +348,13 @@ export default function PatientDetailsPage({ params }: PageProps) {
     }
   }, []);
   
-  // Extract the patient ID using our cached function
-  // This avoids the direct property access warning
-  const patientId = getPatientId(params);
-  
-  // Fetch patient data when component mounts
+  // Fetch patient data when component mounts using the resolved params
   useEffect(() => {
+    const patientId = getPatientId(resolvedParams);
     if (patientId) {
       fetchPatientData(patientId);
     }
-  }, [patientId, fetchPatientData]);
+  }, [resolvedParams, fetchPatientData]);
   
   if (loading) {
     return (

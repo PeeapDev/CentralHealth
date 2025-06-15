@@ -4,19 +4,26 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { Input } from '@/components/ui/input'
 import { QRCodeSVG } from 'qrcode.react'
-import { BadgeCheck, ClipboardCopy } from 'lucide-react'
+import { AlertTriangle, BadgeCheck, ClipboardCopy, Edit2, Save } from 'lucide-react'
 
 interface ReviewConfirmFormProps {
   formData: any
   onSubmit: () => void
   onPrevious: () => void
+  emailError?: string | null
+  updateFormData?: (data: any) => void
 }
 
-export default function ReviewConfirmForm({ formData, onSubmit, onPrevious }: ReviewConfirmFormProps) {
+export default function ReviewConfirmForm({ formData, onSubmit, onPrevious, emailError, updateFormData }: ReviewConfirmFormProps) {  
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
   const [medicalId, setMedicalId] = useState(formData.medicalId || '')
   const [generatingIds, setGeneratingIds] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [isEditingEmail, setIsEditingEmail] = useState(false)
+  const [email, setEmail] = useState(formData.email || '')
 
   // Generate medical ID and QR code when component mounts
   useEffect(() => {
@@ -43,6 +50,23 @@ export default function ReviewConfirmForm({ formData, onSubmit, onPrevious }: Re
     navigator.clipboard.writeText(medicalId)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  // Handle email editing
+  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setEmail(e.target.value)
+  }
+
+  const saveEmail = () => {
+    if (email && updateFormData) {
+      // Basic email validation
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return; // Don't save invalid emails
+      }
+      
+      updateFormData({ ...formData, email })
+      setIsEditingEmail(false)
+    }
   }
 
   // QR code content
@@ -93,12 +117,64 @@ export default function ReviewConfirmForm({ formData, onSubmit, onPrevious }: Re
                 <span className="text-muted-foreground">Date of Birth:</span>
                 <span className="font-medium">{formatDate(formData.dateOfBirth)}</span>
               </div>
-              {formData.email && (
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Email:</span>
-                  <span className="font-medium">{formData.email}</span>
-                </div>
-              )}
+              <div className="flex justify-between items-center">
+                <span className="text-muted-foreground">Email:</span>
+                {isEditingEmail ? (
+                  <div className="flex flex-col gap-1">
+                    <div className="flex gap-1 items-center">
+                      <Input 
+                        value={email} 
+                        onChange={handleEmailChange} 
+                        className="w-48 h-8 text-sm" 
+                        type="email"
+                        placeholder="Enter your email"
+                      />
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        className="p-0 w-8 h-8" 
+                        onClick={saveEmail}
+                        title="Save email"
+                      >
+                        <Save size={16} />
+                      </Button>
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        className="p-0 w-8 h-8" 
+                        onClick={() => {
+                          setEmail(formData.email || '')
+                          setIsEditingEmail(false)
+                        }}
+                        title="Cancel"
+                      >
+                        <span className="text-xs">✕</span>
+                      </Button>
+                    </div>
+                    {emailError && (
+                      <div className="flex items-center gap-1 text-xs text-red-500">
+                        <AlertTriangle size={12} />
+                        <span>{emailError}</span>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <span className="font-medium">{formData.email || 'Not provided'}</span>
+                    {updateFormData && (
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        className="p-0 w-6 h-6 ml-1" 
+                        onClick={() => setIsEditingEmail(true)}
+                        title="Edit email"
+                      >
+                        <Edit2 size={12} />
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
 
@@ -268,14 +344,69 @@ export default function ReviewConfirmForm({ formData, onSubmit, onPrevious }: Re
         </div>
       </div>
 
-      <div className="flex justify-between pt-4">
-        <Button type="button" variant="outline" onClick={onPrevious}>
-          Back
+      <div className="flex justify-between mt-6">
+        <Button 
+          type="button" 
+          variant="outline" 
+          onClick={onPrevious}
+          disabled={isSubmitting}
+        >
+          Previous
         </Button>
-        <Button onClick={onSubmit}>
-          Complete Registration
+        <Button 
+          type="button" 
+          onClick={async () => {
+            setIsSubmitting(true);
+            setSubmitError(null);
+            
+            try {
+              // Get stored email from localStorage if not in form data
+              const storedEmail = typeof window !== 'undefined' ? 
+                localStorage.getItem('userEmail') : null;
+              
+              const submissionData = {
+                ...formData,
+                email: formData.email || storedEmail,
+                medicalNumber: medicalId  // Updated from medicalId to medicalNumber to match backend
+              };
+              
+              const response = await fetch('/api/patients/onboarding', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(submissionData)
+              });
+              
+              if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to complete onboarding');
+              }
+              
+              // Onboarding completed successfully
+              onSubmit();
+            } catch (error) {
+              console.error('Onboarding submission error:', error);
+              setSubmitError(typeof error === 'object' && error !== null && 'message' in error 
+                ? (error as Error).message 
+                : 'Failed to submit onboarding data');
+            } finally {
+              setIsSubmitting(false);
+            }
+          }} 
+          className="px-8"
+          disabled={isSubmitting}
+        >
+          {isSubmitting ? 'Processing...' : 'Complete Registration'}
         </Button>
       </div>
+      
+      {submitError && (
+        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md flex items-center gap-2 text-red-600">
+          <AlertTriangle size={16} />
+          <span>{submitError}</span>
+        </div>
+      )}
     </div>
   )
 }

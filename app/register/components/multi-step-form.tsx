@@ -85,7 +85,7 @@ export function MultiStepForm() {
     // Personal Info
     firstName: "",
     lastName: "",
-    gender: "",
+    gender: "", // Empty to enforce selection
     dateOfBirth: "",
     phone: "",
     email: "",

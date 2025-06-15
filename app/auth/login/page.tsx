@@ -130,18 +130,31 @@ export default function PatientLoginPage() {
       const data = await response.json();
       
       if (!response.ok) {
-        throw new Error(data.message || 'Invalid credentials');
+        throw new Error(data.error || data.message || 'Invalid credentials');
       }
       
       // Patient successfully authenticated
       // Session is now handled server-side with secure cookies
-      const { patient, redirectTo } = data;
+      const { patient, localStorage: localStorageData } = data;
+      
+      // Store authentication data in localStorage for the dashboard
+      if (localStorageData) {
+        console.log('Storing authentication data in localStorage');
+        if (localStorageData.patientId) localStorage.setItem('patientId', localStorageData.patientId);
+        if (localStorageData.userEmail) localStorage.setItem('userEmail', localStorageData.userEmail);
+        if (localStorageData.medicalNumber) localStorage.setItem('medicalNumber', localStorageData.medicalNumber);
+      } else {
+        // Fallback to patient data if localStorage values not provided
+        if (patient?.id) localStorage.setItem('patientId', patient.id);
+        if (patient?.email) localStorage.setItem('userEmail', patient.email);
+        if (patient?.medicalNumber) localStorage.setItem('medicalNumber', patient.medicalNumber);
+      }
       
       // Log success with more details
-      console.log("Patient login successful, FORCE REDIRECTING TO DASHBOARD", {
-        patientId: patient?.id,
-        hasMedicalNumber: !!patient?.medicalNumber,
-        hasEmail: !!patient?.email
+      console.log("Patient login successful, redirecting to dashboard", {
+        patientId: localStorage.getItem('patientId'),
+        userEmail: localStorage.getItem('userEmail'),
+        hasMedicalNumber: !!patient?.medicalNumber
       });
       
       // DIRECT APPROACH: Create a form and submit it to force a server-side redirect

@@ -210,25 +210,26 @@ export async function POST(request: NextRequest) {
     // Store the OTP in the database for verification later
     try {
       if (type === 'email') {
-        // Use the existing EmailVerification model for email OTPs
-        await prisma.emailVerification.upsert({
-          where: {
-            email: value
-          },
-          update: {
-            code: otp,
-            expires: expiryTime,
-            verified: false,
-            attempts: 0 // Reset attempts on resend
-          },
-          create: {
-            email: value,
-            code: otp,
-            expires: expiryTime,
-            verified: false,
-            attempts: 0
+        // Temporary solution: Store OTP in memory cache
+        // In production, this should be stored in Redis or similar
+        // Define a global cache with TypeScript declaration
+        if (!(global as any).otpCache) {
+          (global as any).otpCache = {};
+        }
+        
+        // Store the OTP data
+        (global as any).otpCache[value] = {
+          otp,
+          expires: expiryTime,
+          attempts: 0
+        };
+        
+        // Add cleanup to remove expired OTPs
+        setTimeout(() => {
+          if ((global as any).otpCache && (global as any).otpCache[value]) {
+            delete (global as any).otpCache[value];
           }
-        });
+        }, 15 * 60 * 1000); // 15 minutes expiry
       } else {
         // For phone verification, we'd need a different approach
         // Currently just simulating for phone
