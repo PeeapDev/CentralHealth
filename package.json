@@ -4,6 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:backend": "cd backend && python main.py",
+    "dev:mobile": "cd mobile_app && flutter run", 
+    "dev:all": "node dev-setup.js",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
