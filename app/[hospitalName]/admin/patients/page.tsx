@@ -10,7 +10,8 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Search, Users, Activity, Calendar, FileText } from "lucide-react"
+import { PatientSearchDropdown } from "@/components/patient-search-dropdown"
+import { Search, Users, Activity, Calendar, FileText, MessageSquare } from "lucide-react"
 import { toast } from "sonner"
 import dynamic from "next/dynamic"
 
@@ -265,7 +266,7 @@ export default function PatientsPage({ params }: PatientsPageProps) {
     }
   };
 
-  // Function to search patients - always scoped to current hospital
+  // Function to search patients - with optional hospital scoping
   const searchPatients = async () => {
     setIsLoading(true);
     setSearchPerformed(true);
@@ -282,8 +283,13 @@ export default function PatientsPage({ params }: PatientsPageProps) {
         params.append('medicalNumber', medicalNumberQuery);
       }
       
-      // Always include hospital ID - hospital-scoped search only
-      params.append('hospitalId', hospitalName);
+      // For debugging: First try without hospital filter to check if records exist at all
+      const searchWithoutHospital = searchQuery && searchQuery.length >= 3;
+      
+      // Include hospital ID for hospital-scoped search (unless debugging with global search)
+      if (!searchWithoutHospital) {
+        params.append('hospitalId', hospitalName);
+      }
       
       // Add pagination
       params.append('page', currentPage.toString());
@@ -291,7 +297,12 @@ export default function PatientsPage({ params }: PatientsPageProps) {
       
       // Log the URL being called for debugging
       const apiUrl = `/api/patients?${params.toString()}`;
-      console.log('Calling API:', apiUrl);
+      console.log('Searching patients:', {
+        query: searchQuery || '(none)', 
+        medicalNumber: medicalNumberQuery || '(none)',
+        hospitalFiltered: !searchWithoutHospital,
+        url: apiUrl
+      });
       
       const response = await fetch(apiUrl);
       
@@ -302,7 +313,12 @@ export default function PatientsPage({ params }: PatientsPageProps) {
       
       // Process response
       const data = await response.json();
-      console.log('API response:', data);
+      console.log('Patient search results:', {
+        total: data.total || 0,
+        found: (data.patients || []).length,
+        hospitalFiltered: !searchWithoutHospital,
+        filters: data.filters
+      });
       
       // Check if we have valid patient data
       if (data && Array.isArray(data.patients)) {
@@ -310,8 +326,35 @@ export default function PatientsPage({ params }: PatientsPageProps) {
         setPatients(data.patients);
         setTotalPatients(data.total || 0);
         
-        // Show a gentle notification if no results found after search
-        if (data.patients.length === 0 && searchPerformed) {
+        // If no patients found with hospital filter but we had a search term,
+        // try again with global search (no hospital filter)
+        if (data.patients.length === 0 && !searchWithoutHospital && searchQuery) {
+          console.log('No patients found with hospital filter. Trying global search...');
+          
+          // Remove hospitalId filter from the params
+          const globalParams = new URLSearchParams();
+          if (searchQuery) globalParams.append('search', searchQuery);
+          if (medicalNumberQuery) globalParams.append('medicalNumber', medicalNumberQuery);
+          globalParams.append('page', '1');
+          globalParams.append('pageSize', pageSize.toString());
+          
+          const globalApiUrl = `/api/patients?${globalParams.toString()}`;
+          const globalResponse = await fetch(globalApiUrl);
+          
+          if (globalResponse.ok) {
+            const globalData = await globalResponse.json();
+            
+            if (globalData && Array.isArray(globalData.patients) && globalData.patients.length > 0) {
+              console.log(`Found ${globalData.patients.length} patients in global search`);
+              setPatients(globalData.patients);
+              setTotalPatients(globalData.total || 0);
+              toast.info(`Found ${globalData.patients.length} patients across all hospitals`);
+            } else {
+              // Show a gentle notification if no results found after search
+              toast.info("No patients found matching your criteria");
+            }
+          }
+        } else if (data.patients.length === 0 && searchPerformed) {
           toast.info("No patients found matching your criteria");
         }
       } else {
@@ -384,69 +427,85 @@ export default function PatientsPage({ params }: PatientsPageProps) {
         <PatientInfoCard patient={selectedPatient} onClose={closePatientDetails} />
       ) : (
         <>
-          {/* Patient Search Form */}
           <Card>
             <CardHeader>
               <CardTitle>Patient Search</CardTitle>
               <CardDescription>
-                Search for patients in {formattedHospitalName} by name, email, or medical number
+                Search for patients in {formattedHospitalName} by name, email, or medical ID
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSearch} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="searchQuery">Search by Name or Email</Label>
-                    <div className="flex space-x-2">
-                      <Input
-                        id="searchQuery"
-                        placeholder="Enter patient name or email"
-                        className="flex-1"
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="medicalNumberQuery">Medical Number</Label>
-                    <div className="flex space-x-2">
-                      <Input
-                        id="medicalNumberQuery"
-                        placeholder="Enter medical number"
-                        className="flex-1" 
-                        value={medicalNumberQuery}
-                        onChange={(e) => setMedicalNumberQuery(e.target.value)}
-                      />
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="flex justify-end space-x-2">
-                  <Button 
-                    type="button" 
-                    variant="outline"
-                    onClick={() => {
-                      setSearchQuery('');
-                      setMedicalNumberQuery('');
+              <div className="mb-6">
+                <Label htmlFor="quickSearch" className="font-medium text-base">Quick Search with AJAX</Label>
+                <div className="mt-2">
+                  <PatientSearchDropdown 
+                    hospitalName={hospitalName}
+                    placeholder="Type to search patients (min. 2 chars)..."
+                    onSelectPatient={(patient) => {
+                      // Navigate to patient details
+                      router.push(`/${hospitalName}/admin/patients/${patient.id}`)
                     }}
-                  >
-                    Clear
-                  </Button>
-                  <Button type="submit" disabled={isLoading}>
-                    {isLoading ? (
-                      <span className="flex items-center space-x-2">
-                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-b-transparent"></span>
-                        <span>Searching...</span>
-                      </span>
-                    ) : (
-                      <span className="flex items-center space-x-2">
-                        <Search className="h-4 w-4 mr-2" />
-                        <span>Search {formattedHospitalName}</span>
-                      </span>
-                    )}
-                  </Button>
+                    className="w-full"
+                  />
                 </div>
-              </form>
+                <div className="text-xs text-muted-foreground mt-1">
+                  Search by name, ID, or email - results show instantly with patient photo
+                </div>
+              </div>
+              
+              <div className="border-t pt-4">
+                <div className="text-sm font-medium mb-4">Advanced Search Options</div>
+                <form onSubmit={handleSearch} className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="searchQuery">Search by Name or Email</Label>
+                      <div className="flex space-x-2">
+                        <Input
+                          id="searchQuery"
+                          placeholder="Enter patient name or email"
+                          className="flex-1"
+                          value={searchQuery}
+                          onChange={(e) => setSearchQuery(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="medicalNumberQuery">Medical Number</Label>
+                      <div className="flex space-x-2">
+                        <Input
+                          id="medicalNumberQuery"
+                          placeholder="Enter medical number"
+                          className="flex-1" 
+                          value={medicalNumberQuery}
+                          onChange={(e) => setMedicalNumberQuery(e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex justify-end space-x-2">
+                    <Button 
+                      type="button" 
+                      variant="outline"
+                      onClick={() => {
+                        setSearchQuery('');
+                        setMedicalNumberQuery('');
+                      }}
+                    >
+                      Clear
+                    </Button>
+                    <Button type="submit" disabled={isLoading}>
+                      {isLoading ? (
+                        <>
+                          <span className="animate-spin mr-2">⏳</span> Searching...
+                        </>
+                      ) : (
+                        "Search"
+                      )}
+                    </Button>
+                  </div>
+                </form>
+              </div>
             </CardContent>
           </Card>
 

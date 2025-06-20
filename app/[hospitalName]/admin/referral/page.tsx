@@ -4,78 +4,207 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Plus, Search, UserCheck, Clock, CheckCircle, XCircle } from "lucide-react"
+import { Plus, Search, UserCheck, Clock, CheckCircle, XCircle, Eye, FileEdit, Trash } from "lucide-react"
+import { NewReferralDialog } from "../../../../components/new-referral-dialog"
+import { prisma } from "@/lib/prisma"
+import { cn } from "@/lib/utils"
 
 interface ReferralPageProps {
   params: { hospitalName: string }
 }
 
-export default function ReferralPage({ params }: ReferralPageProps) {
-  const hospitalName = params.hospitalName.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())
+// Define the types with proper relations
+type Patient = {
+  id: string;
+  name: any; // JSON structure
+  medicalNumber?: string;
+};
 
-  const referrals = [
-    {
-      id: "REF001",
-      patientName: "John Doe",
-      referringDoctor: "Dr. Smith",
-      referredTo: "Dr. Johnson",
-      department: "Cardiology",
-      status: "Pending",
-      date: "2024-05-24",
-      priority: "High",
-    },
-    {
-      id: "REF002",
-      patientName: "Jane Smith",
-      referringDoctor: "Dr. Brown",
-      referredTo: "Dr. Wilson",
-      department: "Neurology",
-      status: "Completed",
-      date: "2024-05-23",
-      priority: "Medium",
-    },
-    {
-      id: "REF003",
-      patientName: "Mike Johnson",
-      referringDoctor: "Dr. Davis",
-      referredTo: "Dr. Miller",
-      department: "Orthopedics",
-      status: "In Progress",
-      date: "2024-05-22",
-      priority: "Low",
-    },
-  ]
+type Hospital = {
+  id: string;
+  name: string;
+};
+
+type ReferralWithRelations = {
+  id: string;
+  createdAt: Date;
+  updatedAt: Date;
+  completedAt?: Date | null;
+  referralCode: string;
+  status: string;
+  priority: string;
+  notes?: string | null;
+  ambulanceRequired: boolean;
+  patientId: string;
+  referringHospitalId: string;
+  receivingHospitalId: string;
+  patient: Patient;
+  referringHospital: Hospital;
+  receivingHospital: Hospital;
+};
+
+async function getReferrals(hospitalName: string): Promise<ReferralWithRelations[]> {
+  try {
+    const hospital = await prisma.hospital.findFirst({
+      where: { subdomain: hospitalName },
+      select: { id: true }
+    });
+    
+    if (!hospital) return [];
+    
+    const referrals = await prisma.referral.findMany({
+      where: {
+        OR: [
+          { referringHospitalId: hospital.id },
+          { receivingHospitalId: hospital.id }
+        ]
+      },
+      include: {
+        patient: true,
+        referringHospital: true,
+        receivingHospital: true,
+      },
+      orderBy: { createdAt: 'desc' }
+    }) as unknown as ReferralWithRelations[];
+    
+    return referrals;
+  } catch (error) {
+    console.error("Error fetching referrals:", error);
+    return [];
+  }
+}
+
+async function getStats(hospitalName: string) {
+  try {
+    const hospital = await prisma.hospital.findFirst({
+      where: { subdomain: hospitalName },
+      select: { id: true }
+    });
+    
+    if (!hospital) return { total: 0, pending: 0, completed: 0, todayCompleted: 0 };
+    
+    const total = await prisma.referral.count({
+      where: {
+        OR: [
+          { referringHospitalId: hospital.id },
+          { receivingHospitalId: hospital.id }
+        ]
+      },
+    });
+    
+    const pending = await prisma.referral.count({
+      where: {
+        OR: [
+          { referringHospitalId: hospital.id },
+          { receivingHospitalId: hospital.id }
+        ],
+        status: "PENDING"
+      },
+    });
+    
+    const completed = await prisma.referral.count({
+      where: {
+        OR: [
+          { referringHospitalId: hospital.id },
+          { receivingHospitalId: hospital.id }
+        ],
+        status: "COMPLETED"
+      },
+    });
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const todayCompleted = await prisma.referral.count({
+      where: {
+        OR: [
+          { referringHospitalId: hospital.id },
+          { receivingHospitalId: hospital.id }
+        ],
+        status: "COMPLETED",
+        completedAt: {
+          gte: today
+        }
+      },
+    });
+    
+    return { total, pending, completed, todayCompleted };
+  } catch (error) {
+    console.error("Error fetching stats:", error);
+    return { total: 0, pending: 0, completed: 0, todayCompleted: 0 };
+  }
+}
+
+export default async function ReferralPage({ params }: ReferralPageProps) {
+  const hospitalName = params.hospitalName;
+  const displayHospitalName = hospitalName.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+  
+  const referrals = await getReferrals(hospitalName);
+  const stats = await getStats(hospitalName);
+  
+  // Format referrals for display
+  const formattedReferrals = referrals.map((referral: ReferralWithRelations) => {
+    // Extract patient name from JSON structure
+    const patientName = (() => {
+      try {
+        if (referral.patient && referral.patient.name) {
+          const nameObj = referral.patient.name as any;
+          if (nameObj && nameObj.given && nameObj.family) {
+            return `${Array.isArray(nameObj.given) ? nameObj.given.join(' ') : nameObj.given} ${nameObj.family}`;
+          }
+        }
+        return referral.patient?.medicalNumber || 'Unknown';
+      } catch {
+        return 'Unknown Patient';
+      }
+    })();
+    
+    return {
+      id: referral.id,
+      referralCode: referral.referralCode,
+      patientName,
+      patientId: referral.patientId,
+      referringHospital: referral.referringHospital?.name || 'Unknown Hospital',
+      receivingHospital: referral.receivingHospital?.name || 'Unknown Hospital',
+      status: referral.status,
+      priority: referral.priority || 'ROUTINE',
+      date: referral.createdAt.toISOString().split('T')[0],
+      notes: referral.notes || '',
+    };
+  });
 
   const getStatusBadge = (status: string) => {
     switch (status) {
-      case "Pending":
+      case "PENDING":
         return (
           <Badge className="bg-yellow-500 text-white">
             <Clock className="h-3 w-3 mr-1" />
             Pending
           </Badge>
         )
-      case "Completed":
+      case "COMPLETED":
         return (
           <Badge className="bg-green-500 text-white">
             <CheckCircle className="h-3 w-3 mr-1" />
             Completed
           </Badge>
         )
-      case "In Progress":
+      case "ACCEPTED":
         return (
           <Badge className="bg-blue-500 text-white">
             <UserCheck className="h-3 w-3 mr-1" />
-            In Progress
+            Accepted
           </Badge>
         )
-      case "Cancelled":
+      case "CANCELLED":
         return (
           <Badge className="bg-red-500 text-white">
             <XCircle className="h-3 w-3 mr-1" />
             Cancelled
           </Badge>
         )
+      case "NONE":
+        return <Badge variant="outline">None</Badge>
       default:
         return <Badge variant="secondary">{status}</Badge>
     }
@@ -151,10 +280,7 @@ export default function ReferralPage({ params }: ReferralPageProps) {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>Referral Management</CardTitle>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              New Referral
-            </Button>
+            <NewReferralDialog />
           </div>
         </CardHeader>
         <CardContent>
@@ -172,30 +298,67 @@ export default function ReferralPage({ params }: ReferralPageProps) {
                 <TableRow>
                   <TableHead>Referral ID</TableHead>
                   <TableHead>Patient</TableHead>
-                  <TableHead>Referring Doctor</TableHead>
-                  <TableHead>Referred To</TableHead>
-                  <TableHead>Department</TableHead>
-                  <TableHead>Priority</TableHead>
+                  <TableHead>Referring Hospital</TableHead>
+                  <TableHead>Receiving Hospital</TableHead>
+                  <TableHead>Notes</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Date</TableHead>
+                  <TableHead>Priority</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {referrals.map((referral) => (
+                {formattedReferrals.map((referral) => (
                   <TableRow key={referral.id}>
-                    <TableCell className="font-medium">{referral.id}</TableCell>
-                    <TableCell>{referral.patientName}</TableCell>
-                    <TableCell>{referral.referringDoctor}</TableCell>
-                    <TableCell>{referral.referredTo}</TableCell>
-                    <TableCell>{referral.department}</TableCell>
-                    <TableCell>{getPriorityBadge(referral.priority)}</TableCell>
-                    <TableCell>{getStatusBadge(referral.status)}</TableCell>
-                    <TableCell>{referral.date}</TableCell>
                     <TableCell>
-                      <Button variant="ghost" size="sm">
-                        View
-                      </Button>
+                      <div className="font-medium">{referral.referralCode || referral.id}</div>
+                    </TableCell>
+                    <TableCell>
+                      <div>{referral.patientName}</div>
+                    </TableCell>
+                    <TableCell>
+                      <div>{referral.referringHospital}</div>
+                    </TableCell>
+                    <TableCell>
+                      <div>{referral.receivingHospital}</div>
+                    </TableCell>
+                    <TableCell>
+                      <div>{referral.notes ? referral.notes.substring(0, 30) + (referral.notes.length > 30 ? '...' : '') : 'N/A'}</div>
+                    </TableCell>
+                    <TableCell>
+                      <div>{getStatusBadge(referral.status)}</div>
+                    </TableCell>
+                    <TableCell>
+                      <div>{referral.date}</div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center">
+                        <Badge
+                          className={cn(
+                            "text-white",
+                            referral.priority === "URGENT"
+                              ? "bg-red-500"
+                              : referral.priority === "PRIORITY"
+                              ? "bg-orange-500"
+                              : "bg-green-500"
+                          )}
+                        >
+                          {referral.priority}
+                        </Badge>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex justify-end gap-2">
+                        <Button variant="ghost" size="icon">
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon">
+                          <FileEdit className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" className="text-red-500">
+                          <Trash className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

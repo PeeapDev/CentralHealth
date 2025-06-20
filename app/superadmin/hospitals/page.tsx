@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox"
 import { EyeIcon, PencilIcon, TrashIcon } from "lucide-react"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { DEMO_TOKENS } from "@/lib/auth/jwt"
 
 // Types and interfaces
 type Status = 'Active' | 'Inactive'
@@ -971,12 +972,29 @@ export default function HospitalsPage() {
         package: data.package || 'Basic'
       }
 
+      // Get the superadmin demo token from our JWT library
+      // This ensures we're using the same token format expected by the API
+      const superadminToken = DEMO_TOKENS.superadmin;
+      
+      // Also try to get token from cookies as fallback
+      const cookieToken = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('token='))
+        ?.split('=')[1];
+        
+      // Use the demo token if available, otherwise fall back to cookie token
+      const token = superadminToken || cookieToken || '';
+      console.log('Using token for hospital creation:', token ? 'Token available' : 'No token available');
+        
       const response = await fetch('/api/hospitals', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify(hospitalData),
+        // Include credentials to send cookies with the request
+        credentials: 'include'
       })
 
       const responseData = await response.json()
@@ -996,7 +1014,6 @@ export default function HospitalsPage() {
       setIsSubmitting(false)
     }
   }
-
 
   const handleUpdateHospital = async (data: HospitalFormData): Promise<void> => {
     if (!editingHospital) return

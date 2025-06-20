@@ -102,16 +102,16 @@ export default function HospitalLoginPage() {
     setError("")
 
     try {
-      // Call the real authentication API with the hospital ID
+      // Call the real authentication API with the hospital slug
       const loginData = {
         email: formData.email,
         password: formData.password,
-        hospitalId: hospital?.id,
+        hospitalSlug: hospital?.subdomain, // API expects hospitalSlug, not hospitalId
       };
       
       console.log('Attempting hospital login with:', JSON.stringify(loginData, null, 2));
       
-      const response = await fetch('/api/auth', {
+      const response = await fetch('/api/v1/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -121,8 +121,13 @@ export default function HospitalLoginPage() {
 
       const data = await response.json();
 
-      if (!response.ok) {
+      if (!response.ok || !data.success) {
         throw new Error(data.error || 'Authentication failed');
+      }
+
+      // Check if data exists in the expected format
+      if (!data.data || !data.data.token || !data.data.user) {
+        throw new Error('Invalid response format from server');
       }
 
       // Login successful - store the token in local storage and cookies
@@ -131,13 +136,14 @@ export default function HospitalLoginPage() {
         JSON.stringify({
           user: {
             email: formData.email,
-            role: data.user.role,
+            role: data.data.user.role,
             hospitalId: hospital?.id,
             hospitalSlug: hospital?.subdomain,
-            name: data.user.name || 'Hospital Admin',
-            hospitalName: hospital?.name,
+            name: data.data.user.name || 'Hospital Admin',
+            isLoggedIn: true,
           },
-          token: data.access_token,
+          token: data.data.token,
+          expiry: new Date().getTime() + 24 * 60 * 60 * 1000, // 24 hours
         }),
       )
       router.push(`/${hospital?.subdomain}/admin`)

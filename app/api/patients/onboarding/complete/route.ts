@@ -2,77 +2,80 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from "@/lib/prisma";
 import { getPatientSession } from "@/lib/patient-session";
 import { sendWelcomeEmail } from "@/lib/email";
+import { JsonValue } from '@prisma/client/runtime/library';
 
-// Add debugging for troubleshooting
 const DEBUG = true;
-function log(...args: any[]) {
+function log(...args: unknown[]) {
   if (DEBUG) {
     console.log('[ONBOARDING_API]', ...args);
   }
 }
 
-// Type definitions for our data structures
-interface PatientSession {
-  id: string;
-  authenticated: boolean;
-}
-
-interface ExtensionData {
-  onboardingCompleted?: boolean;
-  bloodGroup?: string;
+interface OnboardingRequestData {
+  basicDetails?: {
+    fullName?: string;
+    gender?: string;
+    dateOfBirth?: string;
+    phoneNumber?: string;
+    email?: string;
+  };
+  healthInfo?: {
+    allergies?: string[];
+    chronicConditions?: string[];
+    bloodGroup?: string;
+    organDonor?: boolean;
+  };
+  emergencyContact?: {
+    name?: string;
+    relationship?: string;
+    phone?: string;
+  };
   medicalId?: string;
   qrCode?: string;
-  registrationDate?: string;
-  organDonor?: boolean;
-  [key: string]: any;
+  recoveryEmail?: string;
+  photo?: string;
+  isRecoveryAttempt?: boolean;
 }
 
-interface MedicalHistoryData {
-  allergies?: string[];
-  chronicConditions?: string[];
-  [key: string]: any;
-}
-
-interface EmergencyContact {
+interface ContactEntry {
+  system?: string;
+  value?: string;
+  use?: string;
   name?: string;
   relationship?: string;
-  phone?: string;
-  [key: string]: any;
 }
 
-interface ContactData {
-  emergency?: EmergencyContact;
-  [key: string]: any;
-}
-
-// We no longer need this function since we're directly using getPatientSession
-// Keep it here temporarily for reference but it's not used anymore
-/*
-async function getPatientFromSession(): Promise<PatientSession | null> {
+function extractEmailFromContact(contactJson: JsonValue | null): string {
+  if (!contactJson) return '';
+  
   try {
-    const session = await getPatientSession();
+    // Parse string JSON or use the value directly
+    const contactData = typeof contactJson === 'string' 
+      ? JSON.parse(contactJson) as unknown 
+      : contactJson;
     
-    if (!session || !session.isLoggedIn) {
-      return null;
+    // Handle array format (newer format)
+    if (Array.isArray(contactData)) {
+      // Need to cast array elements to expected shape
+      const typedArray = contactData as ContactEntry[];
+      const emailEntry = typedArray.find(entry => entry?.system === 'email');
+      return emailEntry?.value || '';
     }
     
-    return {
-      id: session.id,
-      authenticated: true
-    };
+    // Handle object format (legacy format)
+    const contactObject = contactData as Record<string, unknown>;
+    return (contactObject.email as string) || '';
   } catch (error) {
-    console.error('Error getting patient from session:', error);
-    return null;
+    log('Error parsing contact JSON:', error);
+    return '';
   }
 }
-*/
 
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest): Promise<NextResponse> {
   try {
     log('Starting onboarding completion process');
     
-    // Parse the request body first for potential recovery information
-    const requestData = await req.json().catch(parseError => {
+    const requestData: OnboardingRequestData = await req.json().catch((parseError: Error) => {
       log('Failed to parse request body:', parseError);
       return null;
     });
@@ -92,102 +95,67 @@ export async function POST(req: NextRequest) {
       medicalId: requestData.medicalId
     });
     
-    // Get the authenticated patient from the session
     const patientSession = await getPatientSession();
-
-    // Log session information for debugging
     log('Patient session:', patientSession ? {
       id: patientSession.id,
       email: patientSession.email,
       isLoggedIn: patientSession.isLoggedIn
     } : 'No session found');
 
-    // Session recovery handling
     let recoveryAttempted = false;
     let recoverySuccessful = false;
     let recoveredPatientId = null;
     
-    // Always attempt session recovery if we have recovery email and medical ID,
-    // regardless of whether we have a session or not
     if (requestData.recoveryEmail && requestData.medicalId) {
-      log('Attempting session recovery using recoveryEmail and medicalId');
+      log('Attempting session recovery');
       recoveryAttempted = true;
       
       try {
-        // Look for any patient with this email and medical ID
         const patientByEmail = await prisma.patient.findFirst({
           where: { 
-            email: requestData.recoveryEmail
+            contact: {
+              path: ['$[*].value'],
+              string_contains: requestData.recoveryEmail
+            }
           },
-          select: { id: true, extension: true }
+          select: { id: true, contact: true, mrn: true }
         });
         
-        if (patientByEmail) {
-          // Check if this patient has the matching medical ID
-          try {
-            const extension = typeof patientByEmail.extension === 'string' 
-              ? JSON.parse(patientByEmail.extension) 
-              : patientByEmail.extension;
-            
-            if (extension && typeof extension === 'object') {
-              // Try to find medical ID in the extension object
-              if (extension.medicalId === requestData.medicalId) {
-                log('Found patient with exact medicalId match:', patientByEmail.id);
-                recoverySuccessful = true;
-                recoveredPatientId = patientByEmail.id;
-              } else if (JSON.stringify(extension).includes(requestData.medicalId)) {
-                log('Found patient with medicalId in extension:', patientByEmail.id);
-                recoverySuccessful = true;
-                recoveredPatientId = patientByEmail.id;
-              }
-            }
-          } catch (parseError) {
-            log('Error parsing extension for patient:', patientByEmail.id, parseError);
-          }
+        if (patientByEmail && patientByEmail.mrn === requestData.medicalId) {
+          log('Found patient with exact medicalId match:', patientByEmail.id);
+          recoverySuccessful = true;
+          recoveredPatientId = patientByEmail.id;
         }
         
-        // If we still haven't found a match, try a broader search
         if (!recoverySuccessful) {
-          // Look for any patient with this medical ID in their extension
-          const patientsWithExtension = await prisma.patient.findMany({
-            select: { id: true, email: true, extension: true }
+          // More efficient query that directly filters by email in contact JSON
+          const patientByMrn = await prisma.patient.findFirst({
+            where: {
+              mrn: requestData.medicalId
+            },
+            select: { id: true, contact: true, mrn: true }
           });
           
-          // Manual check for medicalId in extension JSON for all patients
-          for (const p of patientsWithExtension) {
-            // Skip if email doesn't match - extra security check
-            if (p.email !== requestData.recoveryEmail) continue;
-            
-            try {
-              const extension = typeof p.extension === 'string' 
-                ? JSON.parse(p.extension) 
-                : p.extension;
-                
-              if (extension && (extension.medicalId === requestData.medicalId || 
-                  JSON.stringify(extension).includes(requestData.medicalId))) {
-                log('Found patient by medical ID in extension:', p.id);
-                recoverySuccessful = true;
-                recoveredPatientId = p.id;
-                break;
-              }
-            } catch (err) {
-              log('Error parsing extension for patient:', p.id, err);
+          if (patientByMrn) {
+            const patientEmail = extractEmailFromContact(patientByMrn.contact);
+            if (patientEmail === requestData.recoveryEmail) {
+              log('Found patient by medical ID:', patientByMrn.id);
+              recoverySuccessful = true;
+              recoveredPatientId = patientByMrn.id;
             }
           }
         }
         
-        // Log final recovery result
         if (recoverySuccessful) {
           log('Session recovery successful, found patient:', recoveredPatientId);
         } else {
-          log('Session recovery failed, patient not found with provided recovery information');
+          log('Session recovery failed');
         }
-      } catch (recoveryError) {
+      } catch (recoveryError: unknown) {
         log('Error during session recovery attempt:', recoveryError);
       }
     }
 
-    // Log detailed info about the recovery attempt
     log('Recovery status:', {
       recoveryAttempted,
       recoverySuccessful,
@@ -199,59 +167,59 @@ export async function POST(req: NextRequest) {
       isRecoveryAttempt: requestData.isRecoveryAttempt
     });
     
-    // If this is an explicit recovery attempt (set by frontend), try harder to succeed
     if (requestData.isRecoveryAttempt && requestData.recoveryEmail && requestData.medicalId) {
-      // For explicit recovery attempts, try to find existing patient by email first to prevent duplicates
       if (!recoverySuccessful && requestData.recoveryEmail) {
-        log('Checking for existing patient with email before creating new one');
+        log('Checking for existing patient with email');
         try {
-          // First check if a patient already exists with this email
           const existingPatient = await prisma.patient.findFirst({
-            where: { email: requestData.recoveryEmail }
+            where: { 
+              contact: {
+                path: ['$[*].value'],
+                string_contains: requestData.recoveryEmail
+              }
+            }
           });
           
           if (existingPatient) {
-            log('Found existing patient with same email:', existingPatient.id);
+            log('Found existing patient:', existingPatient.id);
             recoverySuccessful = true;
             recoveredPatientId = existingPatient.id;
           } else {
-            // No existing patient found, create a new one
-            log('No existing patient found with email, creating new patient');
-            
-            // Generate a unique medical number
-            const medicalNumber = `P${Math.floor(10000 + Math.random() * 90000)}`;
-            
-            // Create a new patient with the recovery email and required fields
+            // Follow medical ID priority: requested medicalId > generated
+            // This maintains consistency with registration flow that stores medicalId in localStorage
+            const medicalNumber = requestData.medicalId || `P${Math.floor(10000 + Math.random() * 90000)}`;
+            log('Using medical ID:', requestData.medicalId ? 'from request' : 'newly generated', medicalNumber);
             const newPatient = await prisma.patient.create({
               data: {
-                email: requestData.recoveryEmail,
-                extension: JSON.stringify({ medicalId: requestData.medicalId }),
-                // Required fields based on Prisma schema
+                contact: JSON.stringify([
+                  { system: 'email', value: requestData.recoveryEmail },
+                  { system: 'phone', value: requestData.basicDetails?.phoneNumber || '' }
+                ]),
                 gender: requestData.basicDetails?.gender || 'unknown',
-                birthDate: requestData.basicDetails?.dateOfBirth 
+                dateOfBirth: requestData.basicDetails?.dateOfBirth 
                   ? new Date(requestData.basicDetails.dateOfBirth) 
                   : new Date(),
-                medicalNumber: medicalNumber,
-                name: JSON.stringify({ text: requestData.basicDetails?.fullName || 'Patient' })
+                mrn: requestData.medicalId || medicalNumber,
+                name: JSON.stringify({ text: requestData.basicDetails?.fullName || 'Patient' }),
+                // Use a default hospital ID until we properly retrieve it from the session or other sources
+                hospitalId: process.env.DEFAULT_HOSPITAL_ID || '00000000-0000-0000-0000-000000000000'
               }
             });
-            log('Created new patient as part of recovery:', newPatient.id);
+            log('Created new patient:', newPatient.id);
             recoverySuccessful = true;
             recoveredPatientId = newPatient.id;
           }
-        } catch (createError) {
+        } catch (createError: unknown) {
           log('Failed during patient lookup/creation:', createError);
         }
       }
     }
     
-    // UPDATED APPROACH: In onboarding flow, we'll try to complete onboarding even if session is expired
-    // We'll only return auth error if we have no session AND recovery failed
     if (!patientSession && !recoverySuccessful) {
-      log('Authentication failed: No valid patient session and recovery failed/not attempted');
+      log('Authentication failed');
       return NextResponse.json(
         { 
-          error: "Not authenticated and recovery failed. Please login again with your email and medical ID.",
+          error: "Not authenticated and recovery failed. Please login again.",
           recoveryAttempted,
           recoveryEmail: requestData.recoveryEmail || null,
           hasMedicalId: !!requestData.medicalId
@@ -260,30 +228,25 @@ export async function POST(req: NextRequest) {
       );
     }
     
-    // If session is expired but recovery succeeded, log this important event
     if ((!patientSession || !patientSession.isLoggedIn) && recoverySuccessful) {
-      log('IMPORTANT: Session expired but recovery succeeded! Continuing with onboarding completion');
+      log('Session expired but recovery succeeded');
     }
     
-    // Use the patient ID from either the session or recovery
-    const patientId = recoverySuccessful ? recoveredPatientId : (patientSession ? patientSession.id : null);
+    // Use let instead of const since we might need to reassign it if we find or create a patient
+    let patientId = recoverySuccessful ? recoveredPatientId : (patientSession ? patientSession.id : null);
     
-    // Additional safety check
     if (!patientId) {
-      log('Fatal error: No valid patient ID found after authentication/recovery checks');
+      log('Fatal error: No valid patient ID');
       return NextResponse.json(
         { error: "Unable to identify patient. Please log in again." },
         { status: 401 }
       );
     }
 
-    // We already parsed the body as requestData above, so no need to parse it again
-    // Just make sure we have the required fields
     log('Validating onboarding data');
     
-    // Validate medical ID
     if (!requestData.medicalId) {
-      log('Medical ID is missing in request data');
+      log('Medical ID is missing');
       return NextResponse.json(
         { error: "Medical ID is required" },
         { status: 400 }
@@ -292,377 +255,194 @@ export async function POST(req: NextRequest) {
     
     log('Looking up patient with ID:', patientId);
 
-    // Try to fetch existing patient record
-    const patient = await prisma.patient.findUnique({
+    let patient = await prisma.patient.findUnique({
       where: { id: patientId },
       select: {
         id: true,
-        email: true,
         name: true,
-        extension: true,
+        mrn: true,
         medicalHistory: true,
         contact: true,
-        phone: true, // Make sure we select the phone field
-        medicalNumber: true // Critical: Include the medical number (PHN) field
+        gender: true,
+        dateOfBirth: true,
+        hospitalId: true
       }
     });
 
-    if (!patient) {
-      log(`Patient record not found for ID: ${patientId}`);
-      return NextResponse.json(
-        { error: "Patient record not found. Your session may be invalid." },
-        { status: 404 }
-      );
-    }
-
-    log('Found patient record:', {
-      id: patient.id,
-      hasEmail: !!patient.email,
-      hasExtension: !!patient.extension
-    });
-
-    // Parse existing JSON fields - with safety checks
-    let extensionData: Record<string, any> = {};
-    let medicalHistoryData: Record<string, any> = {};
-    let contactData: Record<string, any> = {};
-    let nameData: any[] = [];
-    
-    try {
-      // Parse extension data (with fallback to empty object)
-      if (patient.extension) {
-        if (typeof patient.extension === 'string') {
-          try {
-            extensionData = JSON.parse(patient.extension);
-            log('Successfully parsed extension data from string');
-          } catch (e) {
-            log('Failed to parse extension data, using empty object');
-          }
-        } else if (typeof patient.extension === 'object') {
-          extensionData = patient.extension;
-          log('Using extension data from object directly');
-        }
-      }
-      
-      // Check if medicalId exists in extension - this is critical for PHN consistency
-      if (!extensionData.medicalId && patient.medicalNumber) {
-        log('Adding missing medicalId from medicalNumber:', patient.medicalNumber);
-        extensionData.medicalId = patient.medicalNumber;
-      }
-      
-      // Parse medical history data (with fallback to empty object)
-      if (patient.medicalHistory) {
-        if (typeof patient.medicalHistory === 'string') {
-          try {
-            medicalHistoryData = JSON.parse(patient.medicalHistory);
-          } catch (e) {
-            log('Failed to parse medical history data, using empty object');
-          }
-        } else if (typeof patient.medicalHistory === 'object') {
-          medicalHistoryData = patient.medicalHistory;
-        }
-      }
-      
-      // Parse contact data (with fallback to empty object)
-      if (patient.contact) {
-        if (typeof patient.contact === 'string') {
-          try {
-            contactData = JSON.parse(patient.contact);
-          } catch (e) {
-            log('Failed to parse contact data, using empty object');
-          }
-        } else if (typeof patient.contact === 'object') {
-          contactData = patient.contact;
-        }
-      }
-      
-      // Parse name data (with fallback to empty array)
-      if (patient.name) {
-        if (typeof patient.name === 'string') {
-          try {
-            nameData = JSON.parse(patient.name);
-            if (!Array.isArray(nameData)) {
-              nameData = []; // Ensure nameData is always an array
-            }
-          } catch (e) {
-            log('Failed to parse name data, using empty array');
-            nameData = [];
-          }
-        } else if (Array.isArray(patient.name)) {
-          nameData = patient.name;
-        }
-      }
-      
-      log('Successfully parsed existing patient data');
-    } catch (parseError) {
-      log('Error parsing existing patient data:', parseError);
-      return NextResponse.json(
-        { error: "Error processing existing patient data" },
-        { status: 500 }
-      );
-    }
-
-    log('Updating patient data with onboarding information');
-    
-    // Keep existing extension data and add/update new fields
-    extensionData.onboardingCompleted = true;
-    
-    // CRITICAL FIX: Store the medical ID from onboarding into extension data
-    // We'll update the medicalNumber field later when constructing updateData
-    if (requestData.medicalId) {
-      // Store the medicalId from onboarding in the extension data
-      extensionData.medicalId = requestData.medicalId;
-      log('Storing medicalId in extension data:', requestData.medicalId);
-      // Note: We update the actual medicalNumber field later in the update operation
-    } else if (!extensionData.medicalId && patient.medicalNumber) {
-      // Fallback to the patient's medical number if medicalId is missing
-      log('Using patient medicalNumber as medicalId fallback:', patient.medicalNumber);
-      extensionData.medicalId = patient.medicalNumber;
-    }
-    
-    // Other extension data
-    if (requestData.qrCode) {
-      extensionData.qrCode = requestData.qrCode;
-    }
-    
-    if (!extensionData.registrationDate) {
-      extensionData.registrationDate = new Date().toISOString();
-    }
-    
-    // Log the extension data for debugging
-    log('Updated extension data:', extensionData);
-    
-    // Add health information from onboarding
-    if (requestData.healthInfo) {
-      medicalHistoryData.allergies = requestData.healthInfo.allergies || [];
-      medicalHistoryData.chronicConditions = requestData.healthInfo.chronicConditions || [];
-      medicalHistoryData.bloodGroup = requestData.healthInfo.bloodGroup || 'Unknown';
-      medicalHistoryData.organDonor = requestData.healthInfo.organDonor !== undefined ? requestData.healthInfo.organDonor : (medicalHistoryData.organDonor || false);
-    }
-    
-    // Add emergency contact details
-    if (requestData.emergencyContact) {
-      contactData.emergency = {
-        name: requestData.emergencyContact.name || '',
-        relationship: requestData.emergencyContact.relationship || '',
-        phone: requestData.emergencyContact.phone || ''
-      };
-    }
-    
-    // Add or update name information from basic details
-    if (requestData.basicDetails && requestData.basicDetails.fullName) {
-      const names = requestData.basicDetails.fullName.split(' ');
-      const firstName = names[0] || '';
-      const lastName = names.length > 1 ? names.slice(1).join(' ') : '';
-      
-      // FHIR-compliant name structure
-      const nameObject = {
-        use: 'official',
-        family: lastName,
-        given: [firstName]
-      };
-      
-      if (nameData.length > 0) {
-        nameData[0] = nameObject;
-      } else {
-        nameData.push(nameObject);
-      }
-    }
-    
-    // Update patient record in database
-    log('Saving updated patient data to database');
-    let updatedPatient;
-    try {
-      // Make sure patient is not null at this point
-      if (!patient) {
-        throw new Error('Patient record is null after retrieval');
-      }
-      
-      // Prepare phone number - safely handle patient record
-      const phoneNumber = requestData.basicDetails?.phoneNumber || 
-        (patient && 'phone' in patient && typeof patient.phone === 'string' ? patient.phone : undefined);
-
-      // First, get the current patient data to ensure we preserve critical fields
-      const currentPatient = await prisma.patient.findUnique({
-        where: { id: patientId },
+    // If patient not found by ID, try to find by medical ID
+    if (!patient && requestData.medicalId) {
+      log('Patient not found by ID, trying to find by medicalId:', requestData.medicalId);
+      patient = await prisma.patient.findFirst({
+        where: {
+          mrn: requestData.medicalId
+        },
         select: {
           id: true,
-          medicalNumber: true,
-          // Include other fields that should never be lost during update
-        }
-      });
-      
-      if (!currentPatient) {
-        throw new Error('Failed to retrieve current patient data before update');
-      }
-      
-      log('About to update patient with ID:', patientId);
-      log('Current medicalNumber:', currentPatient.medicalNumber);
-      
-      // Critical: Create an update that preserves the medicalNumber
-      // Define update data while explicitly preserving the medicalNumber
-      const updateData: any = {
-        // JSON fields that get updated
-        extension: JSON.stringify(extensionData),
-        medicalHistory: JSON.stringify(medicalHistoryData),
-        contact: JSON.stringify(contactData),
-        name: JSON.stringify(nameData),
-      };
-      
-      // Only add these fields if they exist in the request to avoid unwanted nullification
-      if (phoneNumber) updateData.phone = phoneNumber;
-      if (requestData.basicDetails?.email) updateData.email = requestData.basicDetails.email;
-      if (requestData.basicDetails?.gender) updateData.gender = requestData.basicDetails.gender;
-      if (requestData.basicDetails?.dateOfBirth) {
-        updateData.birthDate = new Date(requestData.basicDetails.dateOfBirth);
-      }
-      if (requestData.photo) updateData.photo = requestData.photo;
-      
-      // CRITICAL FIX: If we have a medical ID from onboarding, use it for medicalNumber field
-      // This ensures consistency between onboarding and admin panel displays
-      if (extensionData.medicalId) {
-        log('Setting medicalNumber to match extension.medicalId:', extensionData.medicalId);
-        updateData.medicalNumber = extensionData.medicalId;
-      } else {
-        log('No medicalId found in extension data, preserving existing medicalNumber');
-      }
-      
-      log('Updating patient with data:', {
-        patientId,
-        hasPhoneUpdate: !!phoneNumber,
-        hasEmailUpdate: !!requestData.basicDetails?.email,
-        extensionHasMedicalId: !!extensionData.medicalId,
-        currentMedicalNumber: currentPatient.medicalNumber
-      });
-      
-      // Update the patient record
-      updatedPatient = await prisma.patient.update({
-        where: { id: patientId },
-        data: updateData,
-        select: {
-          id: true,
-          email: true,
-          medicalNumber: true,
           name: true,
-          extension: true,
+          mrn: true,
+          medicalHistory: true,
+          contact: true,
           gender: true,
-          birthDate: true,
-          phone: true,
-          photo: true
+          dateOfBirth: true,
+          hospitalId: true
         }
       });
-      
-      // Verify the medicalNumber was preserved
-      log('After update - medicalNumber:', updatedPatient.medicalNumber);
-      log('Patient record updated successfully');
-    } catch (updateError) {
-      log('Failed to update patient record:', updateError);
-      return NextResponse.json(
-        { error: "Failed to update patient record: " + (updateError instanceof Error ? updateError.message : String(updateError)) },
-        { status: 500 }
-      );
+
+      if (patient) {
+        log('Found patient by medical ID:', patient.mrn);
+        patientId = patient.id; // Update patientId to match found patient
+      }
     }
-    
-    if (!updatedPatient) {
-      log('Update successful but no patient record returned');
-      return NextResponse.json(
-        { error: "Failed to update patient record" },
-        { status: 500 }
-      );
-    }
-    
-    // Try to send welcome email with health card details
-    log('Preparing to send welcome email with health card details');
-    try {
-      // Parse name information from updated patient data
-      let patientName = "Patient";
-      let patientEmail: string | null = null;
+
+    // Create new patient if not found
+    if (!patient) {
+      log('Patient record not found, creating new patient');
+      const defaultHospitalId = process.env.DEFAULT_HOSPITAL_ID || '00000000-0000-0000-0000-000000000000';
       
       try {
-        // Extract name from the updated name data
-        if (nameData.length > 0) {
-          const nameInfo = nameData[0];
-          const firstName = nameInfo.given?.[0] || '';
-          const lastName = nameInfo.family || '';
-          patientName = `${firstName} ${lastName}`.trim();
-          log('Extracted patient name:', patientName);
-        } else if (patientSession && patientSession.firstName) {
-          // Fallback to session data if available
-          patientName = `${patientSession.firstName || ''} ${patientSession.lastName || ''}`.trim();
-          log('Using fallback patient name from session:', patientName);
-        }
-      } catch (nameError) {
-        log('Error extracting patient name:', nameError);
-        // Use fallback name or default
-        if (patientSession && patientSession.firstName) {
-          patientName = `${patientSession.firstName || ''} ${patientSession.lastName || ''}`.trim() || 'Patient';
-        }
-      }
-      
-      // Get email from patient record - safely check request data and updated patient
-      patientEmail = requestData.basicDetails?.email || 
-        (updatedPatient && updatedPatient.email ? updatedPatient.email : null);
-      
-      if (patientEmail) {
-        log('Sending welcome email to:', patientEmail);
-        // Generate health card URL with patient email and medical ID
-        const healthCardUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://app.example.com'}/patient/card?id=${encodeURIComponent(patientEmail || '')}&m=${encodeURIComponent(requestData.medicalId || '')}`;
-        await sendWelcomeEmail({
-          patientEmail,
-          patientName,
-          medicalId: requestData.medicalId,
-          bloodGroup: requestData.healthInfo?.bloodGroup || 'Unknown',
-          gender: requestData.basicDetails.gender,
-          dateOfBirth: requestData.basicDetails.dateOfBirth,
-          photoUrl: requestData.photo // if this is a URL to the photo
+        // Create a new patient record
+        patient = await prisma.patient.create({
+          data: {
+            mrn: requestData.medicalId || `P${Math.floor(10000 + Math.random() * 90000)}`,
+            name: JSON.stringify({
+              text: requestData.basicDetails?.fullName || 'New Patient', 
+              family: requestData.basicDetails?.fullName?.split(' ').pop() || '',
+              given: requestData.basicDetails?.fullName?.split(' ').slice(0, -1) || []
+            }),
+            gender: requestData.basicDetails?.gender || 'unknown',
+            dateOfBirth: requestData.basicDetails?.dateOfBirth ? 
+              new Date(requestData.basicDetails.dateOfBirth) : new Date(),
+            contact: JSON.stringify([
+              { 
+                system: 'email', 
+                value: requestData.basicDetails?.email || requestData.recoveryEmail || ''
+              },
+              {
+                system: 'phone',
+                value: requestData.basicDetails?.phoneNumber || ''
+              }
+            ]),
+            medicalHistory: JSON.stringify({}),
+            hospitalId: defaultHospitalId
+          },
+          select: {
+            id: true,
+            name: true,
+            mrn: true,
+            medicalHistory: true,
+            contact: true,
+            gender: true,
+            dateOfBirth: true,
+            hospitalId: true
+          }
         });
-        log(`Welcome email with health card sent successfully to ${patientEmail}`);
-      } else {
-        log('Cannot send welcome email: Patient email not found');
+        patientId = patient.id;
+        log('Created new patient:', patient.id, 'with mrn:', patient.mrn);
+      } catch (createError) {
+        log('Error creating patient:', createError);
+        return NextResponse.json(
+          { error: "Failed to create patient record" },
+          { status: 500 }
+        );
       }
-    } catch (emailError) {
-      // Log error but don't fail the request if email sending fails
-      log('Error sending welcome email:', emailError);
     }
-    
-    // Determine the patient email for the response - from the updated patient or the request
-    let patientEmail = null;
-    
-    if (updatedPatient && updatedPatient.email) {
-      patientEmail = updatedPatient.email;
-    } else if (requestData.basicDetails?.email) {
-      patientEmail = requestData.basicDetails.email;
-    } else if (requestData.recoveryEmail) {
-      patientEmail = requestData.recoveryEmail;
-    }
-    
-    // Verify that the essential fields were preserved
-    log('Verifying critical fields after update:', {
-      medicalIdInExtension: extensionData.medicalId,
-      updatedPatientMedicalNumber: updatedPatient.medicalNumber,
-    });
-    
-    // Enhanced response with more data for debugging
-    log('Onboarding completed successfully');
-    return NextResponse.json({
-      success: true,
-      message: "Patient onboarding completed successfully",
-      patientId: patientId,
-      email: patientEmail || undefined,
-      // Include critical fields in response for verification
-      medicalNumber: updatedPatient?.medicalNumber || null,
-      medicalId: extensionData?.medicalId || null,
-      onboardingComplete: true
+
+    log('Found patient record:', { id: patient.id, mrn: patient.mrn });
+
+    // Update patient record with onboarding data
+    const updatedPatient = await prisma.patient.update({
+      where: { id: patientId },
+      data: {
+        name: JSON.stringify({
+          text: requestData.basicDetails?.fullName || 'Patient',
+          family: requestData.basicDetails?.fullName?.split(' ').pop() || '',
+          given: requestData.basicDetails?.fullName?.split(' ').slice(0, -1) || []
+        }),
+        gender: requestData.basicDetails?.gender || patient.gender,
+        // Ensure dateOfBirth is always properly converted to a Date object
+        dateOfBirth: requestData.basicDetails?.dateOfBirth
+          ? new Date(requestData.basicDetails.dateOfBirth)
+          : (patient.dateOfBirth instanceof Date 
+              ? patient.dateOfBirth 
+              : new Date(patient.dateOfBirth)),
+
+        contact: JSON.stringify([
+          {
+            system: 'phone',
+            value: requestData.basicDetails?.phoneNumber || '',
+            use: 'mobile'
+          },
+          {
+            system: 'email',
+            value: extractEmailFromContact(patient.contact) || '',
+            use: 'home'
+          },
+          {
+            system: 'phone',
+            value: requestData.emergencyContact?.phone || '',
+            use: 'emergency',
+            name: requestData.emergencyContact?.name || '',
+            relationship: requestData.emergencyContact?.relationship || ''
+          }
+        ]),
+        // Store onboarding completion status in medicalHistory JSON
+        medicalHistory: JSON.stringify({
+          ...JSON.parse(typeof patient.medicalHistory === 'string' 
+            ? patient.medicalHistory 
+            : JSON.stringify(patient.medicalHistory || {})),
+          allergies: requestData.healthInfo?.allergies || [],
+          conditions: requestData.healthInfo?.chronicConditions || [],
+          bloodGroup: requestData.healthInfo?.bloodGroup || 'Unknown',
+          organDonor: requestData.healthInfo?.organDonor || false,
+          onboardingCompleted: true,
+          completedAt: new Date().toISOString()
+        })
+      }
     });
 
-  } catch (error: any) {
-    // Log the full error object for debugging
-    log('Unhandled error during onboarding completion:', error);
+    log('Patient record updated successfully');
+
+    // Send welcome email
+    try {
+      const patientEmail = extractEmailFromContact(patient.contact);
+      if (patientEmail) {
+        await sendWelcomeEmail({
+          patientEmail: patientEmail,
+          patientName: requestData.basicDetails?.fullName || 'Patient',
+          medicalId: patient.mrn,
+          gender: patient.gender,
+          dateOfBirth: patient.dateOfBirth instanceof Date ? 
+            patient.dateOfBirth.toISOString().split('T')[0] : 
+            new Date(patient.dateOfBirth).toISOString().split('T')[0]
+        });
+        log('Welcome email sent successfully');
+      } else {
+        log('No email found in patient contact info, skipping welcome email');
+      }
+    } catch (emailError: unknown) {
+      log('Error sending welcome email:', emailError);
+    }
+
+    return NextResponse.json(
+      { 
+        success: true,
+        message: "Onboarding completed successfully",
+        patient: {
+          id: updatedPatient.id,
+          medicalId: updatedPatient.mrn,
+          name: requestData.basicDetails?.fullName,
+          email: extractEmailFromContact(updatedPatient.contact)
+        }
+      },
+      { status: 200 }
+    );
+
+  } catch (error) {
+    log('Error in onboarding completion:', error);
     
-    // Try to extract a meaningful error message
     let errorMessage = "There was an error completing your onboarding. Please try again.";
     if (error instanceof Error) {
       errorMessage = error.message;
-      // Log stack trace for development debugging
       if (error.stack && process.env.NODE_ENV === 'development') {
         log('Error stack trace:', error.stack);
       }
@@ -677,7 +457,7 @@ export async function POST(req: NextRequest) {
       { status: 500 }
     );
   } finally {
+    // Connection is managed by Next.js
     log('Onboarding API call completed');
-    // No need to disconnect Prisma in NextJS API routes as connections are pooled
   }
 }

@@ -1,0 +1,37 @@
+// Step 1: Add just the RiskLevel enum
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+// Then, separately add the AntenatalStatus enum
+enum AntenatalStatus {
+  ACTIVE
+  COMPLETED
+  REFERRED
+  TRANSFERRED
+}
+
+// Then, separately add the CareLevel enum
+enum CareLevel {
+  NORMAL
+  INTENSIVE
+  CRITICAL
+}
+
+// Then, separately add the NeonatalStatus enum
+enum NeonatalStatus {
+  ACTIVE
+  DISCHARGED
+  TRANSFERRED
+  DECEASED
+}
+
+// Then, separately add the DischargeStatus enum
+enum DischargeStatus {
+  READY
+  NOT_READY
+}
+
+// Finally, add the models after all enums are successfully created

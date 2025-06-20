@@ -225,55 +225,75 @@ export default function PatientRegistration() {
     }));
     
     try {
-      const response = await fetch('/api/patients/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(registrationData)
-      });
-      
-      const data = await response.json();
+      console.log('Sending registration data:', JSON.stringify(registrationData));
+    
+    const response = await fetch('/api/patients/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(registrationData)
+    });
+    
+    let data;
+    try {
+      data = await response.json();
+      console.log('Registration API response:', response.status, data);
+    } catch (parseError) {
+      console.error('Error parsing API response:', parseError);
+      data = {};
+    }
       
       if (response.ok) {
-        // Registration successful - store user email and patient ID for dashboard
+        // Registration successful
         console.log('Registration successful');
         
-        // Save patient info for access in the dashboard
+        // Save patient info even if we get a partial response
         storeUserEmail(formData.email);
-        if (data.patientId) {
-          storePatientId(data.patientId);
+        
+        // Make sure we handle all possible response formats
+        if (data && data.patient && data.patient.id) {
+          storePatientId(data.patient.id);
+        } else if (data && data.id) {
+          storePatientId(data.id);
         }
         
-        // Redirect to onboarding or dashboard
-        console.log('Redirecting to patient dashboard');
-        setIsLoading(false); // Ensure we stop loading before redirect
-        
-        // Check onboarding status from API response
-        if (data.onboardingRequired || !data.onboardingCompleted) {
-          router.push('/onboarding');
-        } else {
-          router.push('/patient/profile');
+        // Always store the medical ID for onboarding
+        // Use the one from the API if available, otherwise use what we generated
+        const medicalId = data?.patient?.medicalNumber || data?.medicalNumber || formData.medicalId;
+        if (medicalId) {
+          console.log('Storing medical ID for onboarding:', medicalId);
+          localStorage.setItem('medicalNumber', medicalId);
         }
+        
+        // Always store registration data with consistent format
+        localStorage.setItem('patientRegistrationData', JSON.stringify({
+          fullName: `${formData.firstName} ${formData.lastName}`,
+          email: formData.email,
+          phoneNumber: formData.phone,
+          dateOfBirth: formData.birthDate,
+          gender: formData.gender,
+          medicalId: medicalId || formData.medicalId || ''
+        }));
+        
+        // Show success message
+        toast.success('Registration successful!');
+        
+        // Redirect to onboarding
+        console.log('Redirecting to patient onboarding');
+        setIsLoading(false); // Stop loading before redirect
+        router.push('/onboarding');
         return; // Important: return to prevent further execution
       } else {
         // Registration failed
-        setError(data.message || "Failed to create account");
+        console.error('Registration failed:', data);
+        const errorMsg = typeof data?.error === 'string' ? data.error : 
+                       typeof data?.message === 'string' ? data.message : 
+                       'Failed to create account';
+        setError(errorMsg);
+        toast.error("Registration failed: " + errorMsg);
         setIsLoading(false);
       }
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Registration failed with status: ' + response.status);
-      }
-      
-      // Success message with more details
-      toast.success('Registration successful! You can now log in with your email and password.');
-      
-      // Redirect to login page after a brief delay to show the toast
-      setTimeout(() => {
-        router.push('/login');
-        router.refresh(); // Force a refresh to ensure the redirect happens
-      }, 2000);
     } catch (error: any) {
       console.error('Patient registration error:', error);
       setError(error.message || "An error occurred during registration. Please try again later.");

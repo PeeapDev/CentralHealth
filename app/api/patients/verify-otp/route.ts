@@ -19,14 +19,29 @@ export async function POST(request: NextRequest) {
     }
     
     try {
-      // Find the verification record in the database
-      const verification = await prisma.emailVerification.findUnique({
-        where: {
-          email: email
-        }
-      });
+      // First check the in-memory cache (used by send-otp)
+      let verification = null;
       
-      console.log('Verification record found:', verification);
+      // Check if we have an in-memory OTP cache
+      if ((global as any).otpCache && (global as any).otpCache[email]) {
+        const cachedOTP = (global as any).otpCache[email];
+        verification = {
+          email,
+          code: cachedOTP.otp,
+          expires: cachedOTP.expires,
+          attempts: cachedOTP.attempts || 0,
+          verified: false
+        };
+        console.log('Found verification in memory cache:', verification);
+      } else {
+        // If not in memory, try the database
+        verification = await prisma.emailVerification.findUnique({
+          where: {
+            email: email
+          }
+        });
+        console.log('Verification record from database:', verification);
+      }
       
       // Check if verification exists
       if (!verification) {
@@ -89,11 +104,19 @@ export async function POST(request: NextRequest) {
         }, { status: 400 });
       }
       
-      // Mark email as verified in the database
-      await prisma.emailVerification.update({
-        where: { email },
-        data: { verified: true }
-      });
+      // Mark email as verified
+      if ((global as any).otpCache && (global as any).otpCache[email]) {
+        // If using in-memory cache, mark it as verified there
+        (global as any).otpCache[email].verified = true;
+        console.log('Email verified successfully in memory cache:', email);
+      } else {
+        // If using database, update the record there
+        await prisma.emailVerification.update({
+          where: { email },
+          data: { verified: true }
+        });
+        console.log('Email verified successfully in database:', email);
+      }
       
       console.log('Email verified successfully:', email);
       

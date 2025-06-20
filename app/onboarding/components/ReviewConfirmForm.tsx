@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Input } from '@/components/ui/input'
 import { QRCodeSVG } from 'qrcode.react'
 import { AlertTriangle, BadgeCheck, ClipboardCopy, Edit2, Save } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 
 interface ReviewConfirmFormProps {
   formData: any
@@ -17,6 +18,7 @@ interface ReviewConfirmFormProps {
 }
 
 export default function ReviewConfirmForm({ formData, onSubmit, onPrevious, emailError, updateFormData }: ReviewConfirmFormProps) {  
+  const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [medicalId, setMedicalId] = useState(formData.medicalId || '')
@@ -353,6 +355,7 @@ export default function ReviewConfirmForm({ formData, onSubmit, onPrevious, emai
         >
           Previous
         </Button>
+
         <Button 
           type="button" 
           onClick={async () => {
@@ -360,30 +363,159 @@ export default function ReviewConfirmForm({ formData, onSubmit, onPrevious, emai
             setSubmitError(null);
             
             try {
-              // Get stored email from localStorage if not in form data
-              const storedEmail = typeof window !== 'undefined' ? 
-                localStorage.getItem('userEmail') : null;
+              // CRITICAL: Get the medical ID with priority system
+              // Priority 1: Use the medicalId from the form state
+              // Priority 2: Use medicalNumber from localStorage (from registration)
+              // Priority 3: Use patientId from localStorage
+              // Priority 4: Use the local component state medicalId
+              const medicalIdToSubmit = formData.medicalId || 
+                (typeof window !== 'undefined' ? localStorage.getItem('medicalNumber') : null) || 
+                (typeof window !== 'undefined' ? localStorage.getItem('patientId') : null) || 
+                medicalId;
               
+              // Get stored values for recovery
+              const storedEmail = typeof window !== 'undefined' ? localStorage.getItem('userEmail') : null;
+              const storedToken = typeof window !== 'undefined' ? localStorage.getItem('token') || localStorage.getItem('patientToken') : null;
+              
+              // Get name parts for API
+              const nameParts = formData.fullName?.split(' ') || [];
+              const firstName = nameParts[0] || '';
+              const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : '';
+              
+              // Prepare submission data in the format expected by the API
               const submissionData = {
-                ...formData,
-                email: formData.email || storedEmail,
-                medicalNumber: medicalId  // Updated from medicalId to medicalNumber to match backend
+                // Basic details
+                basicDetails: {
+                  firstName,
+                  lastName,
+                  fullName: formData.fullName,
+                  phoneNumber: formData.phoneNumber,
+                  gender: formData.gender,
+                  dateOfBirth: formData.dateOfBirth,
+                  email: formData.email || storedEmail,
+                },
+                // Health info
+                healthInfo: {
+                  bloodGroup: formData.bloodGroup,
+                  allergies: formData.allergies || [],
+                  chronicConditions: formData.chronicConditions || [],
+                  organDonor: formData.organDonor || false,
+                },
+                // Emergency contact
+                emergencyContact: {
+                  name: formData.emergencyContactName,
+                  relationship: formData.emergencyContactRelationship,
+                  phone: formData.emergencyContactPhone,
+                },
+                // Photo
+                photo: formData.photo || '',
+                
+                // AUTHENTICATION FIELDS - CRITICAL FOR API
+                // Flag this as an explicit recovery attempt
+                isRecoveryAttempt: true,
+                // Include patient ID if available from localStorage
+                patientId: typeof window !== 'undefined' ? localStorage.getItem('patientId') : null,
+                // CRITICAL: Medical ID - use the same one throughout the patient journey
+                medicalId: medicalIdToSubmit,
+                medicalNumber: medicalIdToSubmit,  // Include as both for compatibility
+                // Include email as a separate field for recovery - CRITICAL
+                recoveryEmail: formData.email || storedEmail,
+                // Include any extension data
+                extensionData: {
+                  onboardingCompleted: true,
+                  registrationDate: new Date().toISOString(),
+                  medicalId: medicalIdToSubmit
+                }
               };
               
-              const response = await fetch('/api/patients/onboarding', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(submissionData)
+              console.log('Starting onboarding submission flow with data:', {
+                medicalId: submissionData.medicalId,
+                email: submissionData.basicDetails.email
               });
               
-              if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Failed to complete onboarding');
+              // CRITICAL FIX: First create a server-side patient session before submitting onboarding data
+              console.log('Creating server-side patient session first...');
+              const sessionResponse = await fetch('/api/patients/create-session', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  email: submissionData.basicDetails.email || submissionData.recoveryEmail,
+                  medicalId: submissionData.medicalId
+                }),
+                credentials: 'include' // Include cookies for authentication
+              });
+              
+              const sessionResult = await sessionResponse.json();
+              
+              if (!sessionResponse.ok) {
+                throw new Error(sessionResult.error || 'Failed to create patient session');
               }
               
-              // Onboarding completed successfully
+              console.log('Session created successfully, proceeding with onboarding submission');
+              
+              // Now submit the onboarding data to the correct endpoint
+              const response = await fetch('/api/patients/onboarding/complete', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  // Include auth token if available to help with authentication
+                  ...(storedToken ? { 'Authorization': `Bearer ${storedToken}` } : {})
+                },
+                body: JSON.stringify(submissionData),
+                credentials: 'include' // Include cookies for authentication
+              });
+              
+              // Get response data for better error handling
+              const responseData = await response.json();
+              
+              if (!response.ok) {
+                throw new Error(responseData.error || 'Failed to complete onboarding');
+              }
+              
+              console.log('Onboarding completed successfully:', responseData);
+              
+              // Store critical data in localStorage
+              if (typeof window !== 'undefined') {
+                localStorage.setItem('onboardingCompleted', 'true');
+                localStorage.setItem('userEmail', submissionData.basicDetails.email);
+                
+                // CRITICAL: Store the medical ID in both localStorage keys for consistency
+                if (medicalIdToSubmit) {
+                  localStorage.setItem('patientId', medicalIdToSubmit);
+                  localStorage.setItem('medicalNumber', medicalIdToSubmit);
+                  console.log('Storing medical ID consistently in both localStorage keys:', medicalIdToSubmit);
+                }
+                
+                // IMPORTANT: Save the profile photo to localStorage so it appears in the dashboard
+                if (formData.photo) {
+                  console.log('Saving profile photo to localStorage');
+                  localStorage.setItem('patientProfilePhoto', formData.photo);
+                  // Also save to legacy keys for backward compatibility
+                  localStorage.setItem('photo', formData.photo);
+                  localStorage.setItem('userPhoto', formData.photo);
+                }
+                
+                // Clear onboarding localStorage data on success
+                localStorage.removeItem('patientOnboardingData');
+                localStorage.removeItem('patientOnboardingStep');
+                localStorage.removeItem('patientOnboardingSubmitAttempted');
+                localStorage.removeItem('onboardingData'); // Clear both old and new keys
+                localStorage.removeItem('onboardingStep');
+                
+                // IMPORTANT: Extract patient ID for redirection
+                const patientId = responseData.patient?.id || localStorage.getItem('patientId') || medicalIdToSubmit;
+                
+                // Redirect to patient dashboard with slight delay to ensure localStorage is updated
+                console.log('Redirecting to patient dashboard');
+                setTimeout(() => {
+                  // Use the correct patient dashboard route
+                  router.push('/patient/dashboard');
+                }, 300);
+              }
+              
+              // Call the parent's onSubmit handler
               onSubmit();
             } catch (error) {
               console.error('Onboarding submission error:', error);

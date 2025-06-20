@@ -112,32 +112,56 @@ export async function GET(request: NextRequest) {
     }
     
     if (search) {
+      // Enhanced search for patient records with better JSON field handling
       whereClause.OR = [
+        // Search by medical number (exact match or contains)
         { 
           medicalNumber: { 
             contains: search, 
             mode: 'insensitive' 
           } 
         },
+        // Search by medical ID (for compatibility with both field names)
+        { 
+          medicalId: { 
+            contains: search, 
+            mode: 'insensitive' 
+          } 
+        },
+        // Search by email
         { 
           email: { 
             contains: search, 
             mode: 'insensitive' 
           } 
         },
-        { 
-          name: { 
-            contains: search, 
-            mode: 'insensitive' 
-          } 
-        },
+        // Search in phone number
         { 
           phone: { 
             contains: search, 
             mode: 'insensitive' 
           } 
         },
+        // Search in name field (this is a JSON string in FHIR format)
+        // We use contains to find partial matches within the JSON string
+        { 
+          name: { 
+            contains: search, 
+            mode: 'insensitive' 
+          } 
+        },
+        // Search in telecom field (JSON string containing email and phone)
+        // This helps when email is stored in the telecom field
+        { 
+          telecom: { 
+            contains: search, 
+            mode: 'insensitive' 
+          } 
+        },
       ];
+      
+      // Log the search query for debugging
+      console.log('Patient search query:', search, 'Where clause:', JSON.stringify(whereClause));
     }
     
     // Execute query with pagination

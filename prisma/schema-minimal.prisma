@@ -1,0 +1,125 @@
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../lib/generated/prisma"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum AntenatalStatus {
+  ACTIVE
+  COMPLETED
+  REFERRED
+  TRANSFERRED
+}
+
+model AntenatalRecord {
+  id                String           @id @default(uuid())
+  patientId         String
+  hospitalId        String
+  gestationalAge    Int              // In weeks
+  nextAppointment   DateTime?
+  riskLevel         RiskLevel        @default(LOW)
+  status            AntenatalStatus  @default(ACTIVE)
+  trimester         Int              @default(1)
+  lastVisitDate     DateTime?
+  expectedDueDate   DateTime
+  medicalNotes      String?
+  ultrasoundReports Json?
+  labResults        Json?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  createdByUserId   String
+  updatedByUserId   String
+
+  patient           Patient          @relation(fields: [patientId], references: [id])
+  hospital          Hospital         @relation(fields: [hospitalId], references: [id])
+  createdByUser     User             @relation(name: "CreatedAntenatalRecord", fields: [createdByUserId], references: [id])
+  updatedByUser     User             @relation(name: "UpdatedAntenatalRecord", fields: [updatedByUserId], references: [id])
+
+  @@index([patientId])
+  @@index([hospitalId])
+  @@index([status])
+  @@index([riskLevel])
+}
+
+enum CareLevel {
+  NORMAL
+  INTENSIVE
+  CRITICAL
+}
+
+enum NeonatalStatus {
+  ACTIVE
+  DISCHARGED
+  TRANSFERRED
+  DECEASED
+}
+
+enum DischargeStatus {
+  READY
+  NOT_READY
+}
+
+model NeonatalRecord {
+  id                String            @id @default(uuid())
+  patientId         String
+  hospitalId        String
+  birthWeight       Float             // In grams
+  gestationalAgeAtBirth Int           // In weeks
+  careLevel         CareLevel         @default(NORMAL)
+  status            NeonatalStatus    @default(ACTIVE)
+  dischargeStatus   DischargeStatus?  
+  apgarScore        Int?
+  motherId          String?           // Reference to the mother's patient ID if available
+  birthComplications String?
+  medicalNotes      String?
+  feedingMethod     String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  createdByUserId   String
+  updatedByUserId   String
+
+  patient           Patient           @relation(fields: [patientId], references: [id])
+  hospital          Hospital          @relation(fields: [hospitalId], references: [id])
+  createdByUser     User              @relation(name: "CreatedNeonatalRecord", fields: [createdByUserId], references: [id])
+  updatedByUser     User              @relation(name: "UpdatedNeonatalRecord", fields: [updatedByUserId], references: [id])
+  mother            Patient?          @relation(name: "MotherChildRelation", fields: [motherId], references: [id])
+  
+  @@index([patientId])
+  @@index([hospitalId])
+  @@index([status])
+  @@index([careLevel])
+  @@index([motherId])
+}
+
+model User {
+  // Other fields...
+  createdAntenatal   AntenatalRecord[]  @relation("CreatedAntenatalRecord")
+  updatedAntenatal   AntenatalRecord[]  @relation("UpdatedAntenatalRecord")
+  createdNeonatal    NeonatalRecord[]   @relation("CreatedNeonatalRecord")
+  updatedNeonatal    NeonatalRecord[]   @relation("UpdatedNeonatalRecord")
+}
+
+model Patient {
+  // Other fields...
+  antenatal          AntenatalRecord[]
+  neonatal           NeonatalRecord[]
+  children           NeonatalRecord[]   @relation("MotherChildRelation")
+}
+
+model Hospital {
+  // Other fields...
+  antenatalRecords   AntenatalRecord[]
+  neonatalRecords    NeonatalRecord[]
+}

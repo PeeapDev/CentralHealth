@@ -107,19 +107,21 @@ export function HospitalSidebar({ hospitalName }: HospitalSidebarProps) {
 
   // Define all possible menu items
   const allMenuItems = [
-    { icon: LayoutDashboard, label: "Dashboard", href: `/${hospitalName}/admin`, module: null }, // Always show dashboard
-    { icon: CreditCard, label: "Billing", href: `/${hospitalName}/admin/billing`, module: "billing" },
-    { icon: Calendar, label: "Appointment", href: `/${hospitalName}/admin/appointment`, module: "appointment" },
-    { icon: Stethoscope, label: "OPD - Out Patient", href: `/${hospitalName}/admin/opd`, module: "opd" },
-    { icon: Bed, label: "IPD - In Patient", href: `/${hospitalName}/admin/ipd`, module: "ipd" },
-    { icon: Pill, label: "Pharmacy", href: `/${hospitalName}/admin/pharmacy`, module: "pharmacy" },
-    { icon: TestTube, label: "Pathology", href: `/${hospitalName}/admin/pathology`, module: "pathology" },
-    { icon: Scan, label: "Radiology", href: `/${hospitalName}/admin/radiology`, module: "radiology" },
-    { icon: Droplet, label: "Blood Bank", href: `/${hospitalName}/admin/blood-bank`, module: "blood bank" },
-    { icon: Truck, label: "Ambulance", href: `/${hospitalName}/admin/ambulance`, module: "ambulance" },
-    { icon: Building, label: "Front Office", href: `/${hospitalName}/admin/front-office`, module: "front office" },
-    { icon: FileText, label: "Birth & Death Record", href: `/${hospitalName}/admin/birth-death`, module: "birth & death record" },
-    { icon: Users, label: "Human Resource", href: `/${hospitalName}/admin/hr`, module: "human resource" },
+    { icon: LayoutDashboard, label: "Dashboard", href: `/${hospitalName}/admin`, id: "dashboard", module: null }, // Always show dashboard
+    { icon: CreditCard, label: "Billing", href: `/${hospitalName}/admin/billing`, id: "billing", module: "billing" },
+    { icon: Calendar, label: "Appointment", href: `/${hospitalName}/admin/appointment`, id: "appointment", module: "appointment" },
+    { icon: Stethoscope, label: "OPD - Out Patient", href: `/${hospitalName}/admin/opd`, id: "opd", module: "opd" },
+    { icon: Bed, label: "IPD - In Patient", href: `/${hospitalName}/admin/ipd`, id: "ipd", module: "ipd" },
+    { icon: Users, label: "Antenatal Care", href: `/${hospitalName}/admin/antenatal`, id: "antenatal", module: "antenatal" },
+    { icon: UserPlus, label: "Neonatal Care", href: `/${hospitalName}/admin/neonatal`, id: "neonatal", module: "neonatal" },
+    { icon: Pill, label: "Pharmacy", href: `/${hospitalName}/admin/pharmacy`, id: "pharmacy", module: "pharmacy" },
+    { icon: TestTube, label: "Pathology", href: `/${hospitalName}/admin/pathology`, id: "pathology", module: "pathology" },
+    { icon: Scan, label: "Radiology", href: `/${hospitalName}/admin/radiology`, id: "radiology", module: "radiology" },
+    { icon: Droplet, label: "Blood Bank", href: `/${hospitalName}/admin/blood-bank`, id: "blood-bank", module: "blood bank" },
+    { icon: Truck, label: "Ambulance", href: `/${hospitalName}/admin/ambulance`, id: "ambulance", module: "ambulance" },
+    { icon: Building, label: "Front Office", href: `/${hospitalName}/admin/front-office`, id: "front-office", module: "front office" },
+    { icon: FileText, label: "Birth & Death Record", href: `/${hospitalName}/admin/birth-death`, id: "birth-death", module: "birth & death record" },
+    { icon: Users, label: "Human Resource", href: `/${hospitalName}/admin/hr`, id: "hr", module: "human resource" },
     { icon: Clock, label: "Duty Roster", href: `/${hospitalName}/admin/duty-roster`, module: "duty roster" },
     { icon: CalendarDays, label: "Annual Calendar", href: `/${hospitalName}/admin/annual-calendar`, module: "annual calendar" },
     { icon: UserPlus, label: "Referral", href: `/${hospitalName}/admin/referral`, module: "referral" },
@@ -131,10 +133,14 @@ export function HospitalSidebar({ hospitalName }: HospitalSidebarProps) {
   
   // Filter menu items based on enabled modules
   const menuItems = allMenuItems.filter(item => {
-    // Always show items with null module (core features)
-    if (item.module === null) return true;
-    // Only show module-specific items if they're enabled for this hospital
-    return isModuleEnabled(item.module);
+    // Always show items without a module requirement
+    if (!item.module) return true
+    
+    // Always show antenatal and neonatal modules
+    if (item.module === 'antenatal' || item.module === 'neonatal') return true
+    
+    // Show items if their module is enabled
+    return isModuleEnabled(item.module)
   })
 
   // Define all possible report categories
@@ -187,7 +193,7 @@ export function HospitalSidebar({ hospitalName }: HospitalSidebarProps) {
         ) : (
           <SidebarMenu>
             {menuItems.map((item) => (
-              <SidebarMenuItem key={item.href}>
+              <SidebarMenuItem key={item.id || item.href}>
                 <SidebarMenuButton asChild isActive={pathname === item.href} className="w-full justify-start">
                   <Link href={item.href} className="flex items-center space-x-3 px-3 py-2 relative">
                     <item.icon className="h-4 w-4" />

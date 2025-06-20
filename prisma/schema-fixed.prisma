@@ -1,0 +1,52 @@
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../lib/generated/prisma"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+enum ReferralStatus {
+  NONE
+  PENDING
+  APPROVED
+  REJECTED
+  TRANSFERRED
+  COMPLETED
+  CANCELLED
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum AntenatalStatus {
+  ACTIVE
+  COMPLETED
+  REFERRED
+  TRANSFERRED
+}
+
+enum CareLevel {
+  NORMAL
+  INTENSIVE
+  CRITICAL
+}
+
+enum NeonatalStatus {
+  ACTIVE
+  DISCHARGED
+  TRANSFERRED
+  DECEASED
+}
+
+enum DischargeStatus {
+  READY
+  NOT_READY
+}

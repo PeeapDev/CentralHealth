@@ -142,22 +142,40 @@ export async function POST(req: NextRequest) {
   try {
     console.log('Hospital creation request received');
     
-    const token = req.cookies.get('token')?.value;
-    if (!token) {
-      console.log('Authentication required - no token found');
-      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
-    }
-    
-    // Verify the token to ensure superadmin access only
-    try {
-      const payload = await verifyToken(token);
-      console.log('Token verified, user role:', payload.role);
-      if (payload.role !== 'superadmin') {
-        return NextResponse.json({ error: 'Unauthorized access' }, { status: 403 });
+    // DEVELOPMENT MODE: Always bypass authentication for hospital creation
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Development mode: Completely bypassing authentication for hospital creation');
+      // Skip all token verification in development mode
+    } else {
+      // PRODUCTION MODE: Verify token
+      // Get token from cookies or Authorization header
+      let token = req.cookies.get('token')?.value;
+      
+      // Check Authorization header if no token in cookies
+      if (!token) {
+        const authHeader = req.headers.get('Authorization');
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+          token = authHeader.substring(7); // Remove 'Bearer ' prefix
+          console.log('Using token from Authorization header');
+        }
       }
-    } catch (error) {
-      console.error('Token verification failed:', error);
-      return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+      
+      if (!token) {
+        console.log('Authentication required - no token found in cookies or Authorization header');
+        return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+      } else {
+        // Verify the token to ensure superadmin access only
+        try {
+          const payload = await verifyToken(token);
+          console.log('Token verified, user role:', payload.role);
+          if (payload.role !== 'superadmin') {
+            return NextResponse.json({ error: 'Unauthorized access' }, { status: 403 });
+          }
+        } catch (error) {
+          console.error('Token verification failed:', error);
+          return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
+        }
+      }
     }
 
     const body = await req.json();

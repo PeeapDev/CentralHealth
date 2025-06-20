@@ -10,21 +10,21 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Bell, MessageSquare, Search, Settings, LogOut, User, X, FileText, Activity, Phone, Mail, Calendar, Pill, Syringe, FileSpreadsheet, CircleUser, Loader2 } from "lucide-react"
-import { Input } from "@/components/ui/input"
+import { Bell, MessageSquare, Settings, LogOut, User, FileText, Activity, Mail, Calendar, Pill, Syringe, FileSpreadsheet, CircleUser } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
-import { useEffect, useState, useRef, useCallback } from "react"
+import { useEffect, useState, useRef } from "react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { format, parseISO } from "date-fns"
+import { format } from "date-fns"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { PatientSearchWidget } from "@/components/patient-search-widget"
 
 interface HospitalHeaderProps {
   hospitalName: string
@@ -62,19 +62,13 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
   const router = useRouter()
 
   // Get user data from localStorage if available
-  const [userData, setUserData] = useState<{ id?: string; name?: string; email?: string }>({})
+  const [userData, setUserData] = useState<{ id?: string; name?: string; email?: string }>({}) 
   const [unreadMessages, setUnreadMessages] = useState<number>(0)
   const [recentMessages, setRecentMessages] = useState<any[]>([])
   const refreshInterval = useRef<NodeJS.Timeout | null>(null)
   
   // Patient search state
-  const [searchQuery, setSearchQuery] = useState<string>("");
-  const [searchResults, setSearchResults] = useState<FHIRPatient[]>([]);
-  const [isSearching, setIsSearching] = useState<boolean>(false);
-  const [showSearchResults, setShowSearchResults] = useState<boolean>(false);
   const [selectedPatient, setSelectedPatient] = useState<FHIRPatient | null>(null);
-  const searchRef = useRef<HTMLDivElement>(null);
-  const searchTimeout = useRef<NodeJS.Timeout | null>(null);
   
   // Fetch recent messages and unread count
   const fetchMessages = async () => {
@@ -90,64 +84,18 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
     }
   }
   
-  // Search patients with debounced input
-  const searchPatients = useCallback(async (query: string) => {
-    if (!query || query.length < 2) {
-      setSearchResults([])
-      setShowSearchResults(false)
-      setIsSearching(false)
-      return
-    }
-    
-    setIsSearching(true)
-    
-    try {
-      // Using the existing patient API endpoint with hospital-scoped search
-      const response = await fetch(`/api/patients?search=${encodeURIComponent(query)}&hospitalId=${encodeURIComponent(hospitalName)}&page=1&pageSize=5`)
-      
-      if (response.ok) {
-        const data = await response.json()
-        setSearchResults(data.patients || [])
-        setShowSearchResults(true)
-      } else {
-        console.error("Failed to search patients:", response.statusText)
-        setSearchResults([])
-      }
-    } catch (error) {
-      console.error("Error searching patients:", error)
-      setSearchResults([])
-    } finally {
-      setIsSearching(false)
-    }
-  }, [hospitalName])
-  
-  // Handle input change with debounce
-  const handleSearchInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const query = e.target.value
-    setSearchQuery(query)
-    
-    // Clear any existing timeout
-    if (searchTimeout.current) {
-      clearTimeout(searchTimeout.current)
-    }
-    
-    // Set new timeout for debounce (300ms)
-    searchTimeout.current = setTimeout(() => {
-      searchPatients(query)
-    }, 300)
+  // Handle patient selection from search widget
+  const handlePatientSelection = (patient: any) => {
+    setSelectedPatient(patient)
+    // Open patient profile dialog or navigate to patient details
+    router.push(`/${hospitalName}/admin/patients/${patient.id}`)
   }
-  
-  // Close search results when clicking outside
-  const handleClickOutside = useCallback((event: MouseEvent) => {
-    if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
-      setShowSearchResults(false)
-    }
-  }, [])
   
   // Open patient profile
   const openPatientProfile = (patient: FHIRPatient) => {
     setSelectedPatient(patient)
-    setShowSearchResults(false)
+    // Navigate to patient profile
+    router.push(`/${hospitalName}/admin/patients/${patient.id}`)
   }
   
   // Format patient name from FHIR format
@@ -182,13 +130,7 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
     return "Unknown Patient"
   }
   
-  // Add document click listener to close search results when clicking outside
-  useEffect(() => {
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [handleClickOutside])
+
   
   useEffect(() => {
     // Try to get user data from local storage
@@ -466,105 +408,15 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
         </div>
 
         <div className="flex items-center space-x-4">
-          {/* Patient Search */}
-          <div className="relative" ref={searchRef}>
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <Input 
-              placeholder="Search patients by name, email, or ID..."
-              className="w-80 pl-10"
-              value={searchQuery}
-              onChange={handleSearchInputChange}
-              onFocus={() => {
-                if (searchResults.length > 0) {
-                  setShowSearchResults(true);
-                }
-              }}
+          {/* Search with PatientSearchWidget */}
+          <div className="w-64">
+            <PatientSearchWidget
+              onSelect={handlePatientSelection}
+              showCameraButton={true}
+              placeholder="Search patients..."
+              hospitalId={hospitalName}
+              className="w-full"
             />
-            
-            {/* Search Results Dropdown */}
-            {showSearchResults && (
-              <div className="absolute top-full left-0 w-full mt-1 bg-white border rounded-md shadow-lg z-50 overflow-hidden">
-                <div className="p-2 bg-muted/30 flex items-center justify-between">
-                  <h3 className="text-sm font-medium">Patient Results</h3>
-                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setShowSearchResults(false)}>
-                    <X className="h-3 w-3" />
-                  </Button>
-                </div>
-                
-                {isSearching ? (
-                  <div className="p-4 flex items-center justify-center">
-                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    <span className="text-sm">Searching...</span>
-                  </div>
-                ) : searchResults.length > 0 ? (
-                  <ScrollArea className="max-h-72">
-                    <div className="flex flex-col">
-                      {searchResults.map((patient) => (
-                        <button
-                          key={patient.id}
-                          className="flex items-center gap-3 p-3 hover:bg-muted/50 transition-colors text-left"
-                          onClick={() => openPatientProfile(patient)}
-                        >
-                          <Avatar className="h-9 w-9">
-                            {patient.photo ? (
-                              <AvatarImage src={patient.photo} alt={formatPatientName(patient)} />
-                            ) : (
-                              <AvatarFallback className="bg-blue-600 text-white">
-                                {formatPatientName(patient).split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2)}
-                              </AvatarFallback>
-                            )}
-                          </Avatar>
-                          <div className="flex-1 overflow-hidden">
-                            <div className="flex items-center justify-between">
-                              <p className="text-sm font-medium truncate">{formatPatientName(patient)}</p>
-                              <Badge variant={patient.active ? "default" : "secondary"} className="ml-2">
-                                {patient.active ? "Active" : "Inactive"}
-                              </Badge>
-                            </div>
-                            <div className="flex items-center text-xs text-muted-foreground gap-3">
-                              <span className="flex items-center">
-                                <FileText className="h-3 w-3 mr-1" />
-                                {patient.medicalNumber || "No MRN"}
-                              </span>
-                              {patient.email && (
-                                <span className="flex items-center">
-                                  <Mail className="h-3 w-3 mr-1" />
-                                  {patient.email}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </ScrollArea>
-                ) : searchQuery.length > 1 ? (
-                  <div className="p-4 text-center">
-                    <p className="text-sm text-muted-foreground">No patients found</p>
-                    <p className="text-xs text-muted-foreground mt-1">Try a different search term</p>
-                  </div>
-                ) : (
-                  <div className="p-4 text-center">
-                    <p className="text-sm text-muted-foreground">Enter at least 2 characters to search</p>
-                    <p className="text-xs text-muted-foreground mt-1">Search by name, medical number, or email</p>
-                  </div>
-                )}
-                
-                <div className="p-2 bg-muted/20 border-t">
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    className="w-full text-xs justify-center"
-                    onClick={() => {
-                      router.push(`/${hospitalName}/admin/patients?search=${encodeURIComponent(searchQuery)}`);
-                      setShowSearchResults(false);
-                    }}
-                  >
-                    View All Results
-                  </Button>
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Chat Notifications */}
