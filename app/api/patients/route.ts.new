@@ -1,0 +1,490 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
+
+// Type definition for processed patient data
+interface ProcessedPatient {
+  id: string;
+  userId?: string;
+  hospitalId?: string;
+  medicalNumber?: string;
+  mrn?: string;            // Additional medical ID field
+  medicalId?: string;      // Another variation of medical ID
+  name?: any;
+  email?: string;
+  phone?: string;
+  birthDate?: string;
+  gender?: string;
+  address?: any;
+  telecom?: any;
+  extension?: any;         // FHIR extensions field
+  active?: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
+  displayName?: string;
+  photo?: string;
+  fullName?: string;
+  firstName?: string;
+  lastName?: string;
+  displayMedicalNumber?: string;
+  phoneNumber?: string;
+  profileImage?: string | null;
+  resourceType?: string;   // FHIR resource type
+  User?: any;              // User relation with capital U (matching Prisma schema)
+  // Add these fields to match Patient schema
+  contact?: any;
+  medicalHistory?: any;
+  onboardingCompleted?: boolean;
+  registrationData?: any;  // Combined registration data
+  [key: string]: any;      // Allow other properties
+}
+
+/**
+ * Helper function to format a patient name from FHIR format
+ */
+function formatPatientName(nameObj: any): string {
+  try {
+    if (!nameObj) return 'Unknown';
+    
+    // Parse the name object if it's a string
+    let nameData;
+    if (typeof nameObj === 'string') {
+      try {
+        // Only parse if it looks like JSON
+        if (nameObj.trim().startsWith('{') || nameObj.trim().startsWith('[')) {
+          nameData = JSON.parse(nameObj);
+        } else {
+          // If not JSON, just return the string
+          return nameObj || 'Unknown';
+        }
+      } catch {
+        return nameObj || 'Unknown';
+      }
+    } else {
+      nameData = nameObj;
+    }
+    
+    let formattedName = '';
+    
+    // Handle array format (FHIR standard)
+    if (Array.isArray(nameData) && nameData.length > 0) {
+      const firstNameObj = nameData[0];
+      
+      if (firstNameObj.given && Array.isArray(firstNameObj.given)) {
+        formattedName = firstNameObj.given.join(' ');
+      }
+      
+      if (firstNameObj.family) {
+        formattedName += formattedName ? ' ' + firstNameObj.family : firstNameObj.family;
+      }
+      
+      return formattedName.trim() || 'Unknown';
+    }
+    
+    // Handle direct object format
+    if (nameData.given && Array.isArray(nameData.given)) {
+      formattedName = nameData.given.join(' ');
+    }
+    
+    if (nameData.family) {
+      formattedName += formattedName ? ' ' + nameData.family : nameData.family;
+    }
+    
+    return formattedName.trim() || 'Unknown';
+  } catch (e) {
+    console.error('Error parsing name:', e);
+    return 'Unknown';
+  }
+}
+
+/**
+ * Helper function to create a friendly display medical ID
+ */
+function createFriendlyMedicalId(medicalId: string): string {
+  if (!medicalId) return 'Not Assigned';
+  
+  // If already in our desired format, return as is
+  if (medicalId.match(/^P-[A-Z0-9]{4,6}$/)) {
+    return medicalId;
+  }
+  
+  // If it's a UUID, create a shorter, more user-friendly format
+  if (medicalId.includes('-')) {
+    // For UUIDs, use format P-1234 (first 4 chars after first dash)
+    const parts = medicalId.split('-');
+    if (parts.length > 1) {
+      return `P-${parts[1].substring(0, 4).toUpperCase()}`;
+    }
+  }
+  
+  // For other formats, create a shorter version
+  return `P-${medicalId.substring(0, 6).toUpperCase()}`;
+}
+
+export async function GET(request: NextRequest) {
+  const startTime = Date.now();
+  console.log('Patient API called at', new Date().toISOString());
+  
+  try {
+    console.log('Patient API called - optimized version with combined registration data');
+    const searchParams = request.nextUrl.searchParams;
+    
+    // Parse query parameters for filtering and pagination
+    const page = parseInt(searchParams.get('page') || '1', 10);
+    const pageSize = parseInt(searchParams.get('pageSize') || '10', 10);
+    const search = searchParams.get('search') || '';
+    const medicalNumber = searchParams.get('medicalNumber') || '';
+    const hospitalId = searchParams.get('hospitalId') || '';
+    
+    // Calculate pagination options
+    const skip = (page - 1) * pageSize;
+    
+    // Log the request parameters for debugging
+    console.log('Patient search parameters:', { search, medicalNumber, hospitalId, page, pageSize, skip });
+    
+    // Build the where clause for the search
+    const whereClause: any = {};
+    
+    // Apply filters
+    if (medicalNumber) {
+      // Try to match against multiple medical ID fields
+      whereClause.OR = whereClause.OR || [];
+      whereClause.OR.push(
+        { medicalNumber: { equals: medicalNumber } },
+        { mrn: { equals: medicalNumber } },
+        { medicalId: { equals: medicalNumber } }
+      );
+    }
+    
+    if (hospitalId) {
+      whereClause.hospitalId = hospitalId;
+    }
+    
+    if (search) {
+      // Enhanced search for patient records with better JSON field handling
+      whereClause.OR = whereClause.OR || [];
+      whereClause.OR.push(
+        // Search by medical number (exact match or contains)
+        { medicalNumber: { contains: search, mode: 'insensitive' } },
+        { mrn: { contains: search, mode: 'insensitive' } },
+        { medicalId: { contains: search, mode: 'insensitive' } },
+        // Search by email
+        { email: { contains: search, mode: 'insensitive' } }
+      );
+    }
+    
+    // Get total count first (for pagination info)
+    const total = await prisma.patient.count({
+      where: whereClause,
+    });
+    
+    // Then get the patients with pagination
+    const patients = await prisma.patient.findMany({
+      where: whereClause,
+      include: {
+        User: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            photo: true,
+            avatar: true,
+          }
+        },
+        Hospital: {
+          select: {
+            id: true,
+            name: true,
+            subdomain: true
+          }
+        }
+      },
+      orderBy: {
+        updatedAt: 'desc',
+      },
+      skip,
+      take: pageSize,
+    });
+    
+    console.log(`Found ${patients.length} patients out of ${total} total`);
+    
+    // Create a set of user IDs for fetching additional data
+    const userIds = new Set<string>();
+    for (const patient of patients) {
+      if (patient.userId) {
+        userIds.add(patient.userId);
+      }
+    }
+    
+    // Pre-fetch user photos to reduce database queries
+    const userPhotoMap = new Map<string, string>();
+    
+    if (userIds.size > 0) {
+      try {
+        // Query raw registration data to get photos
+        const regDataQuery = `SELECT id, registration_data, photo, avatar FROM User WHERE id IN (${Array.from(userIds).map(() => '?').join(',')});`;
+        const regDataResult = await prisma.$queryRawUnsafe(regDataQuery, ...Array.from(userIds));
+        
+        if (Array.isArray(regDataResult)) {
+          for (const userData of regDataResult) {
+            const user = userData as any;
+            if (user?.id) {
+              // Try to get photo from multiple sources
+              let photo = null;
+              
+              // First try the photo field directly
+              if (user.photo) {
+                photo = user.photo;
+              }
+              // Then try avatar field
+              else if (user.avatar) {
+                photo = user.avatar;
+              }
+              // Lastly try registration_data
+              else if (user.registration_data) {
+                try {
+                  const regData = typeof user.registration_data === 'string'
+                    ? JSON.parse(user.registration_data)
+                    : user.registration_data;
+                    
+                  if (regData?.photo) {
+                    photo = regData.photo;
+                  } else if (regData?.basicDetails?.photo) {
+                    photo = regData.basicDetails.photo;
+                  }
+                } catch (e) {
+                  console.error('Error parsing registration data for photo:', e);
+                }
+              }
+              
+              if (photo) {
+                userPhotoMap.set(user.id, photo);
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching user registration data:', error);
+      }
+    }
+    
+    // Process each patient to format data consistently
+    const processedPatients: ProcessedPatient[] = [];
+    
+    for (const patient of patients) {
+      // Start with a base processed patient
+      const processedPatient: ProcessedPatient = {
+        ...patient,
+        displayName: 'Unknown',
+        resourceType: 'Patient',
+      };
+      
+      // Handle medical number from multiple possible fields
+      const medicalNumber = patient.medicalNumber || patient.mrn || (patient as any).medicalId || '';
+      processedPatient.medicalNumber = medicalNumber;
+      
+      // Create a friendly display medical ID
+      processedPatient.displayMedicalNumber = createFriendlyMedicalId(medicalNumber);
+      
+      // Efficiently look up photos from our pre-fetched map
+      if (patient.userId && userPhotoMap.has(patient.userId)) {
+        processedPatient.photo = userPhotoMap.get(patient.userId);
+        processedPatient.profileImage = processedPatient.photo;
+      }
+      
+      // Parse string fields and format data
+      try {
+        // Parse name field if it's a string
+        if (processedPatient.name && typeof processedPatient.name === 'string') {
+          try {
+            // Only try to parse if it looks like JSON
+            if (processedPatient.name.trim().startsWith('{') || processedPatient.name.trim().startsWith('[')) {
+              processedPatient.name = JSON.parse(processedPatient.name);
+            }
+          } catch (e) {
+            console.error(`Error parsing name JSON for patient ${patient.id}:`, e);
+            // Keep the original string value on error
+          }
+        }
+        
+        // Parse telecom field if it's a string
+        if (processedPatient.telecom && typeof processedPatient.telecom === 'string') {
+          try {
+            processedPatient.telecom = JSON.parse(processedPatient.telecom);
+          } catch (e) {
+            console.error(`Error parsing telecom JSON for patient ${patient.id}:`, e);
+          }
+        }
+        
+        // Parse address field if it's a string
+        if (processedPatient.address && typeof processedPatient.address === 'string') {
+          try {
+            processedPatient.address = JSON.parse(processedPatient.address);
+          } catch (e) {
+            console.error(`Error parsing address JSON for patient ${patient.id}:`, e);
+            processedPatient.address = {};
+          }
+        }
+        
+        // Parse extension field if it's a string
+        if (processedPatient.extension && typeof processedPatient.extension === 'string') {
+          try {
+            processedPatient.extension = JSON.parse(processedPatient.extension);
+            
+            // If we parsed the extension successfully, look for registration data
+            if (processedPatient.extension.registrationData) {
+              processedPatient.registrationData = processedPatient.extension.registrationData;
+            } else if (processedPatient.extension.basicDetails) {
+              processedPatient.registrationData = { 
+                basicDetails: processedPatient.extension.basicDetails 
+              };
+            }
+          } catch (e) {
+            console.error(`Error parsing extension JSON for patient ${patient.id}:`, e);
+          }
+        }
+        
+        // Format name fields
+        let firstName = '';
+        let lastName = '';
+        let fullName = '';
+        
+        if (patient.name) {
+          try {
+            const nameObj = typeof patient.name === 'string' 
+              ? (patient.name.trim().startsWith('{') || patient.name.trim().startsWith('[') 
+                 ? JSON.parse(patient.name) 
+                 : patient.name) 
+              : patient.name;
+            
+            // If nameObj is just a string, use it directly
+            if (typeof nameObj === 'string') {
+              fullName = nameObj;
+              // Try to split into first and last name
+              const nameParts = fullName.split(' ');
+              if (nameParts.length > 1) {
+                firstName = nameParts[0];
+                lastName = nameParts.slice(1).join(' ');
+              } else {
+                firstName = fullName;
+              }
+            }
+            // Handle array format
+            else if (Array.isArray(nameObj) && nameObj.length > 0) {
+              const name = nameObj[0];
+              
+              if (name.given && Array.isArray(name.given)) {
+                firstName = name.given.join(' ');
+              }
+              
+              if (name.family) {
+                lastName = name.family;
+              }
+              
+              fullName = [firstName, lastName].filter(Boolean).join(' ');
+            } 
+            // Handle direct object format
+            else if (nameObj && (nameObj.given || nameObj.family)) {
+              if (nameObj.given && Array.isArray(nameObj.given)) {
+                firstName = nameObj.given.join(' ');
+              }
+              
+              if (nameObj.family) {
+                lastName = nameObj.family;
+              }
+              
+              fullName = [firstName, lastName].filter(Boolean).join(' ');
+            }
+          } catch (nameErr) {
+            console.error(`Error parsing name for patient ${patient.id}:`, nameErr);
+          }
+        }
+        
+        // Try to extract name from registration data if not found in name field
+        if (!fullName && processedPatient.registrationData) {
+          const regData = processedPatient.registrationData;
+          
+          if (regData.basicDetails) {
+            firstName = regData.basicDetails.firstName || '';
+            lastName = regData.basicDetails.lastName || '';
+            fullName = regData.basicDetails.fullName || `${firstName} ${lastName}`.trim();
+          } else if (regData.firstName || regData.lastName) {
+            firstName = regData.firstName || '';
+            lastName = regData.lastName || '';
+            fullName = `${firstName} ${lastName}`.trim();
+          }
+        }
+        
+        // Try to extract name from User relation if still not found
+        if (!fullName && patient.User && (patient.User as any).name) {
+          fullName = (patient.User as any).name;
+          const nameParts = fullName.split(' ');
+          if (nameParts.length > 1) {
+            firstName = nameParts[0];
+            lastName = nameParts.slice(1).join(' ');
+          } else {
+            firstName = fullName;
+          }
+        }
+        
+        // Set formatted name fields
+        processedPatient.firstName = firstName || 'Unknown';
+        processedPatient.lastName = lastName || '';
+        processedPatient.fullName = fullName || 'Unknown';
+        processedPatient.displayName = fullName || 'Unknown';
+        
+        // Set profile image from multiple possible sources
+        if (!processedPatient.photo) {
+          if (patient.User && (patient.User as any).photo) {
+            processedPatient.photo = (patient.User as any).photo;
+            processedPatient.profileImage = (patient.User as any).photo;
+          } else if (patient.User && (patient.User as any).avatar) {
+            processedPatient.photo = (patient.User as any).avatar;
+            processedPatient.profileImage = (patient.User as any).avatar;
+          } else if (processedPatient.registrationData?.photo) {
+            processedPatient.photo = processedPatient.registrationData.photo;
+            processedPatient.profileImage = processedPatient.registrationData.photo;
+          } else if (processedPatient.registrationData?.basicDetails?.photo) {
+            processedPatient.photo = processedPatient.registrationData.basicDetails.photo;
+            processedPatient.profileImage = processedPatient.registrationData.basicDetails.photo;
+          } else {
+            processedPatient.profileImage = null;
+          }
+        }
+        
+      } catch (formatErr) {
+        console.error(`Error formatting patient data: ${formatErr}`);
+        processedPatient.displayName = 'Unknown';
+      }
+      
+      // Add the processed patient to our results array
+      processedPatients.push(processedPatient);
+    }
+    
+    // Return the results
+    const endTime = Date.now();
+    console.log(`Patient API completed in ${endTime - startTime}ms`);
+    
+    // Return the processed patients with pagination information
+    const response = {
+      patients: processedPatients,
+      pagination: {
+        total,
+        page,
+        pageSize,
+        totalPages: Math.ceil(total / pageSize)
+      },
+      timing: {
+        total: endTime - startTime,
+        unit: 'ms'
+      }
+    };
+    
+    return NextResponse.json(response);
+  } catch (error) {
+    console.error('Error in patients API route:', error);
+    return NextResponse.json(
+      { error: 'Failed to retrieve patients' },
+      { status: 500 }
+    );
+  }
+}

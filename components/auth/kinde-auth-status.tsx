@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { LogOut, User } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { clearPatientCredentials, getPatientCredentials, isPatientLoggedIn } from "@/lib/patient-auth";
 
 // Patient authentication status component using session-based auth
 export function PatientAuthStatus() {
@@ -21,51 +22,70 @@ export function PatientAuthStatus() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const router = useRouter();
 
-  // Fetch patient data from session API
+  // Check patient authentication status from storage
   useEffect(() => {
-    const fetchPatientData = async () => {
+    const checkPatientAuth = async () => {
       try {
         setIsLoading(true);
-        const response = await fetch('/api/patients/session/me');
         
-        if (response.ok) {
-          const data = await response.json();
-          setPatient(data);
-          setIsAuthenticated(true);
-        } else {
-          setIsAuthenticated(false);
+        // First check client-side storage
+        const isLoggedIn = isPatientLoggedIn();
+        setIsAuthenticated(isLoggedIn);
+        
+        if (isLoggedIn) {
+          // Get patient data from storage
+          const patientData = getPatientCredentials();
+          setPatient({
+            medicalNumber: patientData.medicalNumber,
+            name: localStorage.getItem("patientName") || "Patient",
+            email: patientData.email
+          });
+          
+          // Try to get additional data from API if available
+          try {
+            const response = await fetch('/api/patients/session/me');
+            if (response.ok) {
+              const serverData = await response.json();
+              setPatient((prev: any) => ({ ...prev, ...serverData }));
+            }
+          } catch (apiError) {
+            console.warn("API fetch failed, using local data instead");
+          }
         }
       } catch (error) {
-        console.error("Error fetching patient data:", error);
+        console.error("Error checking patient auth:", error);
         setIsAuthenticated(false);
       } finally {
         setIsLoading(false);
       }
     };
 
-    fetchPatientData();
+    checkPatientAuth();
   }, []);
 
   const handleLogout = async () => {
     try {
       // Call logout API endpoint to clear cookies properly
-      await fetch('/api/patients/session/logout', {
-        method: 'POST',
-      });
+      try {
+        await fetch('/api/patients/session/logout', {
+          method: 'POST',
+        });
+      } catch (apiError) {
+        console.error("API logout failed, continuing with local logout", apiError);
+      }
       
-      // Clear any local storage items as backup
-      localStorage.removeItem("medicalNumber");
-      localStorage.removeItem("patientName");
-      localStorage.removeItem("patientInfo");
-      localStorage.removeItem("token");
-      localStorage.removeItem("isPatientLoggedIn");
+      // Use centralized utility to clear all patient credentials
+      clearPatientCredentials();
       
-      // Redirect to root path as per existing system
-      window.location.replace('/');
+      // Log successful logout to console for debugging
+      console.log("Successfully logged out and cleared all credentials");
+      
+      // Redirect to patient login page
+      window.location.replace('/patient-login');
     } catch (error) {
       console.error("Error during logout:", error);
       // Fallback redirect
-      window.location.replace('/');
+      window.location.replace('/patient-login');
     }
   };
 

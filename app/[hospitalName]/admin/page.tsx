@@ -64,18 +64,51 @@ export default function HospitalDashboard({ params }: HospitalDashboardProps) {
     const fetchHospital = async () => {
       try {
         setLoading(true)
+        console.log(`Fetching hospital data for: ${hospitalSlug}`)
+        
+        // First try to get the specific hospital
         const response = await fetch(`/api/hospitals/${hospitalSlug}`)
         
         if (!response.ok) {
-          throw new Error('Failed to fetch hospital data')
+          console.warn(`Hospital '${hospitalSlug}' not found, status: ${response.status}`)
+          
+          // If hospital not found and we're in development mode, try to find any hospital
+          if (process.env.NODE_ENV === 'development') {
+            console.log('Development mode: Attempting to find any available hospital')
+            const fallbackResponse = await fetch('/api/hospitals')
+            
+            if (fallbackResponse.ok) {
+              const hospitals = await fallbackResponse.json()
+              if (hospitals && hospitals.length > 0) {
+                setHospital(hospitals[0])
+                console.log('Using fallback hospital:', hospitals[0])
+                return
+              }
+            }
+          }
+          
+          // Show user-friendly error based on status code
+          if (response.status === 404) {
+            setError(`Hospital "${hospitalSlug}" not found. Please check the URL or contact support.`)
+          } else {
+            setError(`Unable to load hospital data (status: ${response.status})`)
+          }
+          return
         }
         
-        const data = await response.json()
-        setHospital(data)
-        console.log('Hospital data:', data)
-      } catch (error) {
+        try {
+          // Get text first for debugging
+          const responseText = await response.text()
+          const data = JSON.parse(responseText)
+          setHospital(data)
+          console.log('Hospital data loaded successfully:', data.name)
+        } catch (parseError) {
+          console.error('Error parsing hospital data:', parseError)
+          setError('Invalid hospital data format')
+        }
+      } catch (error: any) {
         console.error('Error fetching hospital:', error)
-        setError('Failed to load hospital data')
+        setError(error.message || 'Failed to load hospital data')
       } finally {
         setLoading(false)
       }
@@ -83,6 +116,9 @@ export default function HospitalDashboard({ params }: HospitalDashboardProps) {
     
     if (hospitalSlug) {
       fetchHospital()
+    } else {
+      setError('No hospital specified')
+      setLoading(false)
     }
   }, [hospitalSlug])
   

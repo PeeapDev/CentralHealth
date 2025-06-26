@@ -187,10 +187,25 @@ export default function PatientsPage({ params }: PatientsPageProps) {
     if (!patient.name) return "Unknown";
     
     try {
-      // Parse JSON if it's a string
-      const nameData = typeof patient.name === 'string' 
-        ? JSON.parse(patient.name) 
-        : patient.name;
+      // Check if the string is a plain name or JSON
+      let nameData;
+      if (typeof patient.name === 'string') {
+        // Try to detect if it's JSON (starts with [ or {)
+        if ((patient.name.trim().startsWith('{') || patient.name.trim().startsWith('[')) && 
+            (patient.name.trim().endsWith('}') || patient.name.trim().endsWith(']'))) {
+          try {
+            nameData = JSON.parse(patient.name);
+          } catch (e) {
+            // If parsing fails, treat it as a plain name string
+            return patient.name.trim();
+          }
+        } else {
+          // Plain name string, not JSON
+          return patient.name.trim();
+        }
+      } else {
+        nameData = patient.name;
+      }
       
       // Handle array of names or single name object
       const nameObj = Array.isArray(nameData) ? nameData[0] : nameData;

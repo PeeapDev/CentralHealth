@@ -259,7 +259,7 @@ export default function ComplicationsForm({ patientData, initialData, onSave }: 
           )}
           
           {formData.riskLevel === "medium" && (
-            <Alert variant="warning">
+            <Alert variant="default" className="border-orange-200 bg-orange-50 text-amber-700 dark:border-orange-800 dark:bg-orange-950 dark:text-amber-500">
               <AlertTriangle className="h-4 w-4" />
               <AlertTitle>Medium Risk Factors Detected</AlertTitle>
               <AlertDescription>

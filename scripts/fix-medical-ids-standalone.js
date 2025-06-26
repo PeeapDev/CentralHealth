@@ -1,29 +1,80 @@
 // Self-contained script to fix Medical IDs without external dependencies
-const { PrismaClient } = require('@prisma/client');
+// Uses the correct Prisma client path
+const { PrismaClient } = require('../lib/generated/prisma');
 const prisma = new PrismaClient();
 
-// Define the utility functions inline (copied from utils/medical-id.ts)
-function generateMedicalID(length = 5) {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+// Medical ID generation function inline to avoid import issues
+function generateMedicalID() {
+  const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // 24 characters (excluding O, I, L)
+  const numbers = '23456789';                  // 8 characters (excluding 0, 1)
+  
+  // Randomly select one of our two guaranteed patterns (0-1)
+  const patternType = Math.floor(Math.random() * 2);
+  
   let id = '';
-  for (let i = 0; i < length; i++) {
-    id += chars.charAt(Math.floor(Math.random() * chars.length));
+  
+  switch(patternType) {
+    case 0: // LNLNL - 3 letters, 2 numbers - guaranteed mix
+      id += letters.charAt(Math.floor(Math.random() * letters.length));
+      id += numbers.charAt(Math.floor(Math.random() * numbers.length));
+      id += letters.charAt(Math.floor(Math.random() * letters.length));
+      id += numbers.charAt(Math.floor(Math.random() * numbers.length));
+      id += letters.charAt(Math.floor(Math.random() * letters.length));
+      break;
+    case 1: // NLNLN - 2 letters, 3 numbers - guaranteed mix
+      id += numbers.charAt(Math.floor(Math.random() * numbers.length));
+      id += letters.charAt(Math.floor(Math.random() * letters.length));
+      id += numbers.charAt(Math.floor(Math.random() * numbers.length));
+      id += letters.charAt(Math.floor(Math.random() * letters.length));
+      id += numbers.charAt(Math.floor(Math.random() * numbers.length));
+      break;
   }
+  
   return id;
 }
+
 
 function isValidMedicalID(id) {
   if (!id || id.length !== 5) return false;
   
   // Check if it only contains allowed characters
   const allowedChars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const numbers = '23456789';
+  
+  // First check: all characters must be from our allowed set
   for (let i = 0; i < id.length; i++) {
     if (!allowedChars.includes(id.charAt(i))) {
       return false;
     }
   }
   
-  return true;
+  // Second check: must contain at least one letter
+  let hasLetter = false;
+  for (let i = 0; i < id.length; i++) {
+    if (letters.includes(id.charAt(i))) {
+      hasLetter = true;
+      break;
+    }
+  }
+  
+  // Third check: must contain at least one number
+  let hasNumber = false;
+  for (let i = 0; i < id.length; i++) {
+    if (numbers.includes(id.charAt(i))) {
+      hasNumber = true;
+      break;
+    }
+  }
+  
+  // Fourth check: reject all-letter formats (likely name-derived IDs like "MOHAM")
+  if (id.length === 5 && /^[A-Z]+$/i.test(id)) {
+    console.warn('Rejected all-letter medical ID format:', id);
+    return false;
+  }
+  
+  // Valid only if it has at least one letter AND one number
+  return hasLetter && hasNumber;
 }
 
 /**

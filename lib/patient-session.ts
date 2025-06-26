@@ -1,5 +1,6 @@
 import { cookies } from 'next/headers';
 import { encrypt, decrypt } from './encryption';
+import { isValidMedicalID } from '@/utils/medical-id';
 
 const SESSION_COOKIE_NAME = 'patient-session';
 const SESSION_SECRET = process.env.PATIENT_SESSION_SECRET || 'defaultDevSecretForPatientSessionDontUseInProduction';
@@ -16,12 +17,37 @@ export interface PatientSession {
 }
 
 export async function createPatientSession(patientData: Omit<PatientSession, 'isLoggedIn'>): Promise<void> {
+  // Enhanced validation for medical IDs
+  if (patientData.medicalNumber) {
+    const isValid = isValidMedicalID(patientData.medicalNumber);
+    
+    // Log detailed validation results for auditing and debugging
+    console.log('Medical ID validation:', {
+      id: patientData.medicalNumber,
+      valid: isValid,
+      format: patientData.medicalNumber.length === 5 ? 'correct-length' : 'incorrect-length',
+      mixedFormat: /^[A-Z0-9]+$/i.test(patientData.medicalNumber) && 
+                  /[A-Z]/i.test(patientData.medicalNumber) && 
+                  /[0-9]/.test(patientData.medicalNumber) ? 'mixed' : 'not-mixed',
+      nameDerived: /^[A-Z]+$/i.test(patientData.medicalNumber) ? 'potentially-name-derived' : 'not-name-derived'
+    });
+    
+    if (!isValid) {
+      console.warn('INVALID MEDICAL ID FORMAT:', patientData.medicalNumber);
+      console.warn('⚠️ WARNING: Using non-compliant medical ID may cause data inconsistencies');
+      console.warn('Non-compliant IDs should be fixed using the fix-medical-ids script');
+    }
+  } else {
+    console.warn('No medical ID provided during session creation - this may cause issues with patient identification');
+  }
+  
   console.log('Creating patient session with data:', {
     id: patientData.id,
     medicalNumber: patientData.medicalNumber,
     email: patientData.email,
     hasFirstName: !!patientData.firstName,
-    hasLastName: !!patientData.lastName
+    hasLastName: !!patientData.lastName,
+    isValidFormat: patientData.medicalNumber ? isValidMedicalID(patientData.medicalNumber) : false
   });
   
   const session: PatientSession = {

@@ -4,6 +4,8 @@ export interface Hospital {
   id?: number
   name: string
   slug: string
+  subdomain: string  // Add subdomain field needed for routing
+  admin_email?: string // Add admin_email field for login
   description?: string
   logo?: string
   contact: {

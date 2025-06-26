@@ -110,11 +110,12 @@ export default function BookingVisitForm({ patientData, initialData, onSave }: B
             {/* Last Menstrual Period */}
             <div className="space-y-2">
               <Label htmlFor="lmp">Last Menstrual Period (LMP)</Label>
+              {/* Remove id prop as it's not in DatePickerProps interface */}
               <DatePicker 
-                id="lmp"
                 date={formData.lmp ? new Date(formData.lmp) : undefined}
                 setDate={handleLMPChange}
                 className="w-full"
+                placeholder="Select LMP date"
               />
               {errors.lmp && <p className="text-sm text-red-500">{errors.lmp}</p>}
               <p className="text-xs text-gray-500">First day of the last menstrual period</p>
@@ -123,12 +124,13 @@ export default function BookingVisitForm({ patientData, initialData, onSave }: B
             {/* Expected Due Date (EDD) */}
             <div className="space-y-2">
               <Label htmlFor="edd">Expected Due Date (EDD)</Label>
+              {/* Remove id prop as it's not in DatePickerProps interface */}
               <DatePicker 
-                id="edd"
                 date={formData.edd ? new Date(formData.edd) : undefined}
                 setDate={(date) => date && setFormData({...formData, edd: date.toISOString()})}
                 className="w-full"
-                disabled // Calculated from LMP
+                disabled={true} // Calculated from LMP
+                placeholder="Expected due date"
               />
               {errors.edd && <p className="text-sm text-red-500">{errors.edd}</p>}
               <p className="text-xs text-gray-500">Automatically calculated from LMP (LMP + 40 weeks)</p>

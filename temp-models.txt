@@ -1,0 +1,35 @@
+// New email contact model
+model PatientEmail {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  verified  Boolean  @default(false)
+  primary   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@map("patient_emails")
+}
+
+// New phone contact model
+model PatientPhone {
+  id        String   @id @default(uuid())
+  phone     String
+  verified  Boolean  @default(false)
+  primary   Boolean  @default(false)
+  type      String   @default("mobile") // mobile, home, work, etc.
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@map("patient_phones")
+}
+
+// Updated Patient model would need to remove 'contact' JSON field
+// and add these relations:
+// PatientEmail   PatientEmail[]
+// PatientPhone   PatientPhone[]

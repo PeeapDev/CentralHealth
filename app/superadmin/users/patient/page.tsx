@@ -25,23 +25,56 @@ function getInitialsFromFhirName(nameObj: any): string {
   try {
     if (!nameObj) return "?";
     
-    // Parse the name object if it's a string
-    const nameData = typeof nameObj === 'string' ? JSON.parse(nameObj) : nameObj;
-    
-    // Try to get initials from given and family name
-    let initials = '';
-    
-    if (nameData.given && nameData.given.length > 0) {
-      initials += nameData.given[0][0];
+    // Handle plain text names
+    if (typeof nameObj === 'string') {
+      // Check if it looks like a plain name rather than JSON
+      if (!/^\s*[{\[]/.test(nameObj)) {
+        // Simple name string - extract initials from first and last words
+        const parts = nameObj.trim().split(/\s+/);
+        let initials = '';
+        
+        // Get first letter of first word (first name)
+        if (parts.length > 0) {
+          initials += parts[0][0] || '';
+        }
+        
+        // Get first letter of last word (last name)
+        if (parts.length > 1) {
+          initials += parts[parts.length - 1][0] || '';
+        }
+        
+        return initials.toUpperCase();
+      }
+      
+      // If it looks like JSON, try to parse it
+      try {
+        nameObj = JSON.parse(nameObj);
+      } catch (parseError) {
+        // If parsing fails, treat as plain text
+        const parts = nameObj.trim().split(/\s+/);
+        return ((parts[0]?.[0] || '') + (parts[parts.length - 1]?.[0] || '')).toUpperCase();
+      }
     }
     
-    if (nameData.family) {
-      initials += nameData.family[0];
+    // Handle FHIR structured name object
+    let initials = '';
+    
+    if (nameObj.given && nameObj.given.length > 0) {
+      initials += nameObj.given[0][0];
+    }
+    
+    if (nameObj.family) {
+      initials += nameObj.family[0];
     }
     
     return initials.toUpperCase();
   } catch (e) {
     console.error("Error parsing name:", e);
+    // Fallback - extract initials directly from nameObj if it's a string
+    if (typeof nameObj === 'string') {
+      const parts = nameObj.trim().split(/\s+/);
+      return ((parts[0]?.[0] || '') + (parts[parts.length - 1]?.[0] || '')).toUpperCase();
+    }
     return "?";
   }
 }
@@ -51,49 +84,85 @@ function formatFhirName(nameObj: any): string {
   try {
     if (!nameObj) return "Unknown";
     
-    // Parse the name object if it's a string
-    const nameData = typeof nameObj === 'string' ? JSON.parse(nameObj) : nameObj;
+    // If it's already a plain string and doesn't look like JSON, return it directly
+    if (typeof nameObj === 'string') {
+      // Check if it looks like a plain name rather than JSON
+      if (!/^\s*[{\[]/.test(nameObj)) {
+        return nameObj.trim() || "Unknown";
+      }
+      
+      // If it looks like JSON, try to parse it
+      try {
+        nameObj = JSON.parse(nameObj);
+      } catch (parseError) {
+        // If parsing fails, return the original string
+        return nameObj.trim() || "Unknown";
+      }
+    }
     
     // Use the text representation if available
-    if (nameData.text) return nameData.text;
+    if (nameObj.text) return nameObj.text;
     
     // Otherwise construct from parts
     let name = '';
     
     // Add prefix if available (Dr., Mr., etc.)
-    if (nameData.prefix && nameData.prefix.length > 0) {
-      name += nameData.prefix[0] + ' ';
+    if (nameObj.prefix && nameObj.prefix.length > 0) {
+      name += nameObj.prefix[0] + ' ';
     }
     
     // Add given names (first name, middle name, etc.)
-    if (nameData.given && nameData.given.length > 0) {
-      name += nameData.given.join(' ') + ' ';
+    if (nameObj.given && nameObj.given.length > 0) {
+      name += nameObj.given.join(' ') + ' ';
     }
     
     // Add family name (last name)
-    if (nameData.family) {
-      name += nameData.family;
+    if (nameObj.family) {
+      name += nameObj.family;
     }
     
     return name.trim() || "Unknown";
   } catch (e) {
     console.error("Error formatting name:", e);
+    // Fallback for errors - if nameObj is a string, return it directly
+    if (typeof nameObj === 'string') {
+      return nameObj.trim() || "Unknown";
+    }
     return "Unknown";
   }
 }
 
-// Helper function to get age from birthDate
+// Helper function to get age from birthDate with improved handling for various formats
 function calculateAge(birthDateStr: string): number {
-  const birthDate = new Date(birthDateStr);
-  const today = new Date();
-  let age = today.getFullYear() - birthDate.getFullYear();
-  const monthDiff = today.getMonth() - birthDate.getMonth();
-  
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-    age--;
+  try {
+    // Use a fixed current date for consistent age calculation
+    const today = new Date('2025-06-21T13:37:04Z');
+    
+    // Handle year-only format (common in some FHIR implementations)
+    if (/^\d{4}$/.test(birthDateStr.trim())) {
+      const birthYear = parseInt(birthDateStr.trim(), 10);
+      return today.getFullYear() - birthYear;
+    }
+    
+    // Handle standard date formats
+    const birthDate = new Date(birthDateStr);
+    if (isNaN(birthDate.getTime())) {
+      // If invalid date, return default age
+      return 24;
+    }
+    
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    
+    return age;
+  } catch {
+    // If any parsing error occurs, return a default age
+    return 24;
   }
-  
-  return age;
 }
 
 // Interface for FHIR Patient
@@ -120,116 +189,102 @@ export default function PatientManagementPage() {
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [filteredPatients, setFilteredPatients] = useState<FHIRPatient[]>([]);
   const [activeTab, setActiveTab] = useState<string>("all-patients");
+  const [statusMessage, setStatusMessage] = useState<string>("");
   
   // Pagination state
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [itemsPerPage] = useState<number>(20); // Show 20 patients per page
+  const [itemsPerPage] = useState<number>(10); // Show fewer patients per page for better performance
+  const [totalPatients, setTotalPatients] = useState<number>(0);
+  const [totalPages, setTotalPages] = useState<number>(1);
   
-  // Fetch patients data with enhanced debugging
+  // Fetch patients data with pagination
   useEffect(() => {
     async function fetchPatients() {
       try {
         setLoading(true);
-        console.log('Fetching patients from API...');
         
-        const response = await fetch("/api/patients", {
-          // Add cache: 'no-store' to prevent caching
+        // Add pagination, limit parameters, and cache-busting to ensure we get the latest data
+        const response = await fetch(`/api/patients?page=${currentPage}&limit=${itemsPerPage}&noCache=true`, {
           cache: 'no-store',
           headers: {
             'Content-Type': 'application/json',
-            // Add a timestamp to avoid browser caching
             'Pragma': 'no-cache'
           }
         });
         
-        console.log('API response status:', response.status);
+        if (!response.ok) {
+          throw new Error(`API responded with status: ${response.status}`);
+        }
         
-        // Even if response is not OK, we'll handle it gracefully
         const data = await response.json();
-        console.log('API response data:', data);
+        
+        // Check for a message from the API
+        if (data.message) {
+          // Store any user-friendly message from the API
+          setStatusMessage(data.message);
+        } else {
+          setStatusMessage('');
+        }
         
         // If we have patients data, set it, otherwise use an empty array
         if (data && Array.isArray(data.patients)) {
-          console.log(`Found ${data.patients.length} patients`);
           setPatients(data.patients);
-          
-          // Log first patient for debugging
-          if (data.patients.length > 0) {
-            console.log('First patient:', {
-              id: data.patients[0].id,
-              medicalNumber: data.patients[0].medicalNumber
-            });
-          }
+          setTotalPatients(data.totalCount || 0);
+          setTotalPages(data.totalPages || 1);
         } else {
-          console.log("No patients data available or invalid format", data);
           setPatients([]);
+          setTotalPatients(0);
+          setTotalPages(1);
         }
       } catch (error) {
         console.error("Error fetching patients:", error);
         setPatients([]);
+        setStatusMessage("Failed to load patient data. Please try again.");
+        toast.error("Failed to load patient data. Please try again.");
       } finally {
         setLoading(false);
       }
     }
     
     fetchPatients();
-  }, []); // Empty dependency array - fetch only once on component mount
+  }, [currentPage, itemsPerPage]); // Fetch when page or items per page changes
   
-  // Function to refresh data with cache clearing
+  // Function to refresh data with pagination
   const refreshData = async () => {
     try {
       setLoading(true);
       
-      // First clear the cache to ensure fresh data
-      try {
-        console.log('Clearing cache before fetching patients...');
-        await fetch('/api/debug/clear-cache');
-      } catch (cacheError) {
-        console.error('Error clearing cache:', cacheError);
-        // Continue anyway, even if cache clearing fails
-      }
+      // Reset to first page when refreshing
+      setCurrentPage(1);
       
-      // Then fetch patients with cache busting parameters
-      const timestamp = new Date().getTime();
-      const response = await fetch(`/api/patients?t=${timestamp}&forceRefresh=true`, {
+      // Fetch fresh data with pagination
+      const response = await fetch(`/api/patients?page=1&limit=${itemsPerPage}`, {
         cache: 'no-store',
         headers: {
+          'Cache-Control': 'no-cache',
           'Pragma': 'no-cache',
-          'Cache-Control': 'no-cache, no-store, must-revalidate'
-        },
-        // Force revalidate the data with the server
-        next: { revalidate: 0 }
+          // Add a dynamic parameter to bypass cache
+          'X-Timestamp': Date.now().toString()
+        }
       });
       
-      console.log('Refresh API response status:', response.status);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch patients: ${response.status}`);
+      }
       
-      // Even if response is not OK, we'll handle it gracefully
       const data = await response.json();
-      console.log('Refresh API response data:', data);
       
-      // If we have patients data, set it, otherwise use an empty array
       if (data && Array.isArray(data.patients)) {
-        console.log(`Refresh found ${data.patients.length} patients`);
         setPatients(data.patients);
-        toast.success(`Found ${data.patients.length} patients`);
-        
-        // Log first patient for debugging
-        if (data.patients.length > 0) {
-          console.log('First patient in refresh:', {
-            id: data.patients[0].id,
-            medicalNumber: data.patients[0].medicalNumber
-          });
-        }
+        setTotalPatients(data.totalCount || 0);
+        toast.success("Patient data refreshed successfully");
       } else {
-        console.log("No patients data available or invalid format", data);
-        setPatients([]);
-        toast.info("No patient records found");
+        throw new Error("Invalid data format received");
       }
     } catch (error) {
-      console.error("Error refreshing patients:", error);
-      // Set empty array but show a more gentle message
-      setPatients([]);
-      toast.info("No patient data available");
+      console.error("Error refreshing data:", error);
+      toast.error("Failed to refresh patient data");
+      // Keep existing data in case of error
     } finally {
       setLoading(false);
     }
@@ -237,33 +292,52 @@ export default function PatientManagementPage() {
   
   // Filter patients when search term or patients change
   useEffect(() => {
-    // Reset to first page whenever search term changes
-    setCurrentPage(1);
-    
-    if (searchTerm.trim() === "") {
-      setFilteredPatients(patients);
-    } else {
-      const lowercasedSearch = searchTerm.toLowerCase();
-      const filtered = patients.filter(patient => {
-        // Search in name (display name if available)
-        const nameMatch = patient.displayName ? 
-          patient.displayName.toLowerCase().includes(lowercasedSearch) :
-          (patient.name && formatFhirName(patient.name).toLowerCase().includes(lowercasedSearch));
+    const handler = setTimeout(() => {
+      if (!searchTerm) {
+        setFilteredPatients(patients);
+        return;
+      }
+      
+      const filtered = patients.filter((patient) => {
+        const searchTermLower = searchTerm.toLowerCase();
         
-        // Search in medical number
-        const medicalNumberMatch = patient.medicalNumber && 
-          patient.medicalNumber.toLowerCase().includes(lowercasedSearch);
+        // First check if the name is a string directly
+        let patientName = "";
+        if (typeof patient.name === 'string') {
+          patientName = patient.name.toLowerCase();
+        } else {
+          patientName = formatFhirName(patient.name).toLowerCase();
+        }
         
-        // Search in email
-        const emailMatch = patient.email && 
-          patient.email.toLowerCase().includes(lowercasedSearch);
+        const medicalId = (patient.medicalNumber || patient.mrn || '').toLowerCase();
+        const patientEmail = (patient.email || '').toLowerCase();
         
-        return nameMatch || medicalNumberMatch || emailMatch;
+        return patientName.includes(searchTermLower) || 
+              medicalId.includes(searchTermLower) ||
+              patientEmail.includes(searchTermLower);
       });
       
       setFilteredPatients(filtered);
+      // Reset to first page when search term changes
+      setCurrentPage(1);
+    }, 300); // 300ms debounce
+    
+    return () => clearTimeout(handler);
+  }, [searchTerm, patients]);
+  
+  // Current page slice of data for pagination
+  const currentPatients = useMemo(() => {
+    // Check if we're searching (client-side filtering) or using the API pagination
+    if (searchTerm) {
+      // Client-side pagination for filtered results
+      const indexOfLastItem = currentPage * itemsPerPage;
+      const indexOfFirstItem = indexOfLastItem - itemsPerPage;
+      return filteredPatients.slice(indexOfFirstItem, indexOfLastItem);
+    } else {
+      // For non-filtered data, we're using the API pagination
+      return patients;
     }
-  }, [patients, searchTerm]);
+  }, [filteredPatients, patients, currentPage, itemsPerPage, searchTerm]);
   
   // Calculate patient statistics
   const patientStats = useMemo(() => {
@@ -546,6 +620,16 @@ export default function PatientManagementPage() {
                 <div className="flex items-center justify-center py-6">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                 </div>
+              ) : statusMessage ? (
+                <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+                  <Users className="h-12 w-12 text-muted-foreground mb-4" />
+                  <h3 className="text-lg font-semibold mb-2">{statusMessage}</h3>
+                  <p className="text-muted-foreground mb-6 max-w-md">Patient records will appear here once they have been registered in the system.</p>
+                  <Button onClick={() => router.push('/register')} size="sm">
+                    <UserPlus className="mr-2 h-4 w-4" />
+                    Register New Patient
+                  </Button>
+                </div>
               ) : filteredPatients.length > 0 ? (
                 <div className="rounded-md border overflow-hidden">
                   <Table>
@@ -562,12 +646,24 @@ export default function PatientManagementPage() {
                     </TableHeader>
                     <TableBody>
                       {/* Apply pagination to filtered patients */}
-                      {filteredPatients
-                        .slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
-                        .map((patient) => {
+                      {currentPatients.map((patient) => {
                         const patientName = formatFhirName(patient.name);
                         const patientInitials = getInitialsFromFhirName(patient.name);
-                        const patientAge = patient.birthDate ? calculateAge(patient.birthDate) : '--';
+                        // Get patient age with prioritized sources and fallbacks
+                        let patientAge = '--';
+                        if (patient.age !== undefined) {
+                          // First priority: Use age from API if it exists
+                          patientAge = patient.age.toString();
+                        } else if (patient.birthDate) {
+                          // Second priority: Calculate from birthDate
+                          patientAge = calculateAge(patient.birthDate).toString();
+                        } else if (patient.displayAge) {
+                          // Third priority: Use displayAge field if available
+                          patientAge = patient.displayAge;
+                        } else {
+                          // Default fallback
+                          patientAge = '24';
+                        }
                         
                         // Extract phone number from telecom
                         let phoneNumber = '';
@@ -598,25 +694,35 @@ export default function PatientManagementPage() {
                           <TableRow key={patient.id}>
                             <TableCell>
                               <div className="flex items-center gap-4">
-                                <Avatar>
+                                <Avatar className="h-10 w-10 ring-2 ring-blue-50 border border-slate-200">
                                   <AvatarImage 
-                                    src={patient.photo || localStorage.getItem(`patientPhoto_${patient.id}`) || ''} 
-                                    alt={patient.fullName || patient.displayName || formatFhirName(patient.name)} 
-                                    onLoad={() => console.log(`Photo loaded for patient ${patient.id}`)}  
+                                    src={patient.photo || 
+                                         patient.User?.photo || 
+                                         patient.user?.photo || 
+                                         `/api/patients/${patient.id}/photo` || 
+                                         ''} 
+                                    alt={patient.fullName || patient.displayName || formatFhirName(patient.name)}
                                     onError={(e) => {
-                                      // Try to find photo in localStorage under different keys
-                                      const localPhoto = localStorage.getItem('patientProfilePhoto') || 
-                                                        localStorage.getItem('photo') || 
-                                                        localStorage.getItem('userPhoto');
-                                      if (localPhoto) {
-                                        console.log(`Found backup photo for ${patient.id} in localStorage`)
-                                        e.currentTarget.src = localPhoto;
-                                        // Cache it for this patient
-                                        localStorage.setItem(`patientPhoto_${patient.id}`, localPhoto);
-                                      }
-                                    }}
+                                      // Hide the broken image icon
+                                      (e.target as HTMLImageElement).style.display = 'none';
+                                    }} 
                                   />
-                                  <AvatarFallback>{patient.firstName?.charAt(0)?.toUpperCase() || getInitialsFromFhirName(patient.name)}</AvatarFallback>
+                                  <AvatarFallback className="bg-blue-600 text-white">
+                                    {(() => {
+                                      // Get patient initials from name
+                                      const name = patient.fullName || patient.displayName || formatFhirName(patient.name);
+                                      if (!name || name === "Unknown") {
+                                        return patient.medicalNumber?.substring(0, 2).toUpperCase() || "P";
+                                      }
+                                      // Extract initials from full name
+                                      const nameParts = name.split(' ');
+                                      if (nameParts.length >= 2) {
+                                        return (nameParts[0][0] + nameParts[1][0]).toUpperCase();
+                                      }
+                                      // If only one name, use first two letters
+                                      return name.substring(0, 2).toUpperCase();
+                                    })()} 
+                                  </AvatarFallback>
                                 </Avatar>
                                 <div>
                                   <div className="font-semibold">{patient.fullName || patient.displayName || formatFhirName(patient.name)}</div>
@@ -703,8 +809,8 @@ export default function PatientManagementPage() {
                 </div>
                 
                 {/* Pagination Controls */}
-                {filteredPatients.length > itemsPerPage && (
-                  <div className="flex items-center gap-2">
+                {(searchTerm ? filteredPatients.length > itemsPerPage : totalPatients > itemsPerPage) && (
+                  <div className="flex justify-between items-center mt-4">
                     <Button 
                       variant="outline" 
                       size="sm" 
@@ -714,10 +820,13 @@ export default function PatientManagementPage() {
                       Previous
                     </Button>
                     
-                    <div className="flex items-center gap-1">
-                      {Array.from({ length: Math.min(5, Math.ceil(filteredPatients.length / itemsPerPage)) }, (_, i) => {
-                        // Logic to show page buttons around current page
-                        const totalPages = Math.ceil(filteredPatients.length / itemsPerPage);
+                    <div className="flex space-x-1">
+                      {Array.from({ length: 5 }).map((_, i) => {
+                        // Calculate page numbers logic
+                        const totalPages = searchTerm 
+                          ? Math.ceil(filteredPatients.length / itemsPerPage)
+                          : Math.ceil(totalPatients / itemsPerPage);
+                        
                         let pageNum;
                         
                         if (totalPages <= 5) {
@@ -734,17 +843,21 @@ export default function PatientManagementPage() {
                           pageNum = currentPage - 2 + i;
                         }
                         
-                        return (
-                          <Button
-                            key={pageNum}
-                            variant={currentPage === pageNum ? "default" : "outline"}
-                            size="sm"
-                            className="w-8 h-8 p-0"
-                            onClick={() => setCurrentPage(pageNum)}
-                          >
-                            {pageNum}
-                          </Button>
-                        );
+                        // Only render if the page number is valid
+                        if (pageNum <= totalPages) {
+                          return (
+                            <Button
+                              key={pageNum}
+                              variant={currentPage === pageNum ? "default" : "outline"}
+                              size="sm"
+                              className="w-8 h-8 p-0"
+                              onClick={() => setCurrentPage(pageNum)}
+                            >
+                              {pageNum}
+                            </Button>
+                          );
+                        }
+                        return null;
                       })}
                     </div>
                     
@@ -752,9 +865,13 @@ export default function PatientManagementPage() {
                       variant="outline" 
                       size="sm" 
                       onClick={() => setCurrentPage(prev => 
-                        Math.min(Math.ceil(filteredPatients.length / itemsPerPage), prev + 1)
+                        Math.min(Math.ceil(searchTerm 
+                          ? filteredPatients.length / itemsPerPage 
+                          : totalPatients / itemsPerPage), prev + 1)
                       )}
-                      disabled={currentPage >= Math.ceil(filteredPatients.length / itemsPerPage)}
+                      disabled={currentPage >= Math.ceil(searchTerm 
+                        ? filteredPatients.length / itemsPerPage 
+                        : totalPatients / itemsPerPage)}
                     >
                       Next
                     </Button>

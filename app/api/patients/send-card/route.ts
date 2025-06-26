@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { isValidMedicalID } from '../../../../utils/medical-id';
 
 // Mock function to simulate connecting to an email service
 // In production, replace this with a real email service like SendGrid, Mailgun, AWS SES, etc.
@@ -50,6 +51,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ 
         success: false, 
         error: 'Email, name, medical number, and card image are required' 
+      }, { status: 400 });
+    }
+    
+    // Validate medical ID format 
+    if (!isValidMedicalID(medicalNumber)) {
+      console.error(`Invalid medical ID format detected in card send request: ${medicalNumber}`);
+      return NextResponse.json({
+        success: false,
+        error: 'Invalid medical ID format. Medical ID must contain both letters and numbers.'
+      }, { status: 400 });
+    }
+    
+    // Additional explicit check for all-letter medical IDs (safety net)
+    if (/^[A-Za-z]+$/.test(medicalNumber)) {
+      console.error(`All-letter medical ID rejected in card send request: ${medicalNumber}`);
+      return NextResponse.json({
+        success: false,
+        error: 'Invalid medical ID format. Medical ID must contain both letters and numbers.'
       }, { status: 400 });
     }
     

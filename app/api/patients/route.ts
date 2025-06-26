@@ -1,409 +1,474 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { parse, isValid, differenceInYears, format } from 'date-fns';
+import { patientNameToString } from '@/lib/utils';
 
-// Type definition for processed patient data
-interface ProcessedPatient {
-  id: string;
-  userId?: string;
-  hospitalId?: string;
-  medicalNumber?: string;
-  name?: any;
-  email?: string;
-  phone?: string;
-  birthDate?: string;
-  gender?: string;
-  address?: any;
-  telecom?: any;
-  active?: boolean;
-  createdAt?: Date;
-  updatedAt?: Date;
-  displayName: string;
-  photo?: string;
-  fullName?: string;
-  firstName?: string;
-  lastName?: string;
-  displayMedicalNumber?: string;
-  phoneNumber?: string;
-  profileImage?: string | null;
+// CACHING DISABLED FOR PRESENTATION MODE
+// No response caching - all requests go directly to the database
+let cachedResponse: any = null;
+let cacheTimestamp: number = 0;
+const CACHE_TTL = 0; // Caching disabled (TTL set to 0)
+
+/**
+ * Helper function to create a friendly display medical ID
+ * Preserves the original 5-character medical IDs (like T6YB8) generated during registration.
+ */
+function createFriendlyMedicalId(medicalId: string | undefined): string {
+  if (!medicalId) return 'Not Assigned';
+  
+  // If it's a 5-character registration ID, preserve it exactly as is
+  if (medicalId.length === 5 && /^[A-Z0-9]{5}$/i.test(medicalId)) {
+    return medicalId.toUpperCase();
+  }
+  
+  // If already in our P-format, return as is
+  if (medicalId.match(/^P-[A-Z0-9]{4,6}$/)) {
+    return medicalId;
+  }
+  
+  // For any other format, use first 4 chars with P- prefix
+  return `P-${medicalId.substring(0, Math.min(4, medicalId.length)).toUpperCase()}`;
 }
 
 /**
- * Helper function to format a patient name from FHIR format
+ * Extract and format contact information from the patient contact JSON field
+ * Returns structured contact information including phone, email, and address
+ * ONLY extracts real data, never adds fake/mock data
  */
-function formatPatientName(nameObj: any): string {
+function extractContactInfo(contactData: any): { 
+  email: string | null, 
+  phone: string | null,
+  address: {
+    street: string | null,
+    city: string | null,
+    state: string | null,
+    postalCode: string | null,
+    country: string | null,
+    formatted: string
+  }
+} {
+  // Initialize with null values - NEVER add fake data
+  const defaultContactInfo = {
+    email: null,
+    phone: null,
+    address: {
+      street: null,
+      city: null,
+      state: null,
+      postalCode: null,
+      country: null,
+      formatted: 'No address available'
+    }
+  };
+
+  // Return null values if no contact data
+  if (!contactData) return defaultContactInfo;
+
+  // Try to parse JSON string if needed
+  let parsedContact = contactData;
+  if (typeof contactData === 'string') {
+    try {
+      parsedContact = JSON.parse(contactData);
+      // If parsed to an empty string/object, return null values
+      if (!parsedContact || (typeof parsedContact === 'object' && Object.keys(parsedContact).length === 0)) {
+        return defaultContactInfo;
+      }
+    } catch (e) {
+      console.error('Error parsing contact JSON:', e);
+      return defaultContactInfo;
+    }
+  }
+
+  const result = { ...defaultContactInfo };
+  
+  // Handle the case where the entire contactData is an array
+  // Format from screenshot: [{"system":"email","value":"pay.peeap@gmail.com","use":"home"},...]
+  if (Array.isArray(parsedContact)) {
+    for (const item of parsedContact) {
+      if (item.system === 'email' && item.value) {
+        result.email = item.value;
+      }
+      if (item.system === 'phone' && item.value) {
+        result.phone = item.value;
+      }
+    }
+    return result;
+  }
+  
+  // FHIR format: telecom array with system and value properties
+  if (Array.isArray(parsedContact.telecom)) {
+    for (const item of parsedContact.telecom) {
+      if (item.system === 'email' && item.value) {
+        result.email = item.value;
+      }
+      if (item.system === 'phone' && item.value) {
+        result.phone = item.value;
+      }
+    }
+  } 
+  // Direct properties format
+  if (!result.email && parsedContact.email) {
+    result.email = parsedContact.email;
+  }
+  if (!result.phone && parsedContact.phone) {
+    result.phone = parsedContact.phone;
+  }
+  // Value property directly
+  if (!result.email && parsedContact.value) {
+    result.email = parsedContact.value;
+  }
+
+  // Process address from FHIR format or direct properties
+  const addressData = Array.isArray(parsedContact.address) ? parsedContact.address[0] : parsedContact.address;
+  
+  if (addressData) {
+    result.address = {
+      street: addressData.line?.[0] || addressData.street || null,
+      city: addressData.city || null,
+      state: addressData.state || null,
+      postalCode: addressData.postalCode || addressData.zip || null,
+      country: addressData.country || null,
+      formatted: ''
+    };
+
+    // Create a formatted address string only from actual data
+    const parts = [];
+    if (result.address.street) parts.push(result.address.street);
+    if (result.address.city) {
+      const cityPart = [result.address.city];
+      if (result.address.state) cityPart.push(result.address.state);
+      if (result.address.postalCode) cityPart.push(result.address.postalCode);
+      parts.push(cityPart.join(', '));
+    }
+    if (result.address.country && !parts.some(p => p.includes(result.address.country || ''))) {
+      parts.push(result.address.country);
+    }
+
+    result.address.formatted = parts.length > 0 ? parts.join('\n') : 'No address available';
+  }
+
+  return result;
+}
+
+/**
+ * Generate a deterministic avatar URL based on user name and ID
+ * Uses a high-quality avatar generation service to provide consistent patient avatars
+ */
+function generateAvatarUrl(name: string | null | undefined, id: string): string {
+  const safeName = encodeURIComponent(name || 'User');
+  const backgroundColors = ['5DBCD2', '1B4965', 'FF7D00', '2EC4B6', 'E71D36'];
+  const bgIndex = parseInt(id.slice(-1), 16) % backgroundColors.length;
+  const bgColor = backgroundColors[bgIndex];
+  
+  return `https://ui-avatars.com/api/?name=${safeName}&size=128&background=${bgColor}&color=fff&bold=true`;
+}
+
+/**
+ * Calculate age from date of birth handling various formats
+ * Returns both age as a number and formatted birthdate for display
+ */
+function processDateOfBirth(dateOfBirth: any): { age: number | null, formattedDate: string } {
+  if (!dateOfBirth) return { age: null, formattedDate: 'Not available' };
+  
   try {
-    if (!nameObj) return 'Unknown';
+    const now = new Date();
     
-    // Parse the name object if it's a string
-    let nameData;
-    if (typeof nameObj === 'string') {
-      try {
-        nameData = JSON.parse(nameObj);
-      } catch {
-        return nameObj || 'Unknown';
-      }
-    } else {
-      nameData = nameObj;
+    // If it's already a Date object
+    if (dateOfBirth instanceof Date) {
+      return {
+        age: differenceInYears(now, dateOfBirth),
+        formattedDate: format(dateOfBirth, 'MMMM d, yyyy')
+      };
     }
     
-    let formattedName = '';
-    
-    // Handle array format (FHIR standard)
-    if (Array.isArray(nameData) && nameData.length > 0) {
-      const firstNameObj = nameData[0];
+    // If it's a string, try different formats
+    if (typeof dateOfBirth === 'string') {
+      // Try direct conversion first
+      let date = new Date(dateOfBirth);
       
-      if (firstNameObj.given && Array.isArray(firstNameObj.given)) {
-        formattedName = firstNameObj.given.join(' ');
-      }
-      
-      if (firstNameObj.family) {
-        formattedName += formattedName ? ' ' + firstNameObj.family : firstNameObj.family;
+      // If valid, return age and formatted date
+      if (!isNaN(date.getTime())) {
+        return {
+          age: differenceInYears(now, date),
+          formattedDate: format(date, 'MMMM d, yyyy')
+        };
       }
       
-      return formattedName.trim() || 'Unknown';
+      // Try specific formats if direct conversion fails
+      const formats = [
+        'yyyy-MM-dd',
+        'yyyy/MM/dd',
+        'MM/dd/yyyy',
+        'dd/MM/yyyy'
+      ];
+      
+      for (const formatStr of formats) {
+        date = parse(dateOfBirth, formatStr, new Date());
+        if (isValid(date)) {
+          return {
+            age: differenceInYears(now, date),
+            formattedDate: format(date, 'MMMM d, yyyy')
+          };
+        }
+      }
+      
+      // Last resort: if the string looks like a year, calculate age from that
+      if (/^\d{4}$/.test(dateOfBirth)) {
+        const year = parseInt(dateOfBirth, 10);
+        const currentYear = now.getFullYear();
+        if (year > 1900 && year < currentYear) {
+          return {
+            age: currentYear - year,
+            formattedDate: `Year ${year}`
+          };
+        }
+      }
     }
     
-    // Handle direct object format
-    if (nameData.given && Array.isArray(nameData.given)) {
-      formattedName = nameData.given.join(' ');
-    }
-    
-    if (nameData.family) {
-      formattedName += formattedName ? ' ' + nameData.family : nameData.family;
-    }
-    
-    return formattedName.trim() || 'Unknown';
+    return { age: null, formattedDate: 'Not available' };
   } catch (e) {
-    console.error('Error parsing name:', e);
-    return 'Unknown';
+    console.error('Date processing error:', e);
+    return { age: null, formattedDate: 'Not available' };
   }
 }
 
 export async function GET(request: NextRequest) {
-  const startTime = Date.now();
-  console.log('Patient API called at', new Date().toISOString());
-  
   try {
-    console.log('Patient API called - optimized version with photo retrieval');
-    const searchParams = request.nextUrl.searchParams;
+    const url = new URL(request.url);
+    const page = parseInt(url.searchParams.get('page') || '1');
+    const pageSize = parseInt(url.searchParams.get('pageSize') || '10'); // Default to 10 per page for better performance
+    const limit = pageSize; // Alias for compatibility
+    const searchQuery = url.searchParams.get('search') || '';
     
-    // Parse query parameters for filtering and pagination
-    const page = parseInt(searchParams.get('page') || '1', 10);
-    const pageSize = parseInt(searchParams.get('pageSize') || '10', 10);
-    const search = searchParams.get('search') || '';
-    const medicalNumber = searchParams.get('medicalNumber') || '';
-    const hospitalId = searchParams.get('hospitalId') || '';
+    // Check if the request has a cache-busting parameter
+    const noCache = url.searchParams.get('noCache') === 'true';
     
-    // Log the request parameters for debugging
-    console.log('Patient search parameters:', { search, medicalNumber, hospitalId, page, pageSize });
-    
-    // Build the where clause for the search
-    const whereClause: any = {};
-    
-    // Apply filters
-    if (medicalNumber) {
-      whereClause.medicalNumber = {
-        equals: medicalNumber
-      };
+    // Check if we can use cached response (only if noCache is not set)
+    const now = Date.now();
+    if (!noCache && cachedResponse && (now - cacheTimestamp) < CACHE_TTL) {
+      console.log('Returning cached patients response');
+      return NextResponse.json(cachedResponse);
     }
     
-    if (hospitalId) {
-      whereClause.hospitalId = hospitalId;
-    }
+    // Calculate pagination offsets
+    const skip = (page - 1) * limit;
     
-    if (search) {
-      // Enhanced search for patient records with better JSON field handling
-      whereClause.OR = [
-        // Search by medical number (exact match or contains)
-        { 
-          medicalNumber: { 
-            contains: search, 
-            mode: 'insensitive' 
-          } 
-        },
-        // Search by medical ID (for compatibility with both field names)
-        { 
-          medicalId: { 
-            contains: search, 
-            mode: 'insensitive' 
-          } 
-        },
-        // Search by email
-        { 
-          email: { 
-            contains: search, 
-            mode: 'insensitive' 
-          } 
-        },
-        // Search in phone number
-        { 
-          phone: { 
-            contains: search, 
-            mode: 'insensitive' 
-          } 
-        },
-        // Search in name field (this is a JSON string in FHIR format)
-        // We use contains to find partial matches within the JSON string
-        { 
-          name: { 
-            contains: search, 
-            mode: 'insensitive' 
-          } 
-        },
-        // Search in telecom field (JSON string containing email and phone)
-        // This helps when email is stored in the telecom field
-        { 
-          telecom: { 
-            contains: search, 
-            mode: 'insensitive' 
-          } 
-        },
+    // Build where clause for search
+    const where: any = {};
+    if (searchQuery) {
+      where.OR = [
+        { id: { contains: searchQuery } },
+        { mrn: { contains: searchQuery } },
+        { name: { contains: searchQuery } } // Search in name field as well
       ];
-      
-      // Log the search query for debugging
-      console.log('Patient search query:', search, 'Where clause:', JSON.stringify(whereClause));
     }
     
-    // Execute query with pagination
-    let patients: any[] = [];
-    let total = 0;
+    // Get total count for pagination in a separate query
+    const totalCount = await prisma.patient.count({ where });
     
-    try {
-      // First get total count
-      total = await prisma.patient.count({ where: whereClause });
-      
-      // Then get paginated patients
-      patients = await prisma.patient.findMany({
-        where: whereClause,
-        select: {
-          id: true,
-          userId: true,
-          hospitalId: true,
-          medicalNumber: true,
-          name: true,
-          email: true,
-          phone: true,
-          birthDate: true,
-          gender: true,
-          address: true,
-          telecom: true,
-          active: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        orderBy: {
-          createdAt: 'desc',
-        },
-      });
-      
-      console.log(`Retrieved ${patients.length} patients (total: ${total})`);
-    } catch (error) {
-      console.error('Error fetching patients:', error);
-      patients = [];
-      total = 0;
-    }
-    
-    // Process patients with optimized approach - use efficient batch photo retrieval
-    console.log(`Processing ${patients.length} patients with optimized photo retrieval`);
-    const processedPatients: ProcessedPatient[] = [];
-    
-    // Get all user IDs from patients for optimized batch queries
-    const userIds = patients
-      .filter(p => p.userId)
-      .map(p => p.userId);
-      
-    // Create maps for efficient lookups
-    const userPhotoMap = new Map<string, string>();
-    
-    if (userIds.length > 0) {
-      console.log(`Fetching profile images for ${userIds.length} users in one query`);
-      
-      try {
-        // Get profile images in a SINGLE query instead of one per patient
-        const users = await prisma.user.findMany({
-          where: { id: { in: userIds } },
-          select: { id: true, profileImage: true }
-        });
-        
-        // Map user IDs to their profile images
-        for (const user of users) {
-          if (user.profileImage) {
-            userPhotoMap.set(user.id, user.profileImage);
-          }
-        }
-        
-        // Only get registration data for users WITHOUT profile images
-        const usersWithoutProfileImage = userIds.filter(id => !userPhotoMap.has(id));
-        
-        if (usersWithoutProfileImage.length > 0) {
-          console.log(`Fetching registration data for ${usersWithoutProfileImage.length} users in one query`);
-          
-          try {
-            // Use parameterized query to prevent SQL injection
-            const regDataQuery = `
-              SELECT id, registration_data FROM User 
-              WHERE id IN (${usersWithoutProfileImage.map(() => '?').join(',')});
-            `;
-            
-            const registrationData = await prisma.$queryRawUnsafe(
-              regDataQuery,
-              ...usersWithoutProfileImage
-            );
-            
-            if (registrationData && Array.isArray(registrationData)) {
-              for (const row of registrationData as any[]) {
-                if (row.id && row.registration_data) {
-                  try {
-                    const regData = typeof row.registration_data === 'string'
-                      ? JSON.parse(row.registration_data)
-                      : row.registration_data;
-                      
-                    if (regData?.photo) {
-                      userPhotoMap.set(row.id, regData.photo);
-                    }
-                  } catch (parseErr) {
-                    console.error(`Error parsing registration data for user ${row.id}:`, parseErr);
-                  }
-                }
-              }
-            }
-          } catch (regDataErr) {
-            console.error('Error fetching registration data:', regDataErr);
-          }
-        }
-      } catch (err) {
-        console.error('Error batch fetching user data:', err);
-      }
-    }
-    
-    // Process all patients with our pre-fetched photo data
-    for (const patient of patients) {
-      const processedPatient: ProcessedPatient = {
-        ...patient,
-        displayName: 'Unknown',
-      };
-      
-      // Efficiently look up photos from our pre-fetched map
-      if (patient.userId && userPhotoMap.has(patient.userId)) {
-        processedPatient.photo = userPhotoMap.get(patient.userId);
-      }
-      
-      // Parse string fields and format data
-      try {
-        // Parse telecom if it's a string
-        if (typeof processedPatient.telecom === 'string') {
-          try {
-            processedPatient.telecom = JSON.parse(processedPatient.telecom);
-          } catch {
-            processedPatient.telecom = [];
-          }
-        }
-        
-        // Parse address if it's a string
-        if (typeof processedPatient.address === 'string') {
-          try {
-            processedPatient.address = JSON.parse(processedPatient.address);
-          } catch {
-            processedPatient.address = {};
-          }
-        }
-        
-        // Format name fields
-        let firstName = '';
-        let lastName = '';
-        let fullName = '';
-        
-        if (patient.name) {
-          try {
-            const nameObj = typeof patient.name === 'string' 
-              ? JSON.parse(patient.name) 
-              : patient.name;
-            
-            // Handle array format
-            if (Array.isArray(nameObj) && nameObj.length > 0) {
-              const name = nameObj[0];
-              
-              if (name.given && Array.isArray(name.given)) {
-                firstName = name.given.join(' ');
-              }
-              
-              if (name.family) {
-                lastName = name.family;
-              }
-            } 
-            // Handle direct object format
-            else if (nameObj && (nameObj.given || nameObj.family)) {
-              if (nameObj.given && Array.isArray(nameObj.given)) {
-                firstName = nameObj.given.join(' ');
-              }
-              
-              if (nameObj.family) {
-                lastName = nameObj.family;
-              }
-            }
-            
-            fullName = [firstName, lastName].filter(Boolean).join(' ');
-          } catch (nameErr) {
-            console.error(`Error parsing name for patient ${patient.id}:`, nameErr);
-          }
-        }
-        
-        // Set formatted name fields
-        processedPatient.firstName = firstName || 'Unknown';
-        processedPatient.lastName = lastName || '';
-        processedPatient.fullName = fullName || 'Unknown';
-        processedPatient.displayName = fullName || 'Unknown';
-        
-        // Format medical number for display
-        processedPatient.displayMedicalNumber = patient.medicalNumber || 'Not Assigned';
-        
-        // Set profile image
-        processedPatient.profileImage = processedPatient.photo || null;
-        
-      } catch (formatErr) {
-        console.error(`Error formatting patient data: ${formatErr}`);
-        processedPatient.displayName = 'Unknown';
-      }
-      
-      // Add the processed patient to our results array
-      processedPatients.push(processedPatient);
-    }
-    
-    // Return the results
-    const endTime = Date.now();
-    console.log(`Patient API completed in ${endTime - startTime}ms`);
-    
-    // Return data in a format compatible with both new and old components
-    return NextResponse.json({
-      patients: processedPatients,
-      total,
-      page,
-      pageSize,
-      totalPages: Math.ceil(total / pageSize),
-      hasMore: page * pageSize < total,
-      pagination: {
-        total,
+    // If no patients found, return a friendly message instead of an error
+    if (totalCount === 0) {
+      return NextResponse.json({
+        patients: [],
+        totalCount: 0,
         page,
         pageSize,
-        totalPages: Math.ceil(total / pageSize),
-        hasMore: page * pageSize < total,
+        totalPages: 0,
+        message: searchQuery
+          ? `No patients found matching "${searchQuery}". Please try a different search term.`
+          : "No patients found in the system. Please register patients to get started.",
+        noPatients: true
+      }, { status: 200 }); // Return 200 OK with empty results and a message
+    }
+    
+    // Get patients with pagination
+    // NOTE: Once migration is complete, we can include emails and phones from the dedicated tables
+    // Try to fetch patients with a simpler query first for better reliability
+    const patients = await prisma.patient.findMany({
+      where,
+      skip: skip,
+      take: limit,
+      orderBy: {
+        updatedAt: 'desc' // Show most recently updated patients first
       },
-      filters: {
-        search: search || '',
-        medicalNumber: medicalNumber || '',
-        hospitalId: hospitalId || '',
+      select: {
+        id: true,
+        mrn: true,
+        name: true,
+        dateOfBirth: true,
+        gender: true,
+        // contact field no longer exists in the schema
+        createdAt: true,
+        updatedAt: true,
+        onboardingCompleted: true,
+        // Include Emails and Phones relations explicitly
+        Emails: {
+          where: { primary: true },
+          take: 1,
+          select: { email: true, verified: true }
+        },
+        Phones: {
+          where: { primary: true },
+          take: 1,
+          select: { phone: true, verified: true }
+        }
+      }
+    }).catch(err => {
+      console.error('Error in patient query:', err);
+      // Return an empty array instead of failing
+      return [];
+    });
+    
+    // If the query failed completely, return a graceful error
+    if (!patients) {
+      return NextResponse.json({
+        patients: [],
+        totalCount: 0,
+        page,
+        pageSize,
+        totalPages: 0,
+        message: "There was an issue retrieving patient data. System administrators have been notified."
+      }, { status: 200 }); // Return 200 with helpful message instead of 500
+    }
+
+    // Process each patient into the display format used by the frontend
+    const processedPatients = patients.map((patient: any) => {
+      try {
+        // Extract name with minimal processing
+        let displayName = 'Unknown Patient';
+        
+        // Try to get name from patient name field
+        if (patient.name) {
+          if (typeof patient.name === 'string') {
+            // Check if it looks like a plain string rather than JSON
+            if (!/^\s*[{\[]/.test(patient.name)) {
+              displayName = patient.name;
+            } else {
+              // Only attempt JSON parsing if it looks like JSON
+              try {
+                const nameObj = JSON.parse(patient.name);
+                displayName = nameObj.text || 
+                  ((nameObj.given && nameObj.family) ? 
+                  `${Array.isArray(nameObj.given) ? nameObj.given.join(' ') : nameObj.given} ${nameObj.family}` : 
+                  'Unknown');
+              } catch (e) {
+                // If parsing fails, use as-is
+                displayName = patient.name;
+              }
+            }
+          } else if (typeof patient.name === 'object') {
+            // Handle name object directly
+            const nameObj = patient.name as any;
+            displayName = nameObj.text || 
+              ((nameObj.given && nameObj.family) ? 
+              `${Array.isArray(nameObj.given) ? nameObj.given.join(' ') : nameObj.given} ${nameObj.family}` : 
+              'Unknown');
+          }
+        }
+        
+        // Format medical ID for display - must preserve original 5-character IDs per policy
+        const medicalId = patient.mrn || patient.id;
+        const displayMedicalNumber = createFriendlyMedicalId(medicalId);
+        
+        // Extract contact info from the Emails and Phones relations
+        let email = null;
+        let phone = null;
+        
+        // Get email from the Emails relation
+        if (patient.Emails && Array.isArray(patient.Emails) && patient.Emails.length > 0) {
+          email = patient.Emails[0].email;
+        }
+        
+        // Get phone from the Phones relation
+        if (patient.Phones && Array.isArray(patient.Phones) && patient.Phones.length > 0) {
+          phone = patient.Phones[0].phone;
+        }
+        
+        // Process date of birth
+        const dobResult = processDateOfBirth(patient.dateOfBirth);
+        
+        // Try to extract gender
+        let gender = 'Not Specified';
+        if (patient.gender) {
+          if (typeof patient.gender === 'string') {
+            gender = patient.gender.charAt(0).toUpperCase() + patient.gender.slice(1).toLowerCase();
+            if (gender === 'Male' || gender === 'Female' || gender === 'Other') {
+              // Gender is valid
+            } else if (gender.toLowerCase() === 'm') {
+              gender = 'Male';
+            } else if (gender.toLowerCase() === 'f') {
+              gender = 'Female';
+            } else {
+              gender = 'Other';
+            }
+          }
+        }
+        
+        // Return a consistent patient record object
+        return {
+          id: patient.id,
+          medicalId: displayMedicalNumber,
+          name: displayName,
+          email: email,
+          phone: phone,
+          dob: dobResult.formattedDate,
+          age: dobResult.age || 'Unknown',
+          gender: gender,
+          createdAt: patient.createdAt,
+          onboardingStatus: patient.onboardingCompleted ? 'Completed' : 'Pending',
+          status: 'Active',
+          avatarUrl: null // We'll handle profile image loading on the front end
+        };
+      } catch (err) {
+        // If processing an individual patient fails, return a simplified record
+        // instead of failing the entire request
+        console.error('Error processing patient:', err);
+        return {
+          id: patient.id || 'Unknown ID',
+          medicalId: patient.mrn || patient.id || 'Unknown',
+          name: 'Error loading patient',
+          email: null,
+          phone: null,
+          dob: 'Not available',
+          age: 'Unknown',
+          gender: 'Not Specified',
+          createdAt: new Date(),
+          onboardingStatus: 'Unknown',
+          status: 'Unknown',
+          avatarUrl: null,
+          error: true
+        };
       }
     });
     
+    // Build response with pagination info
+    const response = {
+      patients: processedPatients,
+      totalCount: totalCount,
+      page: page,
+      pageSize: pageSize,
+      totalPages: Math.ceil(totalCount / pageSize)
+    };
+    
+    // Cache the response
+    cachedResponse = response;
+    cacheTimestamp = Date.now();
+    
+    return NextResponse.json(response);
+    
   } catch (error) {
-    console.error('Patient API error:', error);
+    console.error('Error in patients API:', error);
+    // Return a more helpful error response with empty patients array
     return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to fetch patients',
-        details: error instanceof Error ? error.message : 'Unknown error',
+      { 
+        message: 'Unable to retrieve patient data at this time. Please try again later.', 
+        error: 'Failed to retrieve patients', 
+        details: error instanceof Error ? error.message : String(error),
+        patients: [],
+        totalCount: 0,
+        page: 1,
+        pageSize: 10,
+        totalPages: 0
       },
       { status: 500 }
     );

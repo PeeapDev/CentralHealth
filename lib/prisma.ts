@@ -1,16 +1,19 @@
-import { PrismaClient } from '../lib/generated/prisma'
-import { withAccelerate } from '@prisma/extension-accelerate'
+/**
+ * @deprecated This file is maintained for backward compatibility only.
+ * All code should import the Prisma client directly from '@/lib/database/prisma-client'
+ * This file now re-exports the enhanced Prisma client from the database directory.
+ */
 
-const prismaClientSingleton = () => {
-  return new PrismaClient().$extends(withAccelerate())
+// Re-export the enhanced Prisma client to maintain backward compatibility
+import { prisma } from './database/prisma-client'
+
+// Export for backward compatibility
+export { prisma }
+
+// Add a console warning in development mode
+if (process.env.NODE_ENV !== 'production') {
+  console.warn(
+    'Warning: You are importing Prisma client from @/lib/prisma which is deprecated.\n' +
+    'Please update your imports to use @/lib/database/prisma-client instead.'
+  )
 }
-
-type PrismaClientSingleton = ReturnType<typeof prismaClientSingleton>
-
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClientSingleton | undefined
-}
-
-export const prisma = globalForPrisma.prisma ?? prismaClientSingleton()
-
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma

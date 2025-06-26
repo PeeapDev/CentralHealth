@@ -32,11 +32,20 @@ import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
 import { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useForm } from "react-hook-form"
+import { useForm, Controller } from "react-hook-form"
 import { usePathname } from "next/navigation"
+import { PatientSearchWidget } from "@/components/patient-search-widget"
 
 const referralFormSchema = z.object({
-  patientId: z.string().min(1, "Patient ID is required"),
+  patient: z.object({
+    id: z.string(),
+    medicalNumber: z.string().optional(),
+    name: z.string(),
+    photo: z.string().optional()
+  }).refine(data => !!data.id, {
+    message: "Patient is required",
+    path: ["id"],
+  }),
   referringHospitalId: z.string().min(1, "Referring hospital is required"),
   receivingHospitalId: z.string().min(1, "Receiving hospital is required"),
   priority: z.enum(["ROUTINE", "PRIORITY", "URGENT"]),
@@ -82,11 +91,23 @@ export function NewReferralDialog() {
           throw new Error('Failed to fetch hospitals')
         }
         
-        const data = await response.json()
-        setHospitals(data)
+        const responseData = await response.json()
+        // Ensure data is an array before using array methods
+        const hospitalsArray = Array.isArray(responseData) ? responseData : 
+                              (responseData && responseData.hospitals && Array.isArray(responseData.hospitals)) ? 
+                              responseData.hospitals : [];
+        
+        // Log data structure to help debug
+        console.log('Hospital data structure:', { 
+          isArray: Array.isArray(responseData),
+          hasHospitalsProperty: responseData && typeof responseData === 'object' && 'hospitals' in responseData,
+          hospitalsLength: hospitalsArray.length 
+        })
+        
+        setHospitals(hospitalsArray)
         
         // Find current hospital
-        const current = data.find((h: Hospital) => h.subdomain === hospitalName)
+        const current = hospitalsArray.find((h: Hospital) => h && h.subdomain === hospitalName)
         if (current) {
           setCurrentHospital(current)
         }
@@ -100,38 +121,17 @@ export function NewReferralDialog() {
     fetchHospitals()
   }, [hospitalName])
 
-  // Fetch patients from current hospital
-  useEffect(() => {
-    const fetchPatients = async () => {
-      if (!currentHospital) return
-      
-      try {
-        setLoading(prev => ({ ...prev, patients: true }))
-        const response = await fetch(`/api/hospitals/${hospitalName}/patients`)
-        
-        if (!response.ok) {
-          throw new Error('Failed to fetch patients')
-        }
-        
-        const data = await response.json()
-        setPatients(data)
-      } catch (error) {
-        console.error('Error fetching patients:', error)
-      } finally {
-        setLoading(prev => ({ ...prev, patients: false }))
-      }
-    }
-    
-    if (currentHospital) {
-      fetchPatients()
-    }
-  }, [currentHospital, hospitalName])
-
+  // We don't need to pre-fetch patients anymore - the PatientSearchWidget will handle this
   const form = useForm<ReferralFormValues>({
     resolver: zodResolver(referralFormSchema),
     defaultValues: {
-      patientId: "",
-      referringHospitalId: currentHospital ? currentHospital.id : "",
+      patient: {
+        id: "",
+        name: "",
+        medicalNumber: "",
+        photo: ""
+      },
+      referringHospitalId: currentHospital?.id || "",
       receivingHospitalId: "",
       priority: "ROUTINE",
       notes: "",
@@ -139,36 +139,65 @@ export function NewReferralDialog() {
     },
   })
 
+  // Form submission handler
   function onSubmit(values: ReferralFormValues) {
     startTransition(async () => {
       try {
-        const response = await fetch(`/api/hospitals/${hospitalName}/referrals`, {
-          method: "POST",
+        // Ensure we have a valid patient
+        if (!values.patient?.id) {
+          toast({
+            title: "Error",
+            description: "Please select a valid patient",
+            variant: "destructive",
+          })
+          return
+        }
+        
+        // According to CentralHealth policies, we must preserve the medical ID
+        // and never generate a new one for existing patients
+        const payload = {
+          patientId: values.patient.id,
+          medicalNumber: values.patient.medicalNumber, // Include medical number for tracking
+          patientName: values.patient.name, // Include patient name for reference
+          referringHospitalId: values.referringHospitalId,
+          receivingHospitalId: values.receivingHospitalId,
+          priority: values.priority,
+          notes: values.notes,
+          ambulanceRequired: values.ambulanceRequired,
+          status: "PENDING"
+        }
+        
+        // Log the values being submitted
+        console.log('Creating referral for patient:', {
+          id: values.patient.id,
+          medicalNumber: values.patient.medicalNumber,
+          name: values.patient.name
+        })
+        
+        const response = await fetch('/api/referrals', {
+          method: 'POST',
           headers: {
-            "Content-Type": "application/json",
+            'Content-Type': 'application/json',
           },
-          body: JSON.stringify(values),
+          body: JSON.stringify(payload),
         })
 
         if (!response.ok) {
-          const error = await response.json()
-          throw new Error(error.message || "Failed to create referral")
+          throw new Error('Failed to create referral')
         }
 
         toast({
-          title: "Referral created",
-          description: "The referral has been created successfully.",
+          title: "Referral Created",
+          description: `Referral for ${values.patient.name} has been created successfully.`,
         })
-        
-        form.reset()
+
         setOpen(false)
-        
-        // Refresh the page to see the new referral
-        window.location.reload()
+        form.reset()
       } catch (error) {
+        console.error('Error creating referral:', error)
         toast({
           title: "Error",
-          description: error instanceof Error ? error.message : "Failed to create referral",
+          description: "There was a problem creating the referral.",
           variant: "destructive",
         })
       }
@@ -193,34 +222,60 @@ export function NewReferralDialog() {
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
               control={form.control}
-              name="patientId"
+              name="patient"
               render={({ field }) => (
-                <FormItem>
+                <FormItem className="flex flex-col space-y-2">
                   <FormLabel>Patient</FormLabel>
-                  <Select onValueChange={field.onChange} value={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select patient" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {loading.patients ? (
-                        <SelectItem value="loading" disabled>
-                          Loading patients...
-                        </SelectItem>
-                      ) : patients.length > 0 ? (
-                        patients.map((patient) => (
-                          <SelectItem key={patient.id} value={patient.id}>
-                            {patient.name?.text || patient.medicalNumber || patient.id.substring(0, 6)}
-                          </SelectItem>
-                        ))
-                      ) : (
-                        <SelectItem value="none" disabled>
-                          No patients found
-                        </SelectItem>
+                  <FormControl>
+                    <Controller
+                      control={form.control}
+                      name="patient"
+                      render={({ field: controllerField }) => (
+                        <PatientSearchWidget
+                          placeholder="Search by name, medical ID, or scan QR code"
+                          onSelect={(patient) => {
+                            console.log('Selected patient:', patient)
+                            controllerField.onChange({
+                              id: patient.id,
+                              name: patient.name,
+                              medicalNumber: patient.medicalNumber,
+                              photo: patient.photo
+                            })
+                          }}
+                          showCameraButton={true}
+                          hospitalId={currentHospital?.id}
+                          className="w-full"
+                        />
                       )}
-                    </SelectContent>
-                  </Select>
+                    />
+                  </FormControl>
+                  
+                  {/* Show selected patient details if available */}
+                  {field.value?.id && (
+                    <div className="px-3 py-2 rounded-md bg-muted flex items-center">
+                      <div className="flex-1">
+                        <div className="font-medium">{field.value.name}</div>
+                        {field.value.medicalNumber && (
+                          <div className="text-xs text-muted-foreground">Medical ID: {field.value.medicalNumber}</div>
+                        )}
+                      </div>
+                      <Button 
+                        size="sm" 
+                        variant="ghost" 
+                        onClick={() => {
+                          form.setValue('patient', {
+                            id: "",
+                            name: "",
+                            medicalNumber: "",
+                            photo: ""
+                          })
+                        }}
+                      >
+                        Change
+                      </Button>
+                    </div>
+                  )}
+                  
                   <FormMessage />
                 </FormItem>
               )}

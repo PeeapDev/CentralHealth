@@ -45,92 +45,175 @@ type ReferralWithRelations = {
 
 async function getReferrals(hospitalName: string): Promise<ReferralWithRelations[]> {
   try {
+    // Check if prisma client is available
+    if (!prisma) {
+      console.error("Prisma client is not properly initialized");
+      return [];
+    }
+
+    // Find the hospital first
     const hospital = await prisma.hospital.findFirst({
       where: { subdomain: hospitalName },
       select: { id: true }
+    }).catch((err: unknown) => {
+      console.error("Error finding hospital:", err);
+      return null;
     });
     
-    if (!hospital) return [];
+    if (!hospital) {
+      console.log(`No hospital found with subdomain: ${hospitalName}`);
+      return [];
+    }
     
-    const referrals = await prisma.referral.findMany({
-      where: {
-        OR: [
-          { referringHospitalId: hospital.id },
-          { receivingHospitalId: hospital.id }
-        ]
-      },
-      include: {
-        patient: true,
-        referringHospital: true,
-        receivingHospital: true,
-      },
-      orderBy: { createdAt: 'desc' }
-    }) as unknown as ReferralWithRelations[];
-    
-    return referrals;
-  } catch (error) {
-    console.error("Error fetching referrals:", error);
+    // Use a try-catch block specifically for the referral query
+    try {
+      // Check if the model exists in the Prisma schema
+      if (!(prisma as any)["referral"]) {
+        console.error("The referral model doesn't seem to exist in the Prisma schema");
+        return [];
+      }
+      
+      // Attempt to fetch referrals safely
+      const referrals = await (prisma as any).referral.findMany({
+        where: {
+          OR: [
+            { fromHospitalId: hospital.id },
+            { toHospitalId: hospital.id }
+          ]
+        },
+        include: {
+          patient: true,
+          fromHospital: true,  // Updated to match Prisma schema relation names
+          toHospital: true,    // Updated to match Prisma schema relation names
+        },
+        orderBy: { createdAt: 'desc' }
+      }).catch((err: Error) => {
+        console.error("Error fetching referrals:", err);
+        return [];
+      });
+      
+      return referrals as ReferralWithRelations[];
+    } catch (referralError: unknown) {
+      console.error("Error in referral query:", referralError);
+      return [];
+    }
+  } catch (error: unknown) {
+    console.error("Error in getReferrals:", error);
     return [];
   }
 }
 
 async function getStats(hospitalName: string) {
   try {
+    // Check if prisma client is available
+    if (!prisma) {
+      console.error("Prisma client is not properly initialized");
+      return { total: 0, pending: 0, completed: 0, todayCompleted: 0 };
+    }
+
+    // Find the hospital first
     const hospital = await prisma.hospital.findFirst({
       where: { subdomain: hospitalName },
       select: { id: true }
+    }).catch((err: unknown) => {
+      console.error("Error finding hospital:", err);
+      return null;
     });
     
-    if (!hospital) return { total: 0, pending: 0, completed: 0, todayCompleted: 0 };
+    if (!hospital) {
+      console.log(`No hospital found with subdomain: ${hospitalName}`);
+      return { total: 0, pending: 0, completed: 0, todayCompleted: 0 };
+    }
     
-    const total = await prisma.referral.count({
-      where: {
-        OR: [
-          { referringHospitalId: hospital.id },
-          { receivingHospitalId: hospital.id }
-        ]
-      },
-    });
+    // Check if the model exists in the Prisma schema
+    if (!(prisma as any)["referral"]) {
+      console.error("The referral model doesn't seem to exist in the Prisma schema");
+      return { total: 0, pending: 0, completed: 0, todayCompleted: 0 };
+    }
     
-    const pending = await prisma.referral.count({
-      where: {
-        OR: [
-          { referringHospitalId: hospital.id },
-          { receivingHospitalId: hospital.id }
-        ],
-        status: "PENDING"
-      },
-    });
+    // Calculate statistics with individual try-catch blocks
+    let total = 0, pending = 0, completed = 0, todayCompleted = 0;
     
-    const completed = await prisma.referral.count({
-      where: {
-        OR: [
-          { referringHospitalId: hospital.id },
-          { receivingHospitalId: hospital.id }
-        ],
-        status: "COMPLETED"
-      },
-    });
+    // Total referrals
+    try {
+      total = await (prisma as any).referral.count({
+        where: {
+          OR: [
+            { referringHospitalId: hospital.id },
+            { receivingHospitalId: hospital.id }
+          ]
+        },
+      }).catch((err: unknown) => {
+        console.error("Error counting total:", err);
+        return 0;
+      });
+    } catch (e: unknown) {
+      console.error("Error counting total referrals:", e);
+    }
     
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Pending referrals
+    try {
+      pending = await (prisma as any).referral.count({
+        where: {
+          OR: [
+            { referringHospitalId: hospital.id },
+            { receivingHospitalId: hospital.id }
+          ],
+          status: "PENDING"
+        },
+      }).catch((err: unknown) => {
+        console.error("Error counting pending:", err);
+        return 0;
+      });
+    } catch (e: unknown) {
+      console.error("Error counting pending referrals:", e);
+    }
     
-    const todayCompleted = await prisma.referral.count({
-      where: {
-        OR: [
-          { referringHospitalId: hospital.id },
-          { receivingHospitalId: hospital.id }
-        ],
-        status: "COMPLETED",
-        completedAt: {
-          gte: today
-        }
-      },
-    });
+    // Completed referrals
+    try {
+      completed = await (prisma as any).referral.count({
+        where: {
+          OR: [
+            { referringHospitalId: hospital.id },
+            { receivingHospitalId: hospital.id }
+          ],
+          status: "COMPLETED"
+        },
+      }).catch((err: unknown) => {
+        console.error("Error counting completed:", err);
+        return 0;
+      });
+    } catch (e: unknown) {
+      console.error("Error counting completed referrals:", e);
+    }
+    
+    // Today's completed referrals
+    try {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      todayCompleted = await (prisma as any).referral.count({
+        where: {
+          OR: [
+            { referringHospitalId: hospital.id },
+            { receivingHospitalId: hospital.id }
+          ],
+          status: "COMPLETED",
+          completedAt: {
+            gte: today
+          }
+        },
+      }).catch((err: unknown) => {
+        console.error("Error counting today's completed:", err);
+        return 0;
+      });
+    } catch (e: unknown) {
+      console.error("Error counting today's completed referrals:", e);
+    }
     
     return { total, pending, completed, todayCompleted };
-  } catch (error) {
-    console.error("Error fetching stats:", error);
+  } catch (error: unknown) {
+    console.error("Error in getStats:", error);
     return { total: 0, pending: 0, completed: 0, todayCompleted: 0 };
   }
 }

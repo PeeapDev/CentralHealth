@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { 
   Card, 
@@ -10,6 +10,8 @@ import {
   CardHeader, 
   CardTitle 
 } from "@/components/ui/card"
+import { generateMedicalID, isValidMedicalID } from "@/utils/medical-id"
+import { generateUniqueMedicalID } from "@/utils/check-id-uniqueness"
 import { Button } from "@/components/ui/button"
 import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react"
 import { toast } from "sonner"
@@ -49,6 +51,7 @@ export interface PatientFormData {
   phone: string
   email: string
   password: string
+  profilePicture?: string // Base64 or URL for profile picture
   
   // Location Info
   addressLine: string
@@ -171,11 +174,42 @@ export function MultiStepForm() {
     }
   }
   
+  // Generate a unique medical ID when the form is first loaded
+  // This ensures we have a valid ID ready before submission
+  const [medicalId, setMedicalId] = useState<string>("");
+  
+  useEffect(() => {
+    const generateId = async () => {
+      try {
+        // Use our enhanced generator that guarantees uniqueness
+        const uniqueId = await generateUniqueMedicalID();
+        console.log('Generated unique medical ID for registration:', uniqueId);
+        setMedicalId(uniqueId);
+      } catch (error) {
+        console.error('Failed to generate unique medical ID:', error);
+        // Fallback to basic generation as last resort
+        const basicId = generateMedicalID();
+        console.warn('Using fallback medical ID generation:', basicId);
+        setMedicalId(basicId);
+      }
+    };
+    
+    generateId();
+  }, []);
+  
   // Handle form submission
   const handleSubmit = async () => {
     setIsSubmitting(true)
     
     try {
+      if (!medicalId || !isValidMedicalID(medicalId)) {
+        throw new Error('Invalid medical ID for registration');
+      }
+      
+      // Store the medical ID in localStorage for persistence
+      localStorage.setItem('medicalNumber', medicalId);
+      console.log('Using medical ID for registration:', medicalId);
+      
       // Format data for API submission
       const patientData = {
         firstName: formData.firstName,
@@ -201,7 +235,11 @@ export function MultiStepForm() {
           provider: formData.insuranceProvider,
           policyNumber: formData.insuranceNumber
         } : undefined,
-        password: formData.password
+        password: formData.password,
+        // Include profile picture if available
+        profilePicture: formData.profilePicture,
+        // Include the generated medical ID for registration API requirement
+        medicalId: medicalId
       }
       
       // Submit to API
@@ -219,26 +257,27 @@ export function MultiStepForm() {
       }
       
       // Show success message
-      toast.success("Registration successful! Redirecting to complete your profile...")
+      toast.success("Registration successful! Redirecting to your dashboard...")
       
-      // Auto-login and redirect directly to onboarding
+      // Auto-login and redirect directly to dashboard
       setTimeout(async () => {
         // Auto-login the user with the credentials they just used
         try {
-          const loginResponse = await fetch('/api/patients/session/login', {
+          // Use email for login since we've migrated to email-based authentication
+          const loginResponse = await fetch('/api/patients/login', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-              email: formData.email,
+              email: formData.email, // Updated to use email instead of phone
               password: formData.password
             })
           });
           
           if (loginResponse.ok) {
-            // Successful login, redirect directly to onboarding
-            window.location.href = '/onboarding';
+            // Successful login, redirect directly to dashboard
+            window.location.href = '/dashboard';
           } else {
             // Fall back to auth login page if auto-login fails
             window.location.href = '/auth/login';

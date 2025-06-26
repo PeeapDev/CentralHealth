@@ -49,8 +49,7 @@ export default function WizardPage() {
       isLoading, 
       patientResponse, 
       error,
-      authenticated: patientResponse?.authenticated,
-      onboardingCompleted: patientResponse?.onboardingCompleted
+      authenticated: patientResponse?.authenticated
     })
     
     // If data is loading, wait
@@ -63,27 +62,15 @@ export default function WizardPage() {
       return
     }
     
-    // Onboarding already completed, redirect to dashboard
-    if (patientResponse?.onboardingCompleted === true) {
-      console.log('Onboarding already completed, redirecting to dashboard')
-      router.push('/patient/dashboard')
-      return
-    }
+    // Simply redirect to dashboard
+    console.log('Authenticated, redirecting to dashboard')
+    router.push('/dashboard')
     
-    // Otherwise, show the wizard
-    console.log('Showing onboarding wizard', patientResponse)
+    // Update loading state
     setLoading(false)
   }, [patientResponse, isLoading, router])
   
-  const handleStartOnboarding = () => {
-    setShowWizard(false)
-    router.push('/onboarding')
-  }
-  
-  const handleSkipOnboarding = () => {
-    // Simply redirect to dashboard without completing onboarding
-    router.push('/patient/dashboard')
-  }
+  // No longer need separate handlers as this page will just redirect to dashboard
   
   if (loading) {
     return (
@@ -94,45 +81,11 @@ export default function WizardPage() {
     )
   }
   
+  // Always return loading state since this page will redirect immediately
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <Dialog open={showWizard} onOpenChange={setShowWizard}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Welcome to Central Health!</DialogTitle>
-            <DialogDescription>
-              Complete your patient profile to access all features of the patient portal.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="flex flex-col space-y-2">
-              <h3 className="font-medium">Complete your onboarding process to:</h3>
-              <ul className="list-disc pl-5 space-y-1">
-                <li>Update your personal and health information</li>
-                <li>Add emergency contacts</li>
-                <li>Record important medical details</li>
-                <li>Get your digital medical ID</li>
-              </ul>
-            </div>
-          </div>
-          <DialogFooter className="sm:justify-start">
-            <Button 
-              type="button" 
-              variant="default"
-              onClick={handleStartOnboarding}
-            >
-              Start Onboarding
-            </Button>
-            <Button 
-              type="button" 
-              variant="outline"
-              onClick={handleSkipOnboarding}
-            >
-              Skip for Now
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+    <div className="flex flex-col items-center justify-center min-h-screen">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <p className="mt-4 text-muted-foreground">Redirecting to dashboard...</p>
     </div>
   )
 }

@@ -1,0 +1,1001 @@
+"use client"
+
+import { useState, useEffect } from "react"
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs"
+import { Button } from "@/components/ui/button"
+import { useParams, useRouter } from "next/navigation"
+// Import removed - not needed
+import { Loader2, RefreshCw, ArrowLeft, Edit, AlertCircle, CheckCircle2 } from "lucide-react"
+import { useToast } from "@/components/ui/use-toast"
+import Link from "next/link"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { formatDistance } from 'date-fns'
+import { Badge } from "@/components/ui/badge"
+import { Separator } from "@/components/ui/separator"
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
+
+interface Name {
+  given?: string
+  family?: string
+  text?: string
+  [key: string]: any
+}
+
+interface Address {
+  line?: string[]
+  city?: string
+  state?: string
+  postalCode?: string
+  country?: string
+  [key: string]: any
+}
+
+interface PatientData {
+  id: string
+  name: Name
+  gender: string
+  birthDate: string
+  email?: string
+  phone?: string
+  medicalNumber: string
+  mrn?: string
+  address?: Address
+  createdAt: string
+  updatedAt: string
+  displayName?: string
+  fullName?: string
+  [key: string]: any  // Allow additional properties from API
+}
+
+function PatientInfoSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="h-8 w-48 bg-gray-200 rounded-md animate-pulse"></div>
+        <div className="h-8 w-32 bg-gray-200 rounded-md animate-pulse"></div>
+      </div>
+      <div className="space-y-4">
+        <div className="h-28 bg-gray-200 rounded-md animate-pulse"></div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="h-32 bg-gray-200 rounded-md animate-pulse"></div>
+          <div className="h-32 bg-gray-200 rounded-md animate-pulse"></div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function SuperAdminPatientProfile() {
+  // Using type assertion for params
+  const params = useParams()
+  const patientId = params?.patientId as string
+  const [patient, setPatient] = useState<PatientData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [isResetDialogOpen, setIsResetDialogOpen] = useState(false)
+  const [isResetting, setIsResetting] = useState(false)
+  const [resetSuccess, setResetSuccess] = useState(false)
+  const [isEditingContact, setIsEditingContact] = useState(false)
+  const [contactForm, setContactForm] = useState({
+    email: '',
+    phone: '',
+    address: ''
+  })
+  const [updatingContact, setUpdatingContact] = useState(false)
+  const router = useRouter()
+  const { toast } = useToast()
+  
+  // Calculate age from birth date with enhanced validation
+  const calculateAge = (birthDateStr: string): number => {
+    if (!birthDateStr) return 0;
+    
+    try {
+      const birthDate = new Date(birthDateStr);
+      const today = new Date();
+      
+      // Validate dates
+      if (isNaN(birthDate.getTime())) {
+        console.error('Invalid birth date:', birthDateStr);
+        return 0;
+      }
+      
+      // Future birth dates should return 0
+      if (birthDate > today) {
+        console.warn('Birth date is in the future:', birthDate);
+        return 0;
+      }
+      
+      // Calculate age
+      let age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+      
+      // Adjust age if birth month/day has not occurred yet this year
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+      
+      return age;
+    } catch (error) {
+      console.error('Error calculating age:', error);
+      return 0;
+    }
+  }
+
+  // Update contact form when patient data changes
+  useEffect(() => {
+    if (patient) {
+      try {
+        let contactData: Record<string, any> = {};
+        if (patient.contact) {
+          contactData = typeof patient.contact === 'string'
+            ? JSON.parse(patient.contact)
+            : patient.contact;
+        }
+        
+        setContactForm({
+          email: contactData?.email || '',
+          phone: contactData?.phone || '',
+          address: contactData?.address ? (
+            typeof contactData.address === 'string' ? contactData.address : JSON.stringify(contactData.address, null, 2)
+          ) : ''
+        });
+      } catch (e) {
+        console.error('Error parsing contact data:', e);
+      }
+    }
+  }, [patient]);
+
+  // Function to update patient contact information
+  const handleUpdateContact = async () => {
+    try {
+      setUpdatingContact(true);
+      
+      // Parse address if provided as JSON
+      let addressObject = undefined;
+      if (contactForm.address.trim()) {
+        try {
+          addressObject = JSON.parse(contactForm.address);
+        } catch (e) {
+          addressObject = { line: [contactForm.address] };
+        }
+      }
+      
+      const response = await fetch('/api/patients/update-contact', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          patientId,
+          email: contactForm.email,
+          phone: contactForm.phone,
+          address: addressObject
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok) {
+        toast({
+          title: 'Success',
+          description: 'Contact information updated successfully',
+        });
+        // Refresh patient data
+        setLoading(true);
+        fetchPatientData();
+        setIsEditingContact(false);
+      } else {
+        throw new Error(data.message || 'Failed to update contact information');
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update contact information',
+        variant: 'destructive',
+      });
+    } finally {
+      setUpdatingContact(false);
+    }
+  };
+
+  // Define fetchPatientData function outside the useEffect for reuse
+  const fetchPatientData = async () => {
+      if (!patientId) {
+        setError("Patient ID is missing")
+        setLoading(false)
+        return
+      }
+
+      setLoading(true)
+      try {
+        const response = await fetch(`/api/patients/${patientId}`)
+        
+        // First handle HTTP errors
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => null);
+          let errorMessage = `Error fetching patient: ${response.status}`;
+          if (errorText) {
+            try {
+              // Try to parse error as JSON
+              const errorJson = JSON.parse(errorText);
+              errorMessage = errorJson.error || errorMessage;
+            } catch (e) {
+              // If not valid JSON, use the raw text if it's not too long
+              if (errorText.length < 100) errorMessage = errorText;
+            }
+          }
+          throw new Error(errorMessage);
+        }
+        
+        // Then try to parse the JSON response
+        const data = await response.json().catch(e => {
+          throw new Error(`Failed to parse patient data: ${e.message}`);
+        });
+        
+        // Validate the data has minimum required fields
+        if (!data || typeof data !== 'object') {
+          throw new Error('Invalid patient data received');
+        }
+        
+        setPatient(data);
+        setError(null);
+      } catch (err) {
+        console.error("Error fetching patient:", err);
+        const errorMessage = err instanceof Error ? err.message : "Failed to load patient data";
+        setError(errorMessage);
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: errorMessage,
+        });
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchPatientData()
+  }, [patientId])
+
+  const handleResetPassword = async () => {
+    try {
+      setIsResetting(true)
+      setResetSuccess(false)
+      
+      // Check if patient has an email address to receive the reset link
+      let patientEmail = null;
+      try {
+        if (patient?.contact) {
+          const contactData = typeof patient.contact === 'string'
+            ? JSON.parse(patient.contact)
+            : patient.contact;
+          patientEmail = contactData.email;
+        }
+      } catch (e) {
+        console.error('Failed to parse contact data:', e);
+      }
+      
+      if (!patientEmail) {
+        toast({
+          title: 'Warning',
+          description: 'Patient has no email address. Please add an email address before resetting password.',
+          variant: 'destructive',
+        });
+        setIsResetting(false);
+        setIsResetDialogOpen(false);
+        setIsEditingContact(true); // Open contact edit form
+        return;
+      }
+
+      const response = await fetch(`/api/patients/forgot-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: patientEmail,
+          medicalNumber: patient?.mrn
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to reset password")
+      }
+
+      setResetSuccess(true)
+      toast({
+        title: "Password Reset Initiated",
+        description: "Patient will receive an email with password reset instructions.",
+      })
+    } catch (err) {
+      console.error("Error resetting password:", err)
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Failed to reset password. Please try again.",
+      })
+    } finally {
+      setIsResetting(false)
+      setIsResetDialogOpen(false)
+    }
+  }
+
+  const formatDate = (dateString: string) => {
+    try {
+      const date = new Date(dateString)
+      return date.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+    } catch (e) {
+      console.error("Invalid date format:", dateString)
+      return "Invalid date"
+    }
+  }
+
+  if (!patientId) {
+    return <div>Patient ID is missing</div>
+  }
+
+  if (loading) {
+    return <PatientInfoSkeleton />
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64">
+        <AlertCircle className="h-12 w-12 text-red-500" />
+        <p className="mt-4 text-lg text-red-500">{error}</p>
+        <Button variant="outline" className="mt-4" onClick={() => window.location.reload()}>
+          <RefreshCw className="mr-2 h-4 w-4" />
+          Retry
+        </Button>
+      </div>
+    )
+  }
+
+  if (!patient) {
+    return <div>No patient data found</div>
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <Button variant="outline" onClick={() => router.back()}>
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back
+        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" asChild>
+            <Link href={`/superadmin/patients/${patientId}/edit`}>
+              <Edit className="mr-2 h-4 w-4" />
+              Edit
+            </Link>
+          </Button>
+          <AlertDialog open={isResetDialogOpen} onOpenChange={setIsResetDialogOpen}>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" size="sm" onClick={() => setIsResetDialogOpen(true)}>
+                Reset Password
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Reset Patient Password</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Are you sure you want to reset the patient's password? They will receive an email with instructions to set a new password.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction 
+                  onClick={handleResetPassword} 
+                  disabled={isResetting}
+                  className={isResetting ? "opacity-50 cursor-not-allowed" : ""}
+                >
+                  {isResetting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  {resetSuccess ? "Password Reset!" : "Reset Password"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+          
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => setIsEditingContact(prev => !prev)}
+          >
+            {isEditingContact ? "Cancel Edit" : "Edit Contact Info"}
+          </Button>
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Avatar className="h-16 w-16 ring-2 ring-blue-50 border border-slate-200">
+                <AvatarImage 
+                  src={patient.photo || 
+                       patient.User?.photo || 
+                       patient.user?.photo || 
+                       localStorage.getItem(`patientPhoto_${patient.id}`) || 
+                       localStorage.getItem('patientProfilePhoto') || 
+                       ''} 
+                  alt={patient.fullName || patient.displayName || 'Patient'} 
+                  onError={() => console.log(`Using initials for patient ${patient.medicalNumber || patient.mrn}`)} 
+                />
+                <AvatarFallback className="bg-blue-600 text-white text-lg">
+                  {(() => {
+                    // Get patient initials from name
+                    const name = patient.fullName || patient.displayName || (() => {
+                      // Handle FHIR name format
+                      if (patient.name) {
+                        // Handle if name is an array (FHIR standard)
+                        if (Array.isArray(patient.name) && patient.name.length > 0) {
+                          const nameObj = patient.name[0];
+                          if (nameObj.text) return nameObj.text;
+                          
+                          const given = Array.isArray(nameObj.given) ? nameObj.given.join(' ') : nameObj.given || '';
+                          const family = nameObj.family || '';
+                          return `${given} ${family}`.trim() || 'Unknown';
+                        } 
+                        // Handle direct name object
+                        else {
+                          if (patient.name.text) return patient.name.text;
+                          
+                          const given = Array.isArray(patient.name.given) ? patient.name.given.join(' ') : patient.name.given || '';
+                          const family = patient.name.family || '';
+                          return `${given} ${family}`.trim() || 'Unknown';
+                        }
+                      }
+                      return 'Unknown';
+                    })();
+
+                    if (!name || name === "Unknown") {
+                      return patient.medicalNumber?.substring(0, 2).toUpperCase() || "P";
+                    }
+                    // Extract initials from full name
+                    const nameParts = name.split(' ');
+                    if (nameParts.length >= 2) {
+                      return (nameParts[0][0] + nameParts[1][0]).toUpperCase();
+                    }
+                    // If only one name, use first two letters
+                    return name.substring(0, 2).toUpperCase();
+                  })()} 
+                </AvatarFallback>
+              </Avatar>
+              <div>
+                <span className="text-xl block">
+                  {(() => {
+                    // Handle FHIR name format
+                    if (patient.name) {
+                      // Handle if name is an array (FHIR standard)
+                      if (Array.isArray(patient.name) && patient.name.length > 0) {
+                        const nameObj = patient.name[0];
+                        if (nameObj.text) return nameObj.text;
+                        
+                        const given = Array.isArray(nameObj.given) ? nameObj.given.join(' ') : nameObj.given || '';
+                        const family = nameObj.family || '';
+                        return `${given} ${family}`.trim() || 'Unknown';
+                      } 
+                      // Handle direct name object
+                      else {
+                        if (patient.name.text) return patient.name.text;
+                        
+                        const given = Array.isArray(patient.name.given) ? patient.name.given.join(' ') : patient.name.given || '';
+                        const family = patient.name.family || '';
+                        return `${given} ${family}`.trim() || 'Unknown';
+                      }
+                    }
+                    
+                    // Handle display name if it exists
+                    if (patient.displayName) return patient.displayName;
+                    if (patient.fullName) return patient.fullName;
+                    
+                    return 'Unknown Patient';
+                  })()}
+                </span>
+                <Badge variant="outline" className="mt-1">{patient.gender || 'Unknown'}</Badge>
+              </div>
+            </div>
+            {resetSuccess && (
+              <Badge variant="outline" className="flex items-center gap-1 bg-green-100 text-green-700 border-green-200">
+                <CheckCircle2 className="h-4 w-4" />
+                Reset Email Sent
+              </Badge>
+            )}
+          </CardTitle>
+          <CardDescription>
+            Medical Record #: {patient.medicalNumber || patient.mrn || 'Not Assigned'} | Created: {formatDate(patient.createdAt)}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="space-y-1">
+              <h4 className="text-sm font-medium text-muted-foreground">Date of Birth</h4>
+              <p>{patient.birthDate ? formatDate(patient.birthDate) : 'Not available'}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-muted-foreground">Contact</p>
+              {isEditingContact ? (
+                <div className="space-y-2 mt-2">
+                  <div className="grid grid-cols-1 gap-2">
+                    <label className="text-xs">Email:</label>
+                    <input 
+                      type="email" 
+                      className="p-2 border rounded text-sm w-full" 
+                      value={contactForm.email}
+                      onChange={(e) => setContactForm({...contactForm, email: e.target.value})}
+                      placeholder="Enter patient email"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 gap-2">
+                    <label className="text-xs">Phone:</label>
+                    <input 
+                      type="tel" 
+                      className="p-2 border rounded text-sm w-full" 
+                      value={contactForm.phone}
+                      onChange={(e) => setContactForm({...contactForm, phone: e.target.value})}
+                      placeholder="Enter patient phone"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 gap-2">
+                    <label className="text-xs">Address (JSON or text):</label>
+                    <textarea 
+                      className="p-2 border rounded text-sm w-full h-20" 
+                      value={contactForm.address}
+                      onChange={(e) => setContactForm({...contactForm, address: e.target.value})}
+                      placeholder="Enter address or JSON object"
+                    />
+                  </div>
+                  <Button 
+                    onClick={handleUpdateContact}
+                    disabled={updatingContact}
+                    className="w-full mt-2"
+                  >
+                    {updatingContact ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    Save Contact Information
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <p>
+                    {(() => {
+                      try {
+                        const contactData = typeof patient?.contact === 'string' 
+                          ? JSON.parse(patient?.contact) 
+                          : patient?.contact;
+                        return contactData?.email || 'No email on record';
+                      } catch (e) {
+                        return 'Error parsing contact data';
+                      }
+                    })()}
+                  </p>
+                  <p>
+                    {(() => {
+                      try {
+                        const contactData = typeof patient?.contact === 'string' 
+                          ? JSON.parse(patient?.contact) 
+                          : patient?.contact;
+                        return contactData?.phone || 'No phone on record';
+                      } catch (e) {
+                        return 'Error parsing contact data';
+                      }
+                    })()}
+                  </p>
+                </>
+              )}
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-muted-foreground">Address</p>
+              {isEditingContact ? null : (
+                <>
+                  {(() => {
+                    try {
+                      const contactData = typeof patient?.contact === 'string'
+                        ? JSON.parse(patient?.contact)
+                        : patient?.contact;
+                      const address = contactData?.address;
+                      
+                      if (!address) return <p>No address on record</p>;
+                      
+                      if (typeof address === 'string') return <p>{address}</p>;
+                      
+                      return (
+                        <>
+                          <p>{address?.line?.join(', ') || 'No street address'}</p>
+                          <p>
+                            {address?.city ? `${address.city}, ` : ''}
+                            {address?.state || ''}
+                            {address?.postalCode ? ` ${address.postalCode}` : ''}
+                          </p>
+                          <p>{address?.country || ''}</p>
+                        </>
+                      );
+                    } catch (e) {
+                      return <p>Error parsing address data</p>;
+                    }
+                  })()}
+                </>
+              )}
+            </div>
+          </div>
+
+          <Separator className="my-2" />
+
+          <Tabs defaultValue="registration" className="w-full mt-2">
+            <TabsList className="grid grid-cols-2 md:grid-cols-5">
+              <TabsTrigger value="registration">Registration</TabsTrigger>
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="records">Records</TabsTrigger>
+              <TabsTrigger value="medications">Medications</TabsTrigger>
+              <TabsTrigger value="appointments">Appointments</TabsTrigger>
+            </TabsList>
+            <TabsContent value="registration" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Registration & Onboarding Details</CardTitle>
+                  <CardDescription>
+                    Complete registration information and onboarding status
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {/* Account Status */}
+                  <div className="space-y-2">
+                    <h3 className="text-lg font-semibold">Account Status</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-muted-foreground">Onboarding Status</p>
+                        <div className="flex items-center gap-2">
+                          {patient.onboardingCompleted ? (
+                            <Badge className="bg-green-500">Completed</Badge>
+                          ) : (
+                            <Badge variant="outline" className="border-amber-500 text-amber-500">Incomplete</Badge>
+                          )}
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-muted-foreground">Registration Date</p>
+                        <p>{formatDate(patient.createdAt)}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Patient Identifiers */}
+                  <div className="space-y-2">
+                    <h3 className="text-lg font-semibold">Patient Identifiers</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-muted-foreground">Medical Record Number (MRN)</p>
+                        <p className="font-mono">{patient.mrn || 'Not assigned'}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-muted-foreground">Display Medical ID</p>
+                        <p className="font-mono">{patient.displayMedicalNumber || 'Not assigned'}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-muted-foreground">System ID</p>
+                        <p className="font-mono text-xs">{patient.id}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Personal Information */}
+                  <div className="space-y-2">
+                    <h3 className="text-lg font-semibold">Personal Information</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-muted-foreground">Full Name</p>
+                        <p>{patient.fullName || patient.displayName || (() => {
+                          if (patient.name) {
+                            if (Array.isArray(patient.name)) {
+                              const nameObj = patient.name[0];
+                              const given = Array.isArray(nameObj?.given) ? nameObj.given.join(' ') : nameObj?.given || '';
+                              const family = nameObj?.family || '';
+                              return `${given} ${family}`.trim();
+                            } else {
+                              const nameObj = patient.name;
+                              const given = Array.isArray(nameObj?.given) ? nameObj.given.join(' ') : nameObj?.given || '';
+                              const family = nameObj?.family || '';
+                              return `${given} ${family}`.trim();
+                            }
+                          }
+                          return 'Unknown';
+                        })()}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-muted-foreground">Gender</p>
+                        <p>{patient.gender || 'Not specified'}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-muted-foreground">Date of Birth</p>
+                        <p>
+                          {patient.birthDate ? (
+                            <>
+                              {formatDate(patient.birthDate)}
+                              <span className="ml-2 text-sm text-muted-foreground">
+                                ({calculateAge(patient.birthDate)} years old)
+                              </span>
+                            </>
+                          ) : (
+                            'Not specified'
+                          )}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-muted-foreground">Hospital</p>
+                        <p>{patient.Hospital?.name || 'Not assigned'}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Contact Information */}
+                  <div className="space-y-2">
+                    <h3 className="text-lg font-semibold">Contact Information</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-muted-foreground">Email</p>
+                        <p>{patient.email || patient.User?.email || 'No email on record'}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-muted-foreground">Phone</p>
+                        <p>{patient.phone || (() => {
+                          try {
+                            if (patient.telecom) {
+                              const telecom = typeof patient.telecom === 'string' 
+                                ? JSON.parse(patient.telecom) 
+                                : patient.telecom;
+                              
+                              if (Array.isArray(telecom)) {
+                                const phoneEntry = telecom.find(entry => entry.system === 'phone');
+                                return phoneEntry?.value || 'No phone on record';
+                              }
+                            }
+                            
+                            // Check contact field
+                            if (patient.contact) {
+                              const contact = typeof patient.contact === 'string'
+                                ? JSON.parse(patient.contact)
+                                : patient.contact;
+                              
+                              return contact.phone || 'No phone on record';
+                            }
+                          } catch (e) {
+                            console.error('Error parsing phone data:', e);
+                          }
+                          return 'No phone on record';
+                        })()}</p>
+                      </div>
+                    </div>
+                    
+                    <div className="mt-3">
+                      <p className="text-sm font-medium text-muted-foreground">Address</p>
+                      <div className="pt-2">
+                        {patient.address ? (
+                          <div>
+                            <p>{patient.address.line?.join(', ') || 'No street address'}</p>
+                            <p>
+                              {patient.address.city ? `${patient.address.city}, ` : ''}
+                              {patient.address.state || ''} 
+                              {patient.address.postalCode || ''}
+                            </p>
+                            <p>{patient.address.country || ''}</p>
+                          </div>
+                        ) : (
+                          <p>No address on record</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+                  
+                  {/* Medical History */}
+                  <div className="space-y-2">
+                    <h3 className="text-lg font-semibold">Medical History</h3>
+                    {patient.medicalHistory ? (
+                      <div className="space-y-3">
+                        {(() => {
+                          try {
+                            const medicalHistory = typeof patient.medicalHistory === 'string'
+                              ? JSON.parse(patient.medicalHistory)
+                              : patient.medicalHistory;
+                            
+                            return (
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {medicalHistory.allergies && (
+                                  <div className="space-y-1">
+                                    <p className="text-sm font-medium text-muted-foreground">Allergies</p>
+                                    {Array.isArray(medicalHistory.allergies) && medicalHistory.allergies.length > 0 ? (
+                                      <ul className="list-disc pl-5">
+                                        {medicalHistory.allergies.map((allergy: any, index: number) => (
+                                          <li key={index}>{typeof allergy === 'string' ? allergy : JSON.stringify(allergy)}</li>
+                                        ))}
+                                      </ul>
+                                    ) : (
+                                      <p>No allergies recorded</p>
+                                    )}
+                                  </div>
+                                )}
+                                
+                                {medicalHistory.conditions && (
+                                  <div className="space-y-1">
+                                    <p className="text-sm font-medium text-muted-foreground">Medical Conditions</p>
+                                    {Array.isArray(medicalHistory.conditions) && medicalHistory.conditions.length > 0 ? (
+                                      <ul className="list-disc pl-5">
+                                        {medicalHistory.conditions.map((condition: any, index: number) => (
+                                          <li key={index}>{typeof condition === 'string' ? condition : JSON.stringify(condition)}</li>
+                                        ))}
+                                      </ul>
+                                    ) : (
+                                      <p>No medical conditions recorded</p>
+                                    )}
+                                  </div>
+                                )}
+                                
+                                {medicalHistory.medications && (
+                                  <div className="space-y-1">
+                                    <p className="text-sm font-medium text-muted-foreground">Medications</p>
+                                    {Array.isArray(medicalHistory.medications) && medicalHistory.medications.length > 0 ? (
+                                      <ul className="list-disc pl-5">
+                                        {medicalHistory.medications.map((medication: any, index: number) => (
+                                          <li key={index}>{typeof medication === 'string' ? medication : JSON.stringify(medication)}</li>
+                                        ))}
+                                      </ul>
+                                    ) : (
+                                      <p>No medications recorded</p>
+                                    )}
+                                  </div>
+                                )}
+                                
+                                {/* Add additional medical history fields as needed */}
+                                {Object.entries(medicalHistory)
+                                  .filter(([key]) => !['allergies', 'conditions', 'medications'].includes(key))
+                                  .map(([key, value]) => (
+                                    <div className="space-y-1" key={key}>
+                                      <p className="text-sm font-medium text-muted-foreground">
+                                        {key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1')}
+                                      </p>
+                                      <p>{typeof value === 'string' ? value : JSON.stringify(value)}</p>
+                                    </div>
+                                  ))}
+                              </div>
+                            );
+                          } catch (e) {
+                            console.error('Error parsing medical history:', e);
+                            return <p>Error parsing medical history data</p>;
+                          }
+                        })()}
+                      </div>
+                    ) : (
+                      <p>No medical history on record</p>
+                    )}
+                  </div>
+
+                  {/* Registration Data - Advanced Section */}
+                  {patient.registrationData && (
+                    <>
+                      <Separator />
+                      <div className="space-y-2">
+                        <h3 className="text-lg font-semibold">Registration Details</h3>
+                        <div className="border rounded p-3 bg-slate-50">
+                          {(() => {
+                            try {
+                              const regData = typeof patient.registrationData === 'string'
+                                ? JSON.parse(patient.registrationData)
+                                : patient.registrationData;
+
+                              return (
+                                <div className="space-y-2">
+                                  {Object.entries(regData).map(([key, value]) => {
+                                    // Skip certain keys we're displaying elsewhere
+                                    if (['id', 'photo', 'name'].includes(key)) return null;
+                                    
+                                    return (
+                                      <div key={key} className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                                        <div className="text-sm font-medium">
+                                          {key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1')}
+                                        </div>
+                                        <div className="md:col-span-2 break-all">
+                                          {typeof value === 'object' 
+                                            ? JSON.stringify(value)
+                                            : String(value)}
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              );
+                            } catch (e) {
+                              console.error('Error parsing registration data:', e);
+                              return <p>Error parsing registration data</p>;
+                            }
+                          })()}
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {/* System Info */}
+                  <Separator />
+                  <div className="space-y-2">
+                    <h3 className="text-lg font-semibold">System Information</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-muted-foreground">Created At</p>
+                        <p>{formatDate(patient.createdAt)}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-sm font-medium text-muted-foreground">Last Updated</p>
+                        <p>{formatDate(patient.updatedAt)}</p>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+            
+            <TabsContent value="overview" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Patient Summary</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p>Patient summary information will appear here.</p>
+                </CardContent>
+              </Card>
+            </TabsContent>
+            <TabsContent value="records">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Medical Records</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p>Medical records will appear here.</p>
+                </CardContent>
+              </Card>
+            </TabsContent>
+            <TabsContent value="medications">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Medications</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p>Medication information will appear here.</p>
+                </CardContent>
+              </Card>
+            </TabsContent>
+            <TabsContent value="appointments">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Appointment History</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p>Appointment history will appear here.</p>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}

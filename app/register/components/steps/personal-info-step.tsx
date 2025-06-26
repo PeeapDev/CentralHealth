@@ -1,12 +1,12 @@
 "use client"
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
-import { PatientFormData } from "../multi-step-form"
-import { CalendarIcon, AlertCircle, Loader2, CheckCircle } from "lucide-react"
+import { PatientFormData } from "../clean-form"
+import { CalendarIcon, AlertCircle, Loader2, CheckCircle, Camera, Upload, X, RefreshCcw } from "lucide-react"
 import { format } from "date-fns"
 import { Calendar } from "@/components/ui/calendar"
 import {
@@ -17,6 +17,13 @@ import {
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 interface PersonalInfoStepProps {
   formData: PatientFormData
@@ -31,6 +38,12 @@ export function PersonalInfoStep({ formData, updateFormData }: PersonalInfoStepP
   const [isSendingOTP, setIsSendingOTP] = useState(false)
   const [isVerifyingOTP, setIsVerifyingOTP] = useState(false)
   const [otpCode, setOtpCode] = useState('')
+  
+  // Profile picture state
+  const [photoPreview, setPhotoPreview] = useState<string>(formData.profilePicture || "")
+  const [cameraActive, setCameraActive] = useState(false)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
   
   // Handle email uniqueness check
   const checkEmailUniqueness = async (email: string) => {
@@ -156,6 +169,77 @@ export function PersonalInfoStep({ formData, updateFormData }: PersonalInfoStepP
   const handleResendOTP = () => {
     sendVerificationOTP()
   }
+  
+  // Start camera for photo capture
+  const startCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user' }
+      });
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        setCameraActive(true);
+      }
+    } catch (error) {
+      console.error('Error accessing camera:', error);
+      toast.error('Unable to access camera. Please check permissions.');
+    }
+  };
+  
+  // Stop camera stream
+  const stopCamera = () => {
+    if (videoRef.current && videoRef.current.srcObject) {
+      const tracks = (videoRef.current.srcObject as MediaStream).getTracks();
+      tracks.forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+      setCameraActive(false);
+    }
+  };
+  
+  // Capture photo from camera
+  const capturePhoto = () => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const context = canvas.getContext('2d');
+      
+      if (!context) return;
+      
+      // Set canvas dimensions to match the video
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      
+      // Draw the current video frame to the canvas
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      
+      // Convert canvas to data URL
+      const photoData = canvas.toDataURL('image/jpeg');
+      setPhotoPreview(photoData);
+      updateFormData({ profilePicture: photoData });
+      
+      // Stop camera stream
+      stopCamera();
+      
+      toast.success('Photo captured successfully');
+    }
+  };
+  
+  // Handle file upload for profile picture
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      
+      reader.onloadend = () => {
+        const result = reader.result as string;
+        setPhotoPreview(result);
+        updateFormData({ profilePicture: result });
+      };
+      
+      reader.readAsDataURL(file);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -166,6 +250,117 @@ export function PersonalInfoStep({ formData, updateFormData }: PersonalInfoStepP
           Please provide accurate personal information. Your unique medical number will be generated after registration.
         </AlertDescription>
       </Alert>
+
+      {/* Profile Picture */}
+      <div className="flex flex-col items-center space-y-2 mb-4">
+        <Label htmlFor="photo" className="text-center mb-2">Profile Picture</Label>
+        <div className="relative h-32 w-32 rounded-full overflow-hidden border-2 border-primary/50 bg-muted">
+          {photoPreview ? (
+            <img 
+              src={photoPreview} 
+              alt="Profile preview" 
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <div className="flex items-center justify-center h-full w-full bg-muted text-muted-foreground">
+              <p className="text-xs text-center">No photo</p>
+            </div>
+          )}
+        </div>
+
+        <div className="flex gap-2 mt-2">
+          <Button 
+            type="button" 
+            variant="outline" 
+            size="sm"
+            onClick={photoPreview ? () => {
+              setPhotoPreview("");
+              updateFormData({ profilePicture: "" });
+            } : () => document.getElementById('photo-upload')?.click()}
+          >
+            {photoPreview ? (
+              <>
+                <X className="h-4 w-4 mr-1" />
+                <span>Remove</span>
+              </>
+            ) : (
+              <>
+                <Upload className="h-4 w-4 mr-1" />
+                <span>Upload</span>
+              </>
+            )}
+          </Button>
+          
+          {!photoPreview && (
+            <Button 
+              type="button" 
+              variant="outline" 
+              size="sm"
+              onClick={cameraActive ? stopCamera : startCamera}
+            >
+              {cameraActive ? (
+                <>
+                  <X className="h-4 w-4 mr-1" />
+                  <span>Cancel</span>
+                </>
+              ) : (
+                <>
+                  <Camera className="h-4 w-4 mr-1" />
+                  <span>Take Photo</span>
+                </>
+              )}
+            </Button>
+          )}
+          
+          {cameraActive && (
+            <Button 
+              type="button" 
+              variant="outline" 
+              size="sm"
+              onClick={capturePhoto}
+            >
+              <CheckCircle className="h-4 w-4 mr-1" />
+              <span>Capture</span>
+            </Button>
+          )}
+        </div>
+
+        <input
+          type="file"
+          id="photo-upload"
+          className="hidden"
+          accept="image/*"
+          onChange={handlePhotoUpload}
+        />
+      </div>
+      
+      {/* Camera Dialog */}
+      {cameraActive && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white p-4 rounded-lg max-w-md w-full">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="font-medium">Take Profile Photo</h3>
+              <Button variant="ghost" size="icon" onClick={stopCamera}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="relative aspect-square w-full bg-black rounded overflow-hidden mb-4">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                className="absolute inset-0 w-full h-full object-cover"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={stopCamera}>Cancel</Button>
+              <Button onClick={capturePhoto}>Take Photo</Button>
+            </div>
+            <canvas ref={canvasRef} className="hidden" />
+          </div>
+        </div>
+      )}
       
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-2">

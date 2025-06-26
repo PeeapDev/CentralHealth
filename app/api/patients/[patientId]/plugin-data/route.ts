@@ -1,6 +1,86 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { prisma as _prisma } from "@/lib/prisma";
+// Cast prisma to our extended type
+const prisma = _prisma as unknown as ExtendedPrismaClient;
 import { getPatientFromSession } from "@/lib/auth/session-auth";
+import { PrismaClient } from "@prisma/client";
+import { JsonValue } from "@prisma/client/runtime/library";
+
+// Extended Prisma client type with custom models
+interface ExtendedPrismaClient extends PrismaClient {
+  patientPluginData: {
+    findUnique: (args: any) => Promise<any>;
+    update: (args: any) => Promise<any>;
+    create: (args: any) => Promise<any>;
+  };
+  patientAccessLog: {
+    create: (args: any) => Promise<any>;
+  };
+}
+
+// Extended patient type for static typing
+interface ExtendedPatient {
+  id: string;
+  mrn?: string;
+  name?: string;
+  dateOfBirth: Date;
+  gender: string;
+  contact: JsonValue;
+  medicalHistory: JsonValue;
+  onboardingCompleted: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  medicalNumber?: string;
+  medicalId?: string;
+  hospitalId?: string;
+  Hospital?: { id: string; name: string };
+  User?: { id?: string; name?: string; photo?: string };
+}
+
+// Extended patient auth info
+interface PatientAuthInfo {
+  id: string;
+  mrn?: string;
+  name?: string;
+  hospitalId?: string;
+  medicalNumber?: string;
+  medicalId?: string;
+  Hospital?: { id: string; name: string };
+}
+
+/**
+ * Helper function to create a friendly display medical ID
+ * 
+ * Preserves the original 5-character medical IDs (like T6YB8) generated during registration.
+ * These are unique identifiers that exclude visually similar characters (1, l, 0, i)
+ * and are the primary identifiers used across the hospital system.
+ */
+function createFriendlyMedicalId(medicalId: string | null | undefined): string {
+  if (!medicalId) return 'Not Assigned';
+  
+  // If it's a 5-character registration ID, preserve it exactly as is
+  // These are the primary medical IDs used by the hospital system
+  // Example: T6YB8 (deliberately excludes similar chars like 1, l, 0, i)
+  if (medicalId.length === 5 && /^[A-Z0-9]{5}$/i.test(medicalId)) {
+    return medicalId.toUpperCase(); // Just ensure it's uppercase for consistency
+  }
+  
+  // If it's already in our P-format, keep it as is
+  if (medicalId.startsWith('P-')) return medicalId;
+  
+  // If it's a UUID, create a shorter, more user-friendly format
+  if (medicalId.includes('-')) {
+    // For UUIDs, use format P-1234 (first 4 chars after first dash)
+    const parts = medicalId.split('-');
+    if (parts.length > 1) {
+      return `P-${parts[1].substring(0, 4).toUpperCase()}`;
+    }
+  }
+  
+  // For any other format (non-UUID), use first 4-6 chars with P- prefix
+  // This handles numeric IDs, alphanumeric IDs, etc.
+  return `P-${medicalId.substring(0, Math.min(6, medicalId.length)).toUpperCase()}`;
+}
 
 // GET /api/patients/[patientId]/plugin-data?plugin=antenatal OR pluginName=antenatal
 export async function GET(
@@ -39,7 +119,7 @@ export async function GET(
     }
 
     // Get the plugin data for this patient and plugin name
-    const pluginData = await prisma.patientPluginData.findUnique({
+    const pluginData = await (prisma as any).patientPluginData.findUnique({
       where: {
         patientId_pluginName: {
           patientId,
@@ -63,11 +143,22 @@ export async function GET(
 
     // Optional: Log access without requiring auth or failing if it can't be logged
     try {
+      // Determine medical number from multiple possible fields
+      const medicalNumber = 
+        (patient as any).medicalNumber || // Cast to any since TypeScript doesn't know about this field
+        patient.mrn || 
+        (patient as any).medicalId || 
+        'unknown';
+      
+      // Create a friendly display version for logs and UI
+      const displayMedicalNumber = createFriendlyMedicalId(medicalNumber);
+        
       await prisma.patientAccessLog.create({
         data: {
           patientId,
-          medicalNumber: patient.medicalNumber || 'unknown',
-          hospitalId: patient.hospitalId || 'unknown',
+          medicalNumber: medicalNumber, // Keep original medical number in database
+          displayMedicalNumber: displayMedicalNumber, // Add display version for UI
+          hospitalId: (patient as any).hospitalId || (patient as any).Hospital?.id || 'unknown',
           userId: 'system', // Since we're not requiring auth
           action: "VIEW",
           pluginId: pluginData.pluginId,
@@ -97,7 +188,7 @@ export async function POST(
 ) {
   try {
     // For writes, we still require authentication
-    const patient = await getPatientFromSession();
+    const patient = await getPatientFromSession() as unknown as PatientAuthInfo;
     if (!patient) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -142,20 +233,20 @@ export async function POST(
     let result;
     if (existingPluginData) {
       // Update existing plugin data
-      result = await prisma.patientPluginData.update({
+      result = await (prisma as any).patientPluginData.update({
         where: {
           id: existingPluginData.id,
         },
         data: {
           data,
           updatedByUserId: patient.id,
-          updatedByHospitalId: patient.hospitalId || 'unknown',
+          updatedByHospitalId: patient.hospitalId || (patient as any).Hospital?.id || 'unknown',
           updatedAt: new Date(),
         },
       });
     } else {
       // Create new plugin data
-      result = await prisma.patientPluginData.create({
+      result = await (prisma as any).patientPluginData.create({
         data: {
           patientId,
           pluginName,
@@ -163,19 +254,30 @@ export async function POST(
           data,
           createdByUserId: patient.id,
           updatedByUserId: patient.id,
-          createdByHospitalId: patient.hospitalId || 'unknown',
-          updatedByHospitalId: patient.hospitalId || 'unknown',
+          createdByHospitalId: patient.hospitalId || (patient as any).Hospital?.id || 'unknown',
+          updatedByHospitalId: patient.hospitalId || (patient as any).Hospital?.id || 'unknown',
         },
       });
     }
 
     // Log action (safely)
     try {
+      // Determine medical number from multiple possible fields
+      const medicalNumber = 
+        (targetPatient as any).medicalNumber || // Cast to any since TypeScript doesn't know about this field
+        targetPatient.mrn || 
+        (targetPatient as any).medicalId || 
+        'unknown';
+        
+      // Create a friendly display version for logs and UI
+      const displayMedicalNumber = createFriendlyMedicalId(medicalNumber);
+        
       await prisma.patientAccessLog.create({
         data: {
           patientId,
-          medicalNumber: targetPatient.medicalNumber || 'unknown',
-          hospitalId: targetPatient.hospitalId || 'unknown',
+          medicalNumber: medicalNumber, // Keep original medical number in database
+          displayMedicalNumber: displayMedicalNumber, // Add display version for UI
+          hospitalId: (targetPatient as any).hospitalId || (targetPatient as any).Hospital?.id || 'unknown',
           userId: patient.id,
           action: existingPluginData ? "UPDATE" : "CREATE",
           pluginId: result.pluginId,

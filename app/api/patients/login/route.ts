@@ -1,198 +1,322 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { serialize } from 'cookie';
-import jwt from 'jsonwebtoken';
-import { prisma } from '@/lib/prisma';
-import bcrypt from 'bcryptjs';
+import * as bcrypt from 'bcryptjs';
+import { v4 as uuidv4 } from 'uuid';
 
-// Get the JWT secret from environment variables
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback-secret-key-for-development';
+// Import prisma from the correct path
+import { prisma } from '@/lib/database/prisma-client';
 
-// Implementation using PostgreSQL via Prisma for patient authentication
+// PRESENTATION MODE - Simplified authentication without sessions
 
-export async function POST(req: NextRequest) {
+/**
+ * Safely parse JSON data with error handling
+ */
+function safeParseJson(jsonString: any): any {
+  if (!jsonString) return {};
+  if (typeof jsonString !== 'string') return jsonString;
+  
   try {
-    const body = await req.json();
-    const { phone, password } = body;
+    return JSON.parse(jsonString);
+  } catch (e) {
+    console.error('Error parsing JSON:', e);
+    return {};
+  }
+}
+
+/**
+ * Generate a request ID for tracking login attempts
+ */
+function generateRequestId(): string {
+  return `login-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+}
+
+/**
+ * Extract email from contact JSON field
+ */
+function extractEmailFromContact(contactJson: string | null): string | null {
+  if (!contactJson) return null;
+  
+  try {
+    const contacts = JSON.parse(contactJson);
+    if (!Array.isArray(contacts)) return null;
     
-    console.log('Patient login attempt:', { phone: phone?.substring(0, 6) + '****', passwordProvided: !!password });
+    const emailContact = contacts.find((c: any) => 
+      c && c.system === 'email' && c.value && typeof c.value === 'string'
+    );
+    
+    return emailContact ? emailContact.value : null;
+  } catch (e) {
+    console.error('Error parsing contact JSON:', e);
+    return null;
+  }
+}
 
-    // Input validation
-    if (!phone || !password) {
-      console.log('Login validation failed: missing credentials');
-      return NextResponse.json(
-        { success: false, message: 'Both phone number and password are required' },
-        { status: 400 }
-      );
-    }
+/**
+ * Verify password for presentation mode
+ */
+function verifyPresentationPassword(inputPassword: string, storedPassword: string): boolean {
+  // For presentation mode, we're doing simple string comparison
+  // In a real system this would use proper password hashing
+  return inputPassword === storedPassword;
+}
 
-    // Format phone number if needed
-    let formattedPhone = phone;
-    if (!phone.startsWith('+232') && phone.length >= 8) {
-      // If phone doesn't have country code, add it
-      formattedPhone = '+232' + (phone.startsWith('0') ? phone.substring(1) : phone);
-    }
-
-    console.log(`Attempting login for patient with phone: ${formattedPhone.substring(0, 6)}****`);
-
-    // Find patient by phone number
-    const patient = await prisma.patient.findFirst({
-      where: { phone: formattedPhone },
-      select: {
-        id: true,
-        medicalNumber: true,
-        name: true,
-        email: true,
-        phone: true,
-        gender: true,
-        birthDate: true,
-        photo: true,
-        active: true,
-        password: true,
-        hospitalId: true,
-        createdAt: true, // Add createdAt to determine if onboarding is needed
-      }
+/**
+ * Patient login handler - PRESENTATION MODE (without session cookies)
+ */
+export async function POST(req: NextRequest) {
+  // Create a request ID to track this login attempt in logs
+  const requestId = req.headers.get('X-Request-ID') || generateRequestId();
+  
+  try {
+    // Add global error handler to catch any unexpected errors
+    process.on('uncaughtException', (error) => {
+      console.error(`[${requestId}] CRITICAL - Uncaught exception:`, error);
+      // Don't exit the process as this would crash the server
     });
     
-    // Debug patient retrieval
-    console.log('Patient lookup result:', patient ? 'Found' : 'Not found');
-    
-    // If patient not found or password doesn't match
-    if (!patient) {
-      console.log('Invalid credentials: Patient not found');
-      return NextResponse.json(
-        { success: false, message: 'Invalid credentials' },
-        { status: 401 }
-      );
-    }
-    
-    // Verify password using bcrypt
-    let passwordValid = false;
-    
-    if (patient.password) {
-      try {
-        // Check if the password is already hashed (starts with $2a$ or $2b$)
-        if (patient.password.startsWith('$2a$') || patient.password.startsWith('$2b$')) {
-          // Use bcrypt compare for hashed passwords
-          passwordValid = await bcrypt.compare(password, patient.password);
-          console.log('Verified password using bcrypt:', passwordValid ? 'match' : 'mismatch');
-        } else {
-          // For backwards compatibility with non-hashed passwords
-          passwordValid = patient.password === password;
-          console.log('Verified password using direct comparison:', passwordValid ? 'match' : 'mismatch');
-          
-          // If using plain text password, update to hashed version
-          if (passwordValid) {
-            const hashedPassword = await bcrypt.hash(password, 10);
-            await prisma.patient.update({
-              where: { id: patient.id },
-              data: { password: hashedPassword }
-            });
-            console.log(`Updated patient to hashed password for better security`);
-          }
-        }
-      } catch (e) {
-        console.error('Password comparison error:', e);
-        passwordValid = false;
-      }
-    } else {
-      // No password set
-      passwordValid = false;
-    }
-    
-    if (!passwordValid) {
-      console.log('Invalid credentials: Password verification failed');
-      return NextResponse.json(
-        { success: false, message: 'Invalid credentials' },
-        { status: 401 }
-      );
-    }
-    
-    // Check if the patient's account is verified
-    if (!patient.active) {
-      console.log('Account not verified: Patient needs to verify email first');
+    // Verify request has a valid content type
+    const contentType = req.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      console.error(`[${requestId}] Invalid content type: ${contentType}`);
       return NextResponse.json(
         { 
           success: false, 
-          message: 'Please verify your email before logging in', 
-          requiresVerification: true,
-          medicalNumber: patient.medicalNumber 
+          message: 'Invalid content type, expected application/json',
+          error: 'INVALID_CONTENT' 
         },
-        { status: 403 }
+        { status: 400 }
+      );
+    }
+    // Extract credentials from request body with error handling
+    let body;
+    try {
+      body = await req.json();
+      console.log(`[${requestId}] Request body received`);
+    } catch (parseError) {
+      console.error(`[${requestId}] Failed to parse request body:`, parseError);
+      return NextResponse.json(
+        { 
+          success: false, 
+          message: 'Invalid JSON in request body',
+          error: 'INVALID_JSON' 
+        },
+        { status: 400 }
       );
     }
     
-    // Parse name from JSON
-    let firstName = '';
-    let lastName = '';
+    const { email, password } = body || {};
+    
+    console.log(`[${requestId}] Login request:`, { 
+      hasEmail: !!email, 
+      emailType: typeof email,
+      emailLength: email?.length,
+      hasPassword: !!password
+    });
+    
+    if (!email || !password) {
+      console.log(`[${requestId}] Missing credentials`);
+      return NextResponse.json(
+        { success: false, message: 'Email and password are required', error: 'MISSING_CREDENTIALS' },
+        { status: 400 }
+      );
+    }
+    
+    // Normalize email to lowercase for consistent lookup
+    const normalizedEmail = email.toLowerCase().trim();
+
+    console.log(`[${requestId}] Searching for patient with email: ${normalizedEmail.substring(0, 3)}****`);
+    
+    // Try to find the patient by email in PatientEmail table
+    let patient: any = null;
+
     try {
-      const nameObj = JSON.parse(patient.name as string);
-      firstName = nameObj.given?.[0] || '';
-      lastName = nameObj.family || '';
-    } catch (e) {
-      console.error('Error parsing patient name:', e);
+      console.log(`[${requestId}] Searching for patient with email in PatientEmail table`);
+      
+      // Find patient by email in PatientEmail table
+      const patientEmail = await prisma.patientEmail.findFirst({
+        where: {
+          email: normalizedEmail,
+        },
+        include: {
+          patient: true
+        }
+      });
+      
+      // If found patient email, use the associated patient record
+      if (patientEmail?.patient) {
+        patient = patientEmail.patient;
+        console.log(`[${requestId}] Found patient through PatientEmail table`);
+      }
+      
+      // If not found, try to find via User -> Patient relationship
+      if (!patient) {
+        console.log(`[${requestId}] Searching via User -> Patient relationship`);
+        
+        // First find the user by email
+        const user = await prisma.user.findFirst({
+          where: {
+            email: normalizedEmail
+          }
+        });
+        
+        // Then find patient with this userId
+        if (user?.id) {
+          const linkedPatient = await prisma.patient.findUnique({
+            where: {
+              userId: user.id
+            }
+          });
+          
+          if (linkedPatient) {
+            patient = linkedPatient;
+            console.log(`[${requestId}] Found patient through User->Patient relation`);
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`[${requestId}] Error searching patients:`, error);
     }
 
-    // Check if this is a new user who needs to complete onboarding
-    // We'll consider a user as needing onboarding if they were created in the last hour
-    const isNewUser = new Date().getTime() - patient.createdAt.getTime() < 3600000; // 1 hour in milliseconds
+    if (!patient) {
+      console.log(`[${requestId}] No patient found with email: ${normalizedEmail.substring(0, 3)}****`);
+      return NextResponse.json(
+        { 
+          success: false, 
+          message: 'Invalid email or password', 
+          error: 'USER_NOT_FOUND',
+          details: 'No matching patient record found with the provided email address'
+        },
+        { status: 401 }
+      );
+    }
+
+    console.log(`[${requestId}] Patient found, verifying password`);
     
-    // Generate JWT token with onboardingCompleted flag
-    const token = jwt.sign(
-      {
-        patientId: patient.id,
-        medicalNumber: patient.medicalNumber,
-        role: 'patient',
-        phone: patient.phone,
-        name: `${firstName} ${lastName}`,
-        // For new users, set onboardingCompleted to false
-        onboardingCompleted: !isNewUser
-      },
-      JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    // Get the user associated with this patient to verify password
+    let isValidPassword = false;
     
-    console.log(`Patient authenticated successfully, setting JWT token`);
+    try {
+      // Get the associated user account to verify password
+      if (patient.userId) {
+        const user = await prisma.user.findUnique({
+          where: {
+            id: patient.userId
+          },
+          select: {
+            id: true,
+            password: true,
+            email: true
+          }
+        });
+
+        if (user && user.password) {
+          console.log(`[${requestId}] Found user with hashed password, verifying...`);
+          // Use bcrypt to compare passwords
+          isValidPassword = await bcrypt.compare(password, user.password);
+        } else {
+          console.log(`[${requestId}] User not found or no password stored`);
+        }
+      } else {
+        console.log(`[${requestId}] Patient has no associated userId, authentication not possible`);
+      }
+      
+      // Log the result of password verification
+      if (isValidPassword) {
+        console.log(`[${requestId}] Password verification successful`);
+      } else {
+        console.log(`[${requestId}] Password verification failed`);
+      }
+    } catch (e) {
+      console.error(`[${requestId}] Error verifying password:`, e);
+      isValidPassword = false;
+    }
     
-    // Set cookie for authentication using proper serialization
-    const cookieHeader = serialize('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
-      path: '/',
-      sameSite: 'strict'
-    });
+    if (!isValidPassword) {
+      console.log(`[${requestId}] Invalid password`);
+      return NextResponse.json(
+        { 
+          success: false, 
+          message: 'Invalid email or password', 
+          error: 'INVALID_PASSWORD',
+          details: 'The password provided does not match our records'
+        },
+        { status: 401 }
+      );
+    }
+
+    // Login successful
+    console.log(`[${requestId}] Login successful for patient ID: ${patient.id}`);
     
-    // Create response object
-    const response = NextResponse.json({
+    // Determine if patient has completed onboarding
+    let onboardingCompleted = false;
+    
+    // Check top-level onboardingCompleted field first
+    if (typeof patient.onboardingCompleted === 'boolean') {
+      onboardingCompleted = patient.onboardingCompleted;
+    } else {
+      // Fall back to medicalHistory.onboardingCompleted for backward compatibility
+      try {
+        const medicalHistory = safeParseJson(patient.medicalHistory);
+        if (medicalHistory && typeof medicalHistory.onboardingCompleted === 'boolean') {
+          onboardingCompleted = medicalHistory.onboardingCompleted;
+        }
+      } catch (error) {
+        console.error(`[${requestId}] Error parsing medical history:`, error);
+      }
+    }
+    
+    // Extract email from contacts JSON for response
+    const userEmail = extractEmailFromContact(patient.contact) || email;
+    
+    // Generate simple auth token for presentation mode (insecure - for demo only)
+    const simpleToken = Buffer.from(`${patient.id}:${patient.mrn}`).toString('base64');
+    
+    // PRESENTATION MODE RESPONSE - No cookies, just direct data
+    console.log(`[${requestId}] Sending presentation mode response with direct auth data`);
+    
+    return NextResponse.json({
       success: true,
-      message: 'Authentication successful',
+      presentationMode: true,
+      token: simpleToken,
       patient: {
         id: patient.id,
-        medicalNumber: patient.medicalNumber,
-        name: `${firstName} ${lastName}`,
-        firstName,
-        lastName,
-        email: patient.email,
-        phone: patient.phone,
+        mrn: patient.mrn,
+        name: patient.name,
         gender: patient.gender,
-        birthDate: patient.birthDate,
-        photo: patient.photo,
+        dateOfBirth: patient.dateOfBirth,
+        email: userEmail,
+        onboardingCompleted
       },
-      token,
-      redirectTo: '/patient/dashboard'
+      message: 'Login successful - PRESENTATION MODE'
     });
     
-    // Set cookie in response header
-    response.headers.set('Set-Cookie', cookieHeader);
+  } catch (error: any) {
+    console.error(`[${requestId}] Login error:`, error);
     
-    return response;
+    // Extract error message if available
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : 'No stack trace';
     
-  } catch (error) {
-    console.error('Login error:', error);
-    return NextResponse.json(
-      { success: false, message: 'Authentication failed', error: String(error) },
-      { status: 500 }
-    );
+    // Log additional diagnostic information
+    console.error(`[${requestId}] Error details:\nMessage: ${errorMessage}\nStack: ${errorStack}`);
+    
+    try {
+      // Try to send a properly formatted error response
+      return NextResponse.json(
+        { 
+          success: false, 
+          message: 'An error occurred during login', 
+          error: 'SERVER_ERROR',
+          details: errorMessage
+        },
+        { status: 500 }
+      );
+    } catch (responseError) {
+      // If we can't even send a JSON response, create a basic text response
+      console.error(`[${requestId}] Failed to create error response:`, responseError);
+      return new NextResponse(
+        `Login failed: ${errorMessage}`,
+        { status: 500, headers: { 'Content-Type': 'text/plain' } }
+      );
+    }
   }
 }

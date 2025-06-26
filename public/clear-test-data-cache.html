@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clear Test Patient Data Cache</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      line-height: 1.6;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      color: #333;
+    }
+    h1 {
+      color: #0070f3;
+      margin-bottom: 24px;
+    }
+    .button {
+      background-color: #0070f3;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin-right: 10px;
+      transition: background-color 0.2s;
+    }
+    .button:hover {
+      background-color: #0051b3;
+    }
+    .danger {
+      background-color: #ff4040;
+    }
+    .danger:hover {
+      background-color: #cc0000;
+    }
+    .success {
+      background-color: #00cc66;
+    }
+    .success:hover {
+      background-color: #00995c;
+    }
+    #results {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 5px;
+      background-color: #f5f5f5;
+      max-height: 300px;
+      overflow-y: auto;
+      display: none;
+    }
+    .result-item {
+      margin-bottom: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #ddd;
+    }
+    .deleted {
+      color: #cc0000;
+    }
+    .kept {
+      color: #333;
+    }
+    .match {
+      font-weight: bold;
+      color: #cc0000;
+    }
+    .summary {
+      margin-top: 20px;
+      padding: 10px;
+      background-color: #e6f7ff;
+      border-left: 4px solid #0070f3;
+      border-radius: 3px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Clear Test Patient Data Cache</h1>
+  <p>This utility will help you clear all test patient data from your browser's localStorage. 
+     This is particularly useful for removing any cached references to test patients like "mohamed kabia".</p>
+  
+  <div>
+    <button id="scan" class="button">Scan for Test Data</button>
+    <button id="clear" class="button danger">Clear All Test Data</button>
+    <button id="clearAll" class="button danger">Clear ALL localStorage</button>
+  </div>
+
+  <div id="results"></div>
+
+  <script>
+    const resultsDiv = document.getElementById('results');
+    const scanButton = document.getElementById('scan');
+    const clearButton = document.getElementById('clear');
+    const clearAllButton = document.getElementById('clearAll');
+    
+    // Test data identifiers
+    const testPatientIdentifiers = [
+      'mock-id', 
+      'mohamed kabia', 
+      'abigailsaquee623@gmail.com',
+      'kabiacentral@gmail.com',
+      'MOHAM', 
+      '9K3F4',
+      '6108678388',
+      '5534392711'
+    ];
+    
+    // Keys to always clean regardless of content
+    const keysToAlwaysClean = [
+      'patientId',
+      'medicalNumber',
+      'medicalId',
+      'userEmail',
+      'patientProfilePhoto',
+      'currentPatientName',
+      'photo',
+      'userPhoto',
+      'patientRegistrationData'
+    ];
+
+    function displayResults(results) {
+      resultsDiv.style.display = 'block';
+      resultsDiv.innerHTML = '';
+      
+      let deletedCount = 0;
+      let keptCount = 0;
+      
+      results.forEach(result => {
+        const resultItem = document.createElement('div');
+        resultItem.className = 'result-item ' + (result.action === 'deleted' ? 'deleted' : 'kept');
+        
+        let displayValue = result.value;
+        
+        // Highlight matching terms
+        if (result.matched) {
+          testPatientIdentifiers.forEach(term => {
+            if (typeof displayValue === 'string' && displayValue.includes(term)) {
+              const regex = new RegExp(term, 'gi');
+              displayValue = displayValue.replace(regex, match => `<span class="match">${match}</span>`);
+            }
+          });
+        }
+        
+        resultItem.innerHTML = `
+          <strong>${result.key}:</strong> 
+          ${result.action === 'deleted' ? 'REMOVED' : 'kept'} - 
+          ${typeof displayValue === 'string' ? displayValue : JSON.stringify(displayValue).substring(0, 100) + (JSON.stringify(displayValue).length > 100 ? '...' : '')}
+        `;
+        
+        resultsDiv.appendChild(resultItem);
+        
+        if (result.action === 'deleted') deletedCount++;
+        else keptCount++;
+      });
+      
+      // Add summary
+      const summary = document.createElement('div');
+      summary.className = 'summary';
+      summary.innerHTML = `
+        <strong>Summary:</strong> ${deletedCount} items removed, ${keptCount} items kept.
+      `;
+      resultsDiv.appendChild(summary);
+    }
+    
+    function scanForTestData() {
+      const results = [];
+      
+      // Scan all localStorage
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        const value = localStorage.getItem(key);
+        
+        let shouldDelete = false;
+        let matched = false;
+        
+        // Check if this is a key we always want to clean
+        if (keysToAlwaysClean.includes(key)) {
+          shouldDelete = true;
+        }
+        
+        // Check value for test data identifiers
+        if (!shouldDelete) {
+          for (const identifier of testPatientIdentifiers) {
+            if (value && value.toLowerCase().includes(identifier.toLowerCase())) {
+              shouldDelete = true;
+              matched = true;
+              break;
+            }
+          }
+        }
+        
+        results.push({
+          key,
+          value,
+          matched,
+          action: shouldDelete ? 'deleted' : 'kept'
+        });
+      }
+      
+      displayResults(results);
+      return results;
+    }
+    
+    function clearTestData() {
+      const results = scanForTestData();
+      
+      results.forEach(result => {
+        if (result.action === 'deleted') {
+          localStorage.removeItem(result.key);
+        }
+      });
+      
+      alert(`Cleaned ${results.filter(r => r.action === 'deleted').length} items from localStorage that contained test patient data.`);
+      scanForTestData(); // Refresh the display
+    }
+    
+    function clearAllData() {
+      if (confirm('This will clear ALL localStorage data. Are you sure?')) {
+        localStorage.clear();
+        alert('All localStorage data has been cleared.');
+        scanForTestData(); // Show empty results
+      }
+    }
+    
+    scanButton.addEventListener('click', scanForTestData);
+    clearButton.addEventListener('click', clearTestData);
+    clearAllButton.addEventListener('click', clearAllData);
+  </script>
+</body>
+</html>

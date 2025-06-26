@@ -1,7 +1,6 @@
 generator client {
-  provider        = "prisma-client-js"
-  output          = "../lib/generated/prisma"
-  previewFeatures = ["multiSchema"]
+  provider = "prisma-client-js"
+  output   = "../lib/generated/prisma"
 }
 
 datasource db {
@@ -10,150 +9,851 @@ datasource db {
   shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
-model Hospital {
-  id               String            @id @default(uuid())
-  name             String
-  subdomain        String            @unique
-  description      String?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  settings         Json
-  branding         Json?
-  antenatalRecords AntenatalRecord[]
-  neonatalRecords  NeonatalRecord[]
-  patients         Patient[]
-  users            User[]
-}
+model AntenatalRecord {
+  id                                         String          @id @default(uuid())
+  patientId                                  String
+  hospitalId                                 String
+  gestationalAge                             Int
+  nextAppointment                            DateTime?
+  riskLevel                                  RiskLevel       @default(LOW)
+  status                                     AntenatalStatus @default(ACTIVE)
+  trimester                                  Int             @default(1)
+  lastVisitDate                              DateTime?
+  expectedDueDate                            DateTime
+  ultrasoundReports                          Json?
+  labResults                                 Json?
+  createdAt                                  DateTime        @default(now())
+  updatedAt                                  DateTime
+  createdByUserId                            String
+  updatedByUserId                            String
+  mrn                                        String?         @unique
+  User_AntenatalRecord_createdByUserIdToUser User            @relation("AntenatalRecord_createdByUserIdToUser", fields: [createdByUserId], references: [id])
+  Hospital                                   Hospital        @relation(fields: [hospitalId], references: [id])
+  Patient                                    Patient         @relation(fields: [patientId], references: [id])
+  User_AntenatalRecord_updatedByUserIdToUser User            @relation("AntenatalRecord_updatedByUserIdToUser", fields: [updatedByUserId], references: [id])
 
-model User {
-  id               String            @id @default(uuid())
-  email            String            @unique
-  password         String
-  name             String?
-  role             String
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  hospitalId       String
-  createdAntenatal AntenatalRecord[] @relation("CreatedAntenatalRecord")
-  updatedAntenatal AntenatalRecord[] @relation("UpdatedAntenatalRecord")
-  appointments     Appointment[]
-  medicalRecords   MedicalRecord[]
-  createdNeonatal  NeonatalRecord[]  @relation("CreatedNeonatalRecord")
-  updatedNeonatal  NeonatalRecord[]  @relation("UpdatedNeonatalRecord")
-  hospital         Hospital          @relation(fields: [hospitalId], references: [id])
-  patients         Patient[]         @relation("DoctorPatients")
-}
-
-model Patient {
-  id             String            @id @default(uuid())
-  mrn            String            @unique
-  name           String
-  dateOfBirth    DateTime
-  gender         String
-  contact        Json
-  medicalHistory Json?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-  hospitalId     String
-  antenatal      AntenatalRecord[]
-  appointments   Appointment[]
-  records        MedicalRecord[]
-  children       NeonatalRecord[]  @relation("MotherChildRelation")
-  neonatal       NeonatalRecord[]
-  hospital       Hospital          @relation(fields: [hospitalId], references: [id])
-  doctors        User[]            @relation("DoctorPatients")
+  @@index([hospitalId])
+  @@index([patientId])
+  @@index([riskLevel])
+  @@index([status])
 }
 
 model Appointment {
-  id        String   @id @default(uuid())
-  patientId String
-  doctorId  String
-  date      DateTime
-  status    String
-  notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  doctor    User     @relation(fields: [doctorId], references: [id])
-  patient   Patient  @relation(fields: [patientId], references: [id])
+  id         String            @id @default(uuid())
+  patientId  String
+  doctorId   String
+  date       DateTime
+  notes      String?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime
+  hospitalId String
+  status     AppointmentStatus
+  User       User              @relation(fields: [doctorId], references: [id])
+  Hospital   Hospital          @relation(fields: [hospitalId], references: [id])
+  Patient    Patient           @relation(fields: [patientId], references: [id])
+
+  @@index([patientId])
+  @@index([doctorId])
+  @@index([hospitalId])
+  @@index([date])
+  @@index([status])
+}
+
+model Hospital {
+  id                   String                  @id @default(uuid())
+  name                 String
+  subdomain            String                  @unique
+  description          String?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime
+  settings             Json
+  branding             Json?
+  code                 String?                 @unique
+  isActive             Boolean                 @default(true)
+  Ambulances           Ambulance[]
+  AmbulanceDispatches  AmbulanceDispatch[]     @relation("ToHospital")
+  AmbulanceRequests    AmbulanceRequest[]
+  AntenatalRecords     AntenatalRecord[]
+  Appointments         Appointment[]
+  BillingRecords       Billing[]
+  BirthRecords         BirthRecord[]
+  Conversations        Conversation[]
+  DeathRecords         DeathRecord[]
+  Departments          Department[]
+  DoctorAvailabilities DoctorAvailability[]
+  MarketplaceVendors   MarketplaceVendor[]
+  MedicalRecords       MedicalRecord[]
+  NeonatalRecords      NeonatalRecord[]
+  Patients             Patient[]
+  PatientAccesses      PatientHospitalAccess[]
+  Prescriptions        Prescription[]
+  ReferralsFrom        Referral[]              @relation("FromHospital")
+  ReferralsTo          Referral[]              @relation("ToHospital")
+  StaffProfiles        StaffProfile[]
+  Users                User[]
+
+  @@index([isActive])
+  @@index([code])
 }
 
 model MedicalRecord {
-  id        String   @id @default(uuid())
-  patientId String
-  doctorId  String
-  type      String
-  details   Json
-  date      DateTime
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  doctor    User     @relation(fields: [doctorId], references: [id])
-  patient   Patient  @relation(fields: [patientId], references: [id])
-}
-
-model AntenatalRecord {
-  id                String          @id @default(uuid())
-  patientId         String
-  hospitalId        String
-  gestationalAge    Int
-  nextAppointment   DateTime?
-  riskLevel         RiskLevel       @default(LOW)
-  status            AntenatalStatus @default(ACTIVE)
-  trimester         Int             @default(1)
-  lastVisitDate     DateTime?
-  expectedDueDate   DateTime
-  medicalNotes      String?
-  ultrasoundReports Json?
-  labResults        Json?
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
-  createdByUserId   String
-  updatedByUserId   String
-  createdByUser     User            @relation("CreatedAntenatalRecord", fields: [createdByUserId], references: [id])
-  hospital          Hospital        @relation(fields: [hospitalId], references: [id])
-  patient           Patient         @relation(fields: [patientId], references: [id])
-  updatedByUser     User            @relation("UpdatedAntenatalRecord", fields: [updatedByUserId], references: [id])
+  id         String   @id @default(uuid())
+  patientId  String
+  doctorId   String
+  type       String
+  details    Json
+  date       DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime
+  hospitalId String
+  User       User     @relation(fields: [doctorId], references: [id])
+  Hospital   Hospital @relation(fields: [hospitalId], references: [id])
+  Patient    Patient  @relation(fields: [patientId], references: [id])
 
   @@index([patientId])
+  @@index([doctorId])
   @@index([hospitalId])
-  @@index([status])
-  @@index([riskLevel])
+  @@index([type])
+  @@index([date])
 }
 
 model NeonatalRecord {
-  id                    String           @id @default(uuid())
-  patientId             String
-  hospitalId            String
-  birthWeight           Float
-  gestationalAgeAtBirth Int
-  careLevel             CareLevel        @default(NORMAL)
-  status                NeonatalStatus   @default(ACTIVE)
-  dischargeStatus       DischargeStatus?
-  apgarScore            Int?
-  motherId              String?
-  birthComplications    String?
-  medicalNotes          String?
-  feedingMethod         String?
-  createdAt             DateTime         @default(now())
-  updatedAt             DateTime         @updatedAt
-  createdByUserId       String
-  updatedByUserId       String
-  createdByUser         User             @relation("CreatedNeonatalRecord", fields: [createdByUserId], references: [id])
-  hospital              Hospital         @relation(fields: [hospitalId], references: [id])
-  mother                Patient?         @relation("MotherChildRelation", fields: [motherId], references: [id])
-  patient               Patient          @relation(fields: [patientId], references: [id])
-  updatedByUser         User             @relation("UpdatedNeonatalRecord", fields: [updatedByUserId], references: [id])
+  id                                        String           @id @default(uuid())
+  patientId                                 String
+  hospitalId                                String
+  birthWeight                               Float
+  gestationalAgeAtBirth                     Int
+  careLevel                                 CareLevel        @default(NORMAL)
+  status                                    NeonatalStatus   @default(ACTIVE)
+  dischargeStatus                           DischargeStatus?
+  apgarScore                                Int?
+  motherId                                  String?
+  birthComplications                        String?
+  feedingMethod                             String?
+  createdAt                                 DateTime         @default(now())
+  updatedAt                                 DateTime
+  createdByUserId                           String
+  updatedByUserId                           String
+  mrn                                       String?          @unique
+  User_NeonatalRecord_createdByUserIdToUser User             @relation("NeonatalRecord_createdByUserIdToUser", fields: [createdByUserId], references: [id])
+  Hospital                                  Hospital         @relation(fields: [hospitalId], references: [id])
+  Patient_NeonatalRecord_motherIdToPatient  Patient?         @relation("NeonatalRecord_motherIdToPatient", fields: [motherId], references: [id])
+  Patient_NeonatalRecord_patientIdToPatient Patient          @relation("NeonatalRecord_patientIdToPatient", fields: [patientId], references: [id])
+  User_NeonatalRecord_updatedByUserIdToUser User             @relation("NeonatalRecord_updatedByUserIdToUser", fields: [updatedByUserId], references: [id])
+
+  @@index([careLevel])
+  @@index([hospitalId])
+  @@index([motherId])
+  @@index([patientId])
+  @@index([status])
+}
+
+model Patient {
+  id                        String                   @id @default(uuid())
+  mrn                       String                   @unique
+  name                      String
+  dateOfBirth               DateTime?
+  gender                    String?
+  medicalHistory            String?
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt
+  onboardingCompleted       Boolean                  @default(false)
+  hospitalId                String?
+  lastVisit                 DateTime?
+  nextVisit                 DateTime?
+  note                      String?
+  qrCode                    String?
+  userId                    String?                  @unique
+  AmbulanceDispatches       AmbulanceDispatch[]      @relation("PatientAmbulanceDispatches")
+  AmbulanceRequests         AmbulanceRequest[]
+  AntenatalRecords          AntenatalRecord[]
+  Appointments              Appointment[]
+  BillingRecords            Billing[]
+  FatherOfBirths            BirthRecord[]            @relation("BirthFather")
+  MotherOfBirths            BirthRecord[]            @relation("BirthMother")
+  BirthRecord               BirthRecord?
+  CartItems                 CartItem[]
+  Conversations             Conversation[]
+  DeathRecord               DeathRecord?
+  MarketplaceOrders         MarketplaceOrder[]
+  MedicalRecords            MedicalRecord[]
+  NeonatalRecords_AsMother  NeonatalRecord[]         @relation("NeonatalRecord_motherIdToPatient")
+  NeonatalRecords_AsPatient NeonatalRecord[]         @relation("NeonatalRecord_patientIdToPatient")
+  Hospital                  Hospital?                @relation(fields: [hospitalId], references: [id])
+  User                      User?                    @relation(fields: [userId], references: [id])
+  HospitalAccesses          PatientHospitalAccess[]
+  SearchIndex               PatientSearchIndex?
+  WidgetPrefs               PatientWidgetPreference?
+  Prescription              Prescription[]
+  ReferralsReceived         Referral[]               @relation("PatientReferrals")
+  SavedVendors              SavedVendor[]
+  Wallet                    Wallet?
+  PasswordResets            PasswordReset[]
+  Emails                    PatientEmail[]
+  Phones                    PatientPhone[]
+  ProfilePicture            ProfilePicture?
+  Doctors                   User[]                   @relation("DoctorPatients")
+
+  @@index([mrn])
+  @@index([name])
+  @@index([qrCode])
+}
+
+model User {
+  id                       String                  @id @default(uuid())
+  email                    String                  @unique
+  password                 String
+  name                     String
+  createdAt                DateTime                @default(now())
+  updatedAt                DateTime                @updatedAt
+  hospitalId               String?
+  isHospitalAdmin          Boolean                 @default(false)
+  isSuperAdmin             Boolean                 @default(false)
+  phone                    String?
+  photo                    String?
+  specialties              String[]
+  role                     UserRole                @default(STAFF)
+  AntenatalRecords_created AntenatalRecord[]       @relation("AntenatalRecord_createdByUserIdToUser")
+  AntenatalRecords_updated AntenatalRecord[]       @relation("AntenatalRecord_updatedByUserIdToUser")
+  Appointments             Appointment[]
+  BirthRecordsRegistered   BirthRecord[]           @relation("BirthRegistrar")
+  Conversations            Conversation[]          @relation("DoctorConversations")
+  DeathRecordsRegistered   DeathRecord[]           @relation("DeathRegistrar")
+  DepartmentMemberships    DepartmentMembership[]
+  Availability             DoctorAvailability?
+  MedicalRecords           MedicalRecord[]
+  MessagesSent             Message[]               @relation("MessageSender")
+  NeonatalRecords_created  NeonatalRecord[]        @relation("NeonatalRecord_createdByUserIdToUser")
+  NeonatalRecords_updated  NeonatalRecord[]        @relation("NeonatalRecord_updatedByUserIdToUser")
+  patientProfile           Patient?
+  PatientAccess_grantedBy  PatientHospitalAccess[]
+  Prescriptions            Prescription[]          @relation("PrescribingDoctor")
+  ReferralsReceived        Referral[]              @relation("ReceivingDoctor")
+  ReferralsSent            Referral[]              @relation("ReferringDoctor")
+  StaffProfile             StaffProfile?
+  Hospital                 Hospital?               @relation(fields: [hospitalId], references: [id])
+  PasswordResets           PasswordReset[]
+  ProfilePicture           ProfilePicture?
+  SecurityAuditLog         SecurityAuditLog[]
+  DoctorPatients           Patient[]               @relation("DoctorPatients")
+
+  @@index([hospitalId])
+  @@index([role])
+  @@index([isSuperAdmin])
+  @@index([isHospitalAdmin])
+  @@index([specialties])
+}
+
+model PasswordReset {
+  id        String    @id @default(uuid())
+  token     String
+  email     String?
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  patientId String?
+  userId    String?
+  patient   Patient?  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  User      User?     @relation(fields: [userId], references: [id])
+
+  @@map("password_resets")
+}
+
+model SecurityAuditLog {
+  id          String   @id @default(uuid())
+  action      String
+  userId      String
+  ipAddress   String?
+  userAgent   String?
+  requestPath String?
+  success     Boolean  @default(true)
+  details     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("security_audit_logs")
+}
+
+model ProfilePicture {
+  id         String   @id @default(uuid())
+  patientId  String?  @unique
+  userId     String?  @unique
+  imageUrl   String
+  imageData  Bytes?
+  mimeType   String
+  filename   String?
+  size       Int
+  width      Int?
+  height     Int?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  uploadedBy String?
+  ownerType  String
+  patient    Patient? @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  user       User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@index([userId])
+  @@map("profile_pictures")
+}
+
+model PatientEmail {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  verified  Boolean  @default(false)
+  primary   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@map("patient_emails")
+}
+
+model PatientPhone {
+  id        String   @id @default(uuid())
+  phone     String
+  verified  Boolean  @default(false)
+  primary   Boolean  @default(false)
+  type      String   @default("mobile")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  patientId String
+  patient   Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+
+  @@index([patientId])
+  @@map("patient_phones")
+}
+
+model Department {
+  id          String                 @id @default(uuid())
+  name        String
+  description String?
+  hospitalId  String
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime
+  hospital    Hospital               @relation(fields: [hospitalId], references: [id])
+  members     DepartmentMembership[]
+
+  @@index([hospitalId])
+}
+
+model DepartmentMembership {
+  id           String     @id @default(uuid())
+  userId       String
+  departmentId String
+  role         String
+  joinedAt     DateTime   @default(now())
+  department   Department @relation(fields: [departmentId], references: [id])
+  user         User       @relation(fields: [userId], references: [id])
+
+  @@unique([userId, departmentId])
+  @@index([userId])
+  @@index([departmentId])
+}
+
+model StaffProfile {
+  id                 String           @id @default(uuid())
+  userId             String           @unique
+  hospitalId         String
+  staffId            String           @unique
+  specialization     String?
+  qualifications     Json?
+  joiningDate        DateTime
+  employmentStatus   EmploymentStatus
+  contactInformation Json?
+  hospital           Hospital         @relation(fields: [hospitalId], references: [id])
+  user               User             @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([hospitalId])
+  @@index([staffId])
+}
+
+model PatientHospitalAccess {
+  id          String      @id @default(uuid())
+  patientId   String
+  hospitalId  String
+  accessLevel AccessLevel
+  grantedAt   DateTime    @default(now())
+  grantedBy   String
+  expiresAt   DateTime?
+  granter     User        @relation(fields: [grantedBy], references: [id])
+  hospital    Hospital    @relation(fields: [hospitalId], references: [id])
+  patient     Patient     @relation(fields: [patientId], references: [id])
+
+  @@unique([patientId, hospitalId])
+  @@index([patientId])
+  @@index([hospitalId])
+}
+
+model PatientSearchIndex {
+  id           String  @id @default(uuid())
+  patientId    String  @unique
+  mrn          String  @unique
+  name         String
+  phone        String?
+  email        String?
+  qrCode       String  @unique
+  searchVector String?
+  patient      Patient @relation(fields: [patientId], references: [id])
+
+  @@index([mrn])
+  @@index([name])
+  @@index([phone])
+  @@index([email])
+}
+
+model DoctorAvailability {
+  id            String    @id @default(uuid())
+  doctorId      String    @unique
+  hospitalId    String
+  available     Boolean   @default(false)
+  schedule      Json
+  serviceTypes  String[]
+  nextAvailable DateTime?
+  doctor        User      @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  hospital      Hospital  @relation(fields: [hospitalId], references: [id])
+
+  @@index([doctorId])
+  @@index([hospitalId])
+  @@index([available])
+  @@index([nextAvailable])
+}
+
+model PatientWidgetPreference {
+  id                 String   @id @default(uuid())
+  patientId          String   @unique
+  recentDoctors      String[]
+  preferredHospitals String[]
+  searchHistory      Json?
+  patient            Patient  @relation(fields: [patientId], references: [id])
+}
+
+model Referral {
+  id                String           @id @default(uuid())
+  patientId         String
+  fromHospitalId    String
+  toHospitalId      String
+  referringDoctorId String
+  receivingDoctorId String?
+  reason            String
+  notes             String?
+  priority          ReferralPriority @default(ROUTINE)
+  status            ReferralStatus   @default(PENDING)
+  medicalRecords    Json?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  completedAt       DateTime?
+  fromHospital      Hospital         @relation("FromHospital", fields: [fromHospitalId], references: [id])
+  patient           Patient          @relation("PatientReferrals", fields: [patientId], references: [id])
+  receivingDoctor   User?            @relation("ReceivingDoctor", fields: [receivingDoctorId], references: [id])
+  referringDoctor   User             @relation("ReferringDoctor", fields: [referringDoctorId], references: [id])
+  toHospital        Hospital         @relation("ToHospital", fields: [toHospitalId], references: [id])
+
+  @@index([patientId])
+  @@index([fromHospitalId])
+  @@index([toHospitalId])
+  @@index([referringDoctorId])
+  @@index([status])
+  @@index([priority])
+}
+
+model Ambulance {
+  id              String              @id @default(uuid())
+  registrationNo  String              @unique
+  type            AmbulanceType
+  status          AmbulanceStatus     @default(AVAILABLE)
+  hospitalId      String
+  capacity        Int                 @default(1)
+  equipment       Json?
+  features        String[]
+  gpsTracking     Json?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  lastMaintenance DateTime?
+  hospital        Hospital            @relation(fields: [hospitalId], references: [id])
+  dispatches      AmbulanceDispatch[]
+
+  @@index([hospitalId])
+  @@index([type])
+  @@index([status])
+}
+
+model AmbulanceDispatch {
+  id             String           @id @default(uuid())
+  ambulanceId    String
+  patientId      String
+  hospitalId     String
+  pickupLocation String
+  dropLocation   String
+  dispatchTime   DateTime
+  arrivalTime    DateTime?
+  completionTime DateTime?
+  priority       DispatchPriority @default(MEDIUM)
+  status         DispatchStatus   @default(REQUESTED)
+  dispatchedBy   String
+  notes          String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  ambulance      Ambulance        @relation(fields: [ambulanceId], references: [id])
+  hospital       Hospital         @relation("ToHospital", fields: [hospitalId], references: [id])
+  patient        Patient          @relation("PatientAmbulanceDispatches", fields: [patientId], references: [id])
+
+  @@index([ambulanceId])
+  @@index([patientId])
+  @@index([hospitalId])
+  @@index([status])
+  @@index([priority])
+}
+
+model AmbulanceRequest {
+  id             String           @id @default(uuid())
+  patientId      String
+  hospitalId     String
+  pickupLocation String
+  reason         String
+  requestTime    DateTime         @default(now())
+  status         DispatchStatus   @default(REQUESTED)
+  priority       DispatchPriority @default(MEDIUM)
+  contactName    String
+  contactPhone   String
+  notes          String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  hospital       Hospital         @relation(fields: [hospitalId], references: [id])
+  patient        Patient          @relation(fields: [patientId], references: [id])
 
   @@index([patientId])
   @@index([hospitalId])
   @@index([status])
-  @@index([careLevel])
-  @@index([motherId])
+  @@index([priority])
 }
 
-enum RiskLevel {
-  LOW
-  MEDIUM
-  HIGH
+model Wallet {
+  id           String              @id @default(uuid())
+  patientId    String              @unique
+  balance      Float               @default(0.0)
+  currency     String              @default("USD")
+  status       WalletStatus        @default(ACTIVE)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  patient      Patient             @relation(fields: [patientId], references: [id])
+  transactions WalletTransaction[]
+
+  @@index([patientId])
+  @@index([status])
+}
+
+model WalletTransaction {
+  id          String            @id @default(uuid())
+  walletId    String
+  amount      Float
+  type        TransactionType
+  status      TransactionStatus @default(PENDING)
+  reference   String            @unique
+  description String?
+  metadata    Json?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  completedAt DateTime?
+  payment     Payment?
+  wallet      Wallet            @relation(fields: [walletId], references: [id])
+
+  @@index([walletId])
+  @@index([type])
+  @@index([status])
+  @@index([reference])
+}
+
+model Billing {
+  id            String        @id @default(uuid())
+  patientId     String
+  hospitalId    String
+  amount        Float
+  dueDate       DateTime
+  status        BillingStatus @default(PENDING)
+  description   String
+  invoiceNumber String        @unique
+  items         Json
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  paidAt        DateTime?
+  hospital      Hospital      @relation(fields: [hospitalId], references: [id])
+  patient       Patient       @relation(fields: [patientId], references: [id])
+  payments      Payment[]
+
+  @@index([patientId])
+  @@index([hospitalId])
+  @@index([status])
+  @@index([invoiceNumber])
+}
+
+model Payment {
+  id            String             @id @default(uuid())
+  billingId     String
+  amount        Float
+  method        PaymentMethod
+  reference     String             @unique
+  status        TransactionStatus  @default(PENDING)
+  transactionId String?            @unique
+  receiptNumber String             @unique
+  paymentDate   DateTime
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  billing       Billing            @relation(fields: [billingId], references: [id])
+  transaction   WalletTransaction? @relation(fields: [transactionId], references: [id])
+
+  @@index([billingId])
+  @@index([method])
+  @@index([status])
+  @@index([reference])
+  @@index([receiptNumber])
+}
+
+model Conversation {
+  id            String             @id @default(uuid())
+  patientId     String
+  hospitalId    String
+  doctorId      String?
+  title         String?
+  status        ConversationStatus @default(ACTIVE)
+  lastMessageAt DateTime?
+  metadata      Json?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  doctor        User?              @relation("DoctorConversations", fields: [doctorId], references: [id])
+  hospital      Hospital           @relation(fields: [hospitalId], references: [id])
+  patient       Patient            @relation(fields: [patientId], references: [id])
+  messages      Message[]
+
+  @@index([patientId])
+  @@index([hospitalId])
+  @@index([doctorId])
+  @@index([status])
+  @@index([lastMessageAt])
+}
+
+model Message {
+  id             String        @id @default(uuid())
+  conversationId String
+  senderId       String
+  content        String
+  attachments    Json?
+  status         MessageStatus @default(SENT)
+  sentAt         DateTime      @default(now())
+  deliveredAt    DateTime?
+  readAt         DateTime?
+  conversation   Conversation  @relation(fields: [conversationId], references: [id])
+  sender         User          @relation("MessageSender", fields: [senderId], references: [id])
+
+  @@index([conversationId])
+  @@index([senderId])
+  @@index([status])
+  @@index([sentAt])
+}
+
+model BirthRecord {
+  id                String         @id @default(uuid())
+  patientId         String         @unique
+  motherId          String?
+  fatherId          String?
+  hospitalId        String
+  birthDate         DateTime
+  birthTime         String?
+  birthWeight       Float?
+  deliveryMethod    DeliveryMethod @default(NATURAL)
+  attendingDoctorId String
+  birthPlace        String?
+  certificateNumber String         @unique
+  registeredAt      DateTime       @default(now())
+  notes             String?
+  complications     String[]       @default([])
+  apgarScore        Int?
+  gestationalAge    Int?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  attendingDoctor   User           @relation("BirthRegistrar", fields: [attendingDoctorId], references: [id])
+  father            Patient?       @relation("BirthFather", fields: [fatherId], references: [id])
+  hospital          Hospital       @relation(fields: [hospitalId], references: [id])
+  mother            Patient?       @relation("BirthMother", fields: [motherId], references: [id])
+  patient           Patient        @relation(fields: [patientId], references: [id])
+
+  @@index([patientId])
+  @@index([motherId])
+  @@index([fatherId])
+  @@index([hospitalId])
+  @@index([birthDate])
+  @@index([certificateNumber])
+}
+
+model DeathRecord {
+  id                String   @id @default(uuid())
+  patientId         String   @unique
+  hospitalId        String
+  dateOfDeath       DateTime
+  timeOfDeath       String?
+  causeOfDeath      String?
+  attendingDoctorId String
+  placeOfDeath      String
+  certificateNumber String   @unique
+  registeredAt      DateTime @default(now())
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  attendingDoctor   User     @relation("DeathRegistrar", fields: [attendingDoctorId], references: [id])
+  hospital          Hospital @relation(fields: [hospitalId], references: [id])
+  patient           Patient  @relation(fields: [patientId], references: [id])
+
+  @@index([patientId])
+  @@index([hospitalId])
+  @@index([dateOfDeath])
+  @@index([certificateNumber])
+}
+
+model MarketplaceVendor {
+  id           String               @id @default(uuid())
+  hospitalId   String
+  name         String
+  description  String?
+  contactEmail String?
+  contactPhone String?
+  address      String?
+  logo         String?
+  websiteUrl   String?
+  verified     Boolean              @default(false)
+  rating       Float?
+  specialties  String[]             @default([])
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+  products     MarketplaceProduct[]
+  hospital     Hospital             @relation(fields: [hospitalId], references: [id])
+  savedBy      SavedVendor[]
+
+  @@index([hospitalId])
+  @@index([name])
+  @@index([verified])
+}
+
+model MarketplaceProduct {
+  id                   String            @id @default(uuid())
+  vendorId             String
+  name                 String
+  description          String?
+  price                Float
+  discountPrice        Float?
+  category             String
+  tags                 String[]          @default([])
+  imageUrl             String?
+  inStock              Boolean           @default(true)
+  requiredPrescription Boolean           @default(false)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  cartItems            CartItem[]
+  vendor               MarketplaceVendor @relation(fields: [vendorId], references: [id])
+  orderItems           OrderItem[]
+
+  @@index([vendorId])
+  @@index([name])
+  @@index([category])
+  @@index([inStock])
+  @@index([requiredPrescription])
+}
+
+model MarketplaceOrder {
+  id              String      @id @default(uuid())
+  patientId       String
+  reference       String      @unique
+  totalAmount     Float
+  status          OrderStatus @default(PENDING)
+  paymentStatus   String?
+  shippingAddress String?
+  trackingNumber  String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  patient         Patient     @relation(fields: [patientId], references: [id])
+  items           OrderItem[]
+
+  @@index([patientId])
+  @@index([reference])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id             String             @id @default(uuid())
+  orderId        String
+  productId      String
+  quantity       Int
+  unitPrice      Float
+  totalPrice     Float
+  prescriptionId String?
+  order          MarketplaceOrder   @relation(fields: [orderId], references: [id])
+  prescription   Prescription?      @relation(fields: [prescriptionId], references: [id])
+  product        MarketplaceProduct @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([prescriptionId])
+}
+
+model CartItem {
+  id        String             @id @default(uuid())
+  patientId String
+  productId String
+  quantity  Int
+  addedAt   DateTime           @default(now())
+  patient   Patient            @relation(fields: [patientId], references: [id])
+  product   MarketplaceProduct @relation(fields: [productId], references: [id])
+
+  @@index([patientId])
+  @@index([productId])
+}
+
+model SavedVendor {
+  id        String            @id @default(uuid())
+  patientId String
+  vendorId  String
+  savedAt   DateTime          @default(now())
+  patient   Patient           @relation(fields: [patientId], references: [id])
+  vendor    MarketplaceVendor @relation(fields: [vendorId], references: [id])
+
+  @@unique([patientId, vendorId])
+  @@index([patientId])
+  @@index([vendorId])
+}
+
+model Prescription {
+  id                 String      @id @default(uuid())
+  patientId          String
+  doctorId           String
+  hospitalId         String
+  medications        Json
+  dosageInstructions String?
+  validFrom          DateTime
+  validUntil         DateTime?
+  filledStatus       Boolean     @default(false)
+  filledDate         DateTime?
+  refills            Int         @default(0)
+  refillsUsed        Int         @default(0)
+  notes              String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  orderItems         OrderItem[]
+  doctor             User        @relation("PrescribingDoctor", fields: [doctorId], references: [id])
+  hospital           Hospital    @relation(fields: [hospitalId], references: [id])
+  patient            Patient     @relation(fields: [patientId], references: [id])
+
+  @@index([patientId])
+  @@index([doctorId])
+  @@index([hospitalId])
+  @@index([validFrom])
+  @@index([validUntil])
+  @@index([filledStatus])
 }
 
 enum AntenatalStatus {
@@ -169,6 +869,11 @@ enum CareLevel {
   CRITICAL
 }
 
+enum DischargeStatus {
+  READY
+  NOT_READY
+}
+
 enum NeonatalStatus {
   ACTIVE
   DISCHARGED
@@ -176,7 +881,145 @@ enum NeonatalStatus {
   DECEASED
 }
 
-enum DischargeStatus {
-  READY
-  NOT_READY
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum UserRole {
+  PATIENT
+  DOCTOR
+  STAFF
+  MANAGER
+  ADMIN
+}
+
+enum EmploymentStatus {
+  ACTIVE
+  ON_LEAVE
+  SUSPENDED
+  TERMINATED
+}
+
+enum AccessLevel {
+  READ
+  WRITE
+  ADMIN
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum ReferralPriority {
+  ROUTINE
+  URGENT
+  EMERGENCY
+}
+
+enum ReferralStatus {
+  PENDING
+  ACCEPTED
+  COMPLETED
+  REJECTED
+  CANCELLED
+}
+
+enum AmbulanceType {
+  BASIC
+  ADVANCED
+  NEONATAL
+  MOBILE_ICU
+}
+
+enum AmbulanceStatus {
+  AVAILABLE
+  DISPATCHED
+  IN_MAINTENANCE
+  OUT_OF_SERVICE
+}
+
+enum DispatchPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum DispatchStatus {
+  REQUESTED
+  DISPATCHED
+  EN_ROUTE
+  ARRIVED
+  COMPLETED
+  CANCELLED
+}
+
+enum WalletStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  PAYMENT
+  REFUND
+  TRANSFER
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+  REVERSED
+}
+
+enum BillingStatus {
+  PENDING
+  PARTIAL
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  CARD
+  TRANSFER
+  MOBILE_MONEY
+  INSURANCE
+}
+
+enum ConversationStatus {
+  ACTIVE
+  ARCHIVED
+  BLOCKED
+}
+
+enum MessageStatus {
+  SENT
+  DELIVERED
+  READ
+}
+
+enum DeliveryMethod {
+  NATURAL
+  CESAREAN
+  ASSISTED
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  RETURNED
 }

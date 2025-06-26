@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { usePatientProfile } from "@/hooks/use-patient-profile"
 
 interface ProfileInfoProps {
   profileData?: {
@@ -12,8 +13,8 @@ interface ProfileInfoProps {
 }
 
 /**
- * ProfileInfo component that displays patient information from localStorage
- * and registration data with smooth transitions
+ * ProfileInfo component that displays patient information from API data first,
+ * then from props, and finally from localStorage with smooth transitions
  */
 export function ProfileInfo({ profileData }: ProfileInfoProps) {
   const [patientName, setPatientName] = useState("Patient")
@@ -22,38 +23,90 @@ export function ProfileInfo({ profileData }: ProfileInfoProps) {
   const [profileImage, setProfileImage] = useState<string | null>(null)
   const [initials, setInitials] = useState("P")
   
-  // Load patient data from props or localStorage
+  // Use the usePatientProfile hook to get fresh API data
+  const { profile, isLoading } = usePatientProfile();
+  
+  // Load patient data with priority: API > props > localStorage
   useEffect(() => {
-    console.log('DEBUG: ProfileInfo component - Loading patient profile data');
-    
-    // If we have profileData from props, use that first (for consistency)
-    if (profileData) {
-      console.log('DEBUG: ProfileInfo received profileData from props:', {
-        name: profileData.name ? 'present' : 'missing',
-        medicalNumber: profileData.medicalNumber ? 'present' : 'missing',
-        profileImage: profileData.profileImage ? 'present (truncated)' : 'missing'
-      });
+    // Clear any stale data from localStorage first to fix caching issues
+    const clearStaleCache = () => {
+      // Keep a list of current valid medical IDs to prevent showing deleted patients
+      const currentMedicalId = profile?.medicalNumber || profileData?.medicalNumber || localStorage.getItem('medicalNumber');
       
+      // Only clear if we have a current medical ID to prevent data loss
+      if (currentMedicalId) {
+        // Get stored list of recently used medical IDs
+        const recentMedicalIds = JSON.parse(localStorage.getItem('recentMedicalIds') || '[]');
+        
+        // Remove any medical IDs that aren't the current one
+        if (!recentMedicalIds.includes(currentMedicalId)) {
+          const updatedRecentIds = [currentMedicalId];
+          localStorage.setItem('recentMedicalIds', JSON.stringify(updatedRecentIds));
+        }
+      }
+    };
+    
+    clearStaleCache();
+    
+    // PRIORITY 1: Use fresh API data if available
+    if (profile) {
+      // Set patient name from API
+      if (profile.name) {
+        setPatientName(profile.name);
+        setInitials(getInitials(profile.name));
+        localStorage.setItem('currentPatientName', profile.name);
+      }
+      
+      // Set medical number from API
+      if (profile.medicalNumber) {
+        setMedicalNumber(profile.medicalNumber);
+        localStorage.setItem('medicalNumber', profile.medicalNumber);
+      }
+      
+      // Set profile image from API
+      if (profile.photo) {
+        setProfileImage(profile.photo);
+        // Update localStorage for consistency
+        localStorage.setItem('patientProfilePhoto', profile.photo);
+        localStorage.setItem('photo', profile.photo);
+        localStorage.setItem('userPhoto', profile.photo);
+      } else if (profile.qrCode) {
+        // If there's no photo but we have a QR code, the patient is verified
+        // We should check for a photo in props or localStorage
+        handleBackupPhotoSources();
+      }
+      
+      return; // Skip other sources if API data is available
+    }
+    
+    // PRIORITY 2: Use props data if provided
+    if (profileData) {
       if (profileData.name) {
-        // Always use the full name from profileData passed from the dashboard
         setPatientName(profileData.name);
         setInitials(getInitials(profileData.name));
-        
-        // Also store this name in localStorage for consistency
         localStorage.setItem('currentPatientName', profileData.name);
       }
       
       if (profileData.medicalNumber) {
         setMedicalNumber(profileData.medicalNumber);
+        localStorage.setItem('medicalNumber', profileData.medicalNumber);
+        
+        // Store this as a recent medical ID
+        const recentMedicalIds = JSON.parse(localStorage.getItem('recentMedicalIds') || '[]');
+        if (!recentMedicalIds.includes(profileData.medicalNumber)) {
+          recentMedicalIds.push(profileData.medicalNumber);
+          localStorage.setItem('recentMedicalIds', JSON.stringify(recentMedicalIds));
+        }
       }
       
       if (profileData.profileImage) {
-        console.log('DEBUG: Setting profile image from props');
         setProfileImage(profileData.profileImage);
-        // Also store the profile image in localStorage for cross-component consistency
         localStorage.setItem('patientProfilePhoto', profileData.profileImage);
+        localStorage.setItem('photo', profileData.profileImage);
+        localStorage.setItem('userPhoto', profileData.profileImage);
       } else {
-        console.log('DEBUG: No profile image in props, will try localStorage');
+        // If no profile image in props, try localStorage
+        handleBackupPhotoSources();
       }
       
       // If we have complete data from props, skip localStorage loading
@@ -62,127 +115,95 @@ export function ProfileInfo({ profileData }: ProfileInfoProps) {
       }
     }
     
-    // Otherwise, try to get patient data from multiple possible sources
-    const loadPatientData = () => {
-      try {
-        console.log('DEBUG: Loading patient data from localStorage');
-        
-        // First try to get the current patient name from localStorage (highest priority)
-        const currentPatientName = localStorage.getItem('currentPatientName');
-        if (currentPatientName) {
-          console.log('DEBUG: Found patient name in localStorage');
-          setPatientName(currentPatientName);
-          setInitials(getInitials(currentPatientName));
-        }
-        
-        // Get patient identifiers - prioritize consistent medical data
-        const storedEmail = localStorage.getItem('userEmail');
-        const storedPatientId = localStorage.getItem('patientId');
-        const storedMedicalNumber = localStorage.getItem('medicalNumber');
-        
-        if (storedMedicalNumber) {
-          console.log('DEBUG: Found medical number in localStorage');
-          setMedicalNumber(storedMedicalNumber);
-        }
-        
-        if (storedPatientId) {
-          setPatientId(storedPatientId);
-        }
-        
-        // ENHANCED PROFILE PHOTO LOADING: Try all possible sources
-        const loadProfilePhoto = () => {
-          // Check all possible localStorage keys for the photo
-          const storedProfilePhoto = localStorage.getItem('patientProfilePhoto');
-          const storedPhotoLegacy = localStorage.getItem('photo');
-          const storedUserPhoto = localStorage.getItem('userPhoto');
-          
-          // Try patientProfilePhoto first (primary storage key)
-          if (storedProfilePhoto) {
-            console.log('DEBUG: Found profile photo in patientProfilePhoto key');
-            setProfileImage(storedProfilePhoto);
-            // Ensure the photo is stored in all keys for cross-component consistency
-            localStorage.setItem('photo', storedProfilePhoto);
-            localStorage.setItem('userPhoto', storedProfilePhoto);
-            return true;
-          }
-          
-          // Try legacy photo keys
-          if (storedPhotoLegacy) {
-            console.log('DEBUG: Found profile photo in legacy photo key');
-            setProfileImage(storedPhotoLegacy);
-            // Store in primary key for future consistency
-            localStorage.setItem('patientProfilePhoto', storedPhotoLegacy);
-            localStorage.setItem('userPhoto', storedPhotoLegacy);
-            return true;
-          }
-          
-          if (storedUserPhoto) {
-            console.log('DEBUG: Found profile photo in userPhoto key');
-            setProfileImage(storedUserPhoto);
-            // Store in primary key for future consistency
-            localStorage.setItem('patientProfilePhoto', storedUserPhoto);
-            localStorage.setItem('photo', storedUserPhoto);
-            return true;
-          }
-          
-          // Try to get patient photo from registration data
-          const registrationData = localStorage.getItem('patientRegistrationData');
-          if (registrationData) {
-            try {
-              const parsedData = JSON.parse(registrationData);
-              if (parsedData.photo) {
-                console.log('DEBUG: Found profile photo in registration data');
-                setProfileImage(parsedData.photo);
-                // Store in all keys for consistency
-                localStorage.setItem('patientProfilePhoto', parsedData.photo);
-                localStorage.setItem('photo', parsedData.photo);
-                localStorage.setItem('userPhoto', parsedData.photo);
-                return true;
-              }
-            } catch (parseErr) {
-              console.error('Error parsing registration data:', parseErr);
-            }
-          }
-          
-          return false;
-        };
-        
-        // Load profile photo from any source
-        const photoLoaded = loadProfilePhoto();
-        if (!photoLoaded) {
-          console.log('DEBUG: No profile photo found in any storage location');
-        }
-        
-        // Try to get patient name from registration data only if we don't have a name yet
-        if (!currentPatientName) {
-          const registrationData = localStorage.getItem('patientRegistrationData');
-          if (registrationData) {
-            try {
-              const parsedData = JSON.parse(registrationData);
-              if (parsedData.fullName) {
-                console.log('DEBUG: Found patient name in registration data');
-                setPatientName(parsedData.fullName);
-                setInitials(getInitials(parsedData.fullName));
-                // Store for consistency
-                localStorage.setItem('currentPatientName', parsedData.fullName);
-              }
-            } catch (parseErr) {
-              console.error('Error parsing registration data:', parseErr);
-            }
-          } else if (storedEmail) {
-            // Use email as fallback for name
-            const nameFromEmail = storedEmail.split('@')[0];
-            setPatientName(formatNameFromEmail(nameFromEmail));
-            setInitials(getInitials(nameFromEmail));
-          }
-        }
-      } catch (error) {
-        console.error('Error loading patient data:', error);
-      }
-    };
+    // PRIORITY 3: Fall back to localStorage if needed
+    loadFromLocalStorage();
     
-    loadPatientData();
-  }, [profileData, profileImage]);
+  }, [profile, isLoading, profileData]);
+  
+  // Function to load profile photo from backup sources
+  const handleBackupPhotoSources = () => {
+    // Try all possible localStorage keys for the photo
+    const storedProfilePhoto = localStorage.getItem('patientProfilePhoto');
+    const storedPhotoLegacy = localStorage.getItem('photo');
+    const storedUserPhoto = localStorage.getItem('userPhoto');
+    
+    if (storedProfilePhoto) {
+      setProfileImage(storedProfilePhoto);
+      return;
+    }
+    
+    if (storedPhotoLegacy) {
+      setProfileImage(storedPhotoLegacy);
+      localStorage.setItem('patientProfilePhoto', storedPhotoLegacy);
+      return;
+    }
+    
+    if (storedUserPhoto) {
+      setProfileImage(storedUserPhoto);
+      localStorage.setItem('patientProfilePhoto', storedUserPhoto);
+      return;
+    }
+    
+    // Try registration data
+    const registrationData = localStorage.getItem('patientRegistrationData');
+    if (registrationData) {
+      try {
+        const parsedData = JSON.parse(registrationData);
+        if (parsedData.photo) {
+          setProfileImage(parsedData.photo);
+          localStorage.setItem('patientProfilePhoto', parsedData.photo);
+        }
+      } catch (err) {
+        console.error('Error parsing registration data:', err);
+      }
+    }
+  };
+  
+  // Load data from localStorage as a last resort
+  const loadFromLocalStorage = () => {
+    try {
+      // Name
+      const currentPatientName = localStorage.getItem('currentPatientName');
+      if (currentPatientName) {
+        setPatientName(currentPatientName);
+        setInitials(getInitials(currentPatientName));
+      }
+      
+      // Medical ID
+      const storedMedicalNumber = localStorage.getItem('medicalNumber');
+      if (storedMedicalNumber) {
+        setMedicalNumber(storedMedicalNumber);
+      }
+      
+      // Patient ID
+      const storedPatientId = localStorage.getItem('patientId');
+      if (storedPatientId) {
+        setPatientId(storedPatientId);
+      }
+      
+      // Profile photo
+      handleBackupPhotoSources();
+      
+      // If we still don't have a name, try registration data
+      if (!currentPatientName) {
+        const registrationData = localStorage.getItem('patientRegistrationData');
+        if (registrationData) {
+          try {
+            const parsedData = JSON.parse(registrationData);
+            if (parsedData.fullName) {
+              setPatientName(parsedData.fullName);
+              setInitials(getInitials(parsedData.fullName));
+              localStorage.setItem('currentPatientName', parsedData.fullName);
+            }
+          } catch (err) {
+            console.error('Error parsing registration data:', err);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error loading from localStorage:', error);
+    }
+  };
   
   // Helper function to get initials from name
   const getInitials = (name: string) => {

@@ -52,10 +52,17 @@ export async function POST(req: NextRequest) {
     // Hash password
     const hashedPassword = await hash(password, 10);
 
-    // Generate unique medical number
-    let medicalNumber = `SL-${Date.now().toString().slice(-6)}-${Math.floor(
-      Math.random() * 1000
-    )}`;
+    // Medical IDs must come from official hospital records per CentralHealth rules
+    // Initialize to empty - we'll require this to be provided from hospital systems
+    const medicalId = body.medicalId || body.mrn || body.medicalNumber;
+    
+    // Require medical ID to be provided
+    if (!medicalId) {
+      return NextResponse.json(
+        { error: "Medical ID is required for patient registration and must be provided by hospital systems" },
+        { status: 400 }
+      );
+    }
 
     // Prepare name data
     const nameData = [
@@ -134,21 +141,33 @@ export async function POST(req: NextRequest) {
 
     // Log the data we're about to send to Prisma
     console.log('Creating patient with data:', {
-      medicalNumber,
+      mrn: medicalId,
       email,
       phone: phoneNumber,
       birthDate: birthDate.toISOString(),
     });
     
-    // Check if a patient with this email already exists
-    const existingPatient = await prisma.patient.findFirst({
-      where: {
-        email: email,
-      },
-      select: {
-        id: true,
-        email: true,
-      },
+    // Check if a patient exists with a matching email in contact field
+    const patients = await prisma.patient.findMany();
+    const existingPatient = patients.find((p: any) => {
+      try {
+        if (!p.contact) return false;
+        const contact = typeof p.contact === 'string' ? JSON.parse(p.contact) : p.contact;
+        
+        if (Array.isArray(contact)) {
+          return contact.some((c: any) => 
+            c.system === 'email' && c.value === email
+          );
+        } else if (typeof contact === 'object') {
+          return contact.email === email || 
+                (Array.isArray(contact.telecom) && 
+                 contact.telecom.some((t: any) => t.system === 'email' && t.value === email));
+        }
+        return false;
+      } catch (e) {
+        console.error('Error parsing contact data for patient:', p.id, e);
+        return false;
+      }
     });
     
     if (existingPatient) {
@@ -167,7 +186,7 @@ export async function POST(req: NextRequest) {
       try {
         // Create the patient data object without the problematic fields
         const patientData = {
-          medicalNumber: medicalNumber,
+          mrn: medicalId, // Use the provided medical ID as mrn field
           resourceType: "Patient",
           active: true,
           name: JSON.stringify(nameData),
@@ -207,13 +226,12 @@ export async function POST(req: NextRequest) {
           if (prismaError.code === 'P2002') {
             const target = (prismaError.meta?.target as string[]) || [];
             if (target.includes('medicalNumber')) {
-              // Regenerate a different medical number
-              console.log('Medical number collision, regenerating...');
-              medicalNumber = `SL-${Date.now().toString().slice(-6)}-${Math.floor(
-                Math.random() * 1000
-              )}`;
-              // Continue to retry with new medical number
-              continue;
+              // Medical ID collision - cannot regenerate per CentralHealth rules
+              console.error('Medical ID collision detected - cannot automatically regenerate');
+              return NextResponse.json(
+                { error: "Medical ID conflict detected. Please contact hospital administration for a valid medical ID." },
+                { status: 409 } // Conflict
+              );
             }
             if (target.includes('email')) {
               return NextResponse.json(
@@ -251,10 +269,10 @@ export async function POST(req: NextRequest) {
     try {
       await createPatientSession({
         id: newPatient.id,
-        medicalNumber: newPatient.medicalNumber,
+        medicalNumber: newPatient.mrn,
         firstName,
         lastName,
-        email: newPatient.email || email, // Use the form email as fallback
+        email: email, // Use the form email
         createdAt: new Date().toISOString(),
       });
       console.log('Patient session created successfully');
@@ -270,10 +288,10 @@ export async function POST(req: NextRequest) {
         message: "Patient registered successfully",
         patient: {
           id: newPatient.id,
-          medicalNumber: newPatient.medicalNumber,
+          medicalNumber: newPatient.mrn,
           firstName,
           lastName,
-          email: newPatient.email,
+          email: email, // Use the form email
         },
       },
       { status: 201 }

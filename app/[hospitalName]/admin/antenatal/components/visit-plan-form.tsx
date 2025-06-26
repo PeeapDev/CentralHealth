@@ -47,6 +47,7 @@ interface Patient {
   medicalNumber?: string
   age?: number
   gender?: string
+  phone?: string // Added phone property to fix TypeScript errors
 }
 
 interface VisitPlanFormProps {
@@ -320,11 +321,12 @@ export default function VisitPlanForm({ patientData, initialData, onSave }: Visi
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="nextVisitDate">Next Visit Date</Label>
+                    {/* Removed id prop as it's not in DatePickerProps interface */}
                     <DatePicker 
-                      id="nextVisitDate"
                       date={formData.nextVisitDate ? new Date(formData.nextVisitDate) : undefined}
                       setDate={handleNextVisitDateChange}
                       className="w-full"
+                      placeholder="Select next visit date"
                     />
                     {errors.nextVisitDate && <p className="text-sm text-red-500">{errors.nextVisitDate}</p>}
                   </div>
@@ -382,6 +384,7 @@ export default function VisitPlanForm({ patientData, initialData, onSave }: Visi
                                 date={new Date(visit.scheduledDate)}
                                 setDate={(date) => handleScheduledDateChange(index, date)}
                                 className="w-full"
+                                placeholder="Select date"
                               />
                             </TableCell>
                             <TableCell className="hidden md:table-cell">{visit.purpose}</TableCell>

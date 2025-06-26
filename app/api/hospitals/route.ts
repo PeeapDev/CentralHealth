@@ -1,9 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import bcryptjs from 'bcryptjs';
-import { isSmtpConfigured, sendAdminCredentials } from '@/lib/email';
 import crypto from 'crypto';
 import { verifyToken } from '@/lib/auth/jwt';
+
+// Handle SMTP config safely without directly importing the problematic module
+const getSmtpConfig = async () => {
+  try {
+    // Dynamic import to avoid webpack issues
+    const emailModule = await import('@/lib/email');
+    return {
+      isConfigured: await emailModule.isSmtpConfigured(),
+      sendAdminCredentials: emailModule.sendAdminCredentials
+    };
+  } catch (error) {
+    console.error('Failed to load email module:', error);
+    return { isConfigured: false, sendAdminCredentials: null };
+  }
+};
 
 export async function GET(req: NextRequest) {
   try {
@@ -42,11 +56,20 @@ export async function GET(req: NextRequest) {
       updatedAt: Date;
       settings: any;
       branding: any;
+      User?: { id: string; email: string; name: string | null; role: string; }[];
     };
     
     // Get all hospitals from the database using Prisma
     let hospitals: PrismaHospital[] = [];
     try {
+      if (!prisma) {
+        console.error('Prisma client is not initialized');
+        return NextResponse.json({ 
+          hospitals: [], 
+          message: "Database not available. Please try again later."
+        }, { status: 500 });
+      }
+      
       hospitals = await prisma.hospital.findMany({
         select: {
           id: true,
@@ -60,45 +83,21 @@ export async function GET(req: NextRequest) {
           // Don't include users or patients for security
         }
       });
+      
+      // If no hospitals found, return a friendly message
+      if (hospitals.length === 0) {
+        return NextResponse.json({ 
+          hospitals: [],
+          message: "No hospitals found. Please create one to get started.",
+          noHospitals: true
+        }, { status: 200 });
+      }
     } catch (dbError) {
       console.error('Database connection error:', dbError);
-      
-      // Provide demo data for development/testing
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Using demo hospital data for development');
-        hospitals = [
-          {
-            id: '1',
-            name: 'Sierra Leone General Hospital',
-            subdomain: 'slgh',
-            description: 'Main general hospital in Sierra Leone',
-            createdAt: new Date(),
-            updatedAt: new Date(),
-            settings: { admin_email: 'admin@slgh.org', status: 'Active', package: 'Premium' },
-            branding: { logo: '/placeholder.svg?height=56&width=56' },
-          },
-          {
-            id: '2',
-            name: 'Freetown Medical Center',
-            subdomain: 'fmc',
-            description: 'Leading medical center in Freetown',
-            createdAt: new Date(),
-            updatedAt: new Date(),
-            settings: { admin_email: 'admin@fmc.org', status: 'Active', package: 'Basic' },
-            branding: { logo: '/placeholder.svg?height=56&width=56' },
-          },
-          {
-            id: '3',
-            name: 'Connaught Hospital',
-            subdomain: 'connaught',
-            description: 'Tertiary referral hospital in Freetown',
-            createdAt: new Date(),
-            updatedAt: new Date(),
-            settings: { admin_email: 'admin@connaught.org', status: 'Active', package: 'Enterprise' },
-            branding: { logo: '/placeholder.svg?height=56&width=56' },
-          }
-        ];
-      }
+      return NextResponse.json({
+        hospitals: [],
+        message: "Error connecting to database. Please try again later."
+      }, { status: 500 });
     }
 
     // Transform the data to match the expected format in the frontend
@@ -182,7 +181,7 @@ export async function POST(req: NextRequest) {
     console.log('Creating hospital with data:', body);
 
     // Check if SMTP is configured
-    const smtpEnabled = await isSmtpConfigured();
+    const { isConfigured: smtpEnabled, sendAdminCredentials } = await getSmtpConfig();
 
     // Basic validation
     if (!body.name || !body.admin_email || (!body.admin_password && !smtpEnabled)) {
@@ -257,19 +256,21 @@ export async function POST(req: NextRequest) {
           description: body.description || '',
           settings: settings,
           branding: branding,
+          updatedAt: new Date(),
           // Create the admin user for this hospital
-          users: {
-            create: {
+          User: {
+            create: [{
               email: body.admin_email,
               password: await bcryptjs.hash(adminPassword, 10),
               name: body.admin_name || 'Hospital Admin',
-              role: 'admin'
-            }
+              role: 'admin',
+              updatedAt: new Date()
+            }]
           }
         },
         // Include the created user in the response
         include: {
-          users: {
+          User: {
             select: {
               id: true,
               email: true,
@@ -311,14 +312,15 @@ export async function POST(req: NextRequest) {
       created_at: newHospital.createdAt.toISOString(),
       updated_at: newHospital.updatedAt.toISOString(),
       logo: branding.logo,
-      admin_user: newHospital.users[0]
+      // Access User relationship (may be undefined if relation not included)
+      admin_user: newHospital.User && newHospital.User.length > 0 ? newHospital.User[0] : null
     };
     
     console.log(`Hospital created: ${body.name} with subdomain ${body.subdomain} and UUID ${newHospital.id}`);
     
     // Send admin credentials via email if SMTP is configured
     let emailStatus = false;
-    if (smtpEnabled) {
+    if (smtpEnabled && sendAdminCredentials) {
       try {
         const emailResult = await sendAdminCredentials({
           hospitalName: body.name,

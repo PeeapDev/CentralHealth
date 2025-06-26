@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server"
 import bcrypt from "bcryptjs"
 import { signToken } from "@/lib/auth/jwt"
-import { db } from "@/lib/database/storage"
+import { prisma } from "@/lib/prisma"
 import type { ApiResponse, AuthResponse } from "@/lib/database/models"
 
 export async function POST(request: NextRequest): Promise<Response> {
@@ -37,7 +37,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     // Find hospital
     let hospital;
     try {
-      hospital = await db.getHospitalBySlug(hospitalSlug);
+      hospital = await prisma.hospital.findUnique({
+        where: { subdomain: hospitalSlug },
+      });
     } catch (dbError) {
       console.error('Hospital lookup error:', dbError);
       return Response.json(
@@ -62,7 +64,12 @@ export async function POST(request: NextRequest): Promise<Response> {
     // Find user
     let user;
     try {
-      user = await db.getUserByEmail(hospital._id!, email);
+      user = await prisma.user.findFirst({
+        where: {
+          email: email,
+          hospitalId: hospital.id
+        }
+      });
     } catch (dbError) {
       console.error('User lookup error:', dbError);
       return Response.json(
@@ -116,8 +123,8 @@ export async function POST(request: NextRequest): Promise<Response> {
     try {
       // Handle both synchronous and asynchronous signToken implementations
       const tokenResult = signToken({
-        userId: user._id!,
-        hospitalId: hospital._id!,
+        userId: user.id,
+        hospitalId: hospital.id,
         role: user.role,
         email: user.email,
       });
@@ -142,14 +149,14 @@ export async function POST(request: NextRequest): Promise<Response> {
     const authResponse: AuthResponse = {
       token,
       user: {
-        id: user._id!,
-        name: `${user.firstName} ${user.lastName}`,
+        id: user.id,
+        name: user.name || email.split('@')[0], // Use name if available, otherwise use email prefix
         email: user.email,
         role: user.role,
         hospital: {
-          id: hospital._id!,
+          id: hospital.id,
           name: hospital.name,
-          slug: hospital.slug,
+          slug: hospital.subdomain, // Use subdomain as slug
         },
       },
     }

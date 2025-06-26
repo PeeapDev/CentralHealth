@@ -427,7 +427,7 @@ export default function PhysicalExamForm({ patientData, initialData, onSave }: P
           
           {/* Display combined warnings if any */}
           {Object.keys(warnings).length > 0 && (
-            <Alert variant="warning">
+            <Alert variant="default" className="border-orange-200 bg-orange-50 text-amber-700 dark:border-orange-800 dark:bg-orange-950 dark:text-amber-500">
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>Attention Required</AlertTitle>
               <AlertDescription>

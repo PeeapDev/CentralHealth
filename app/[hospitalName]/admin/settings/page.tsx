@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Separator } from "@/components/ui/separator"
-import { Settings, Building, Bell, Shield, Palette } from "lucide-react"
+import { Settings, Building, Bell, Shield, Palette, Database, Trash2, LifeBuoy, RefreshCw } from "lucide-react"
+import Link from "next/link"
 
 interface SettingsPageProps {
   params: { hospitalName: string }
@@ -231,6 +232,48 @@ export default function SettingsPage({ params }: SettingsPageProps) {
             <div className="space-y-2">
               <Label htmlFor="logo">Hospital Logo</Label>
               <Input id="logo" type="file" accept="image/*" />
+            </div>
+          </CardContent>
+        </Card>
+        
+        {/* Admin Utilities */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Database className="h-5 w-5" />
+              <span>Admin Utilities</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            {/* Clear Cache */}
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>Clear Application Cache</Label>
+                <p className="text-sm text-muted-foreground">
+                  Remove cached patient data, sessions, and medical IDs to resolve login issues
+                </p>
+              </div>
+              <Link href={`/${params.hospitalName}/admin/settings/utilities/clear-cache`} passHref>
+                <Button variant="outline" className="flex items-center gap-2">
+                  <RefreshCw className="h-4 w-4" />
+                  Clear Cache
+                </Button>
+              </Link>
+            </div>
+            <Separator />
+            
+            {/* System Diagnostics */}
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label>System Diagnostics</Label>
+                <p className="text-sm text-muted-foreground">
+                  Run diagnostics to check database connections and system health
+                </p>
+              </div>
+              <Button variant="outline" className="flex items-center gap-2">
+                <LifeBuoy className="h-4 w-4" />
+                Run Diagnostics
+              </Button>
             </div>
           </CardContent>
         </Card>

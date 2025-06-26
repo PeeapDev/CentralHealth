@@ -4,21 +4,26 @@ import {
   Calendar,
   CreditCard,
   FileText,
+  Heart,
   Home,
+  LucideIcon,
   MessageSquare,
   Pill,
   Settings,
-  Stethoscope,
+  ShoppingCart,
   TestTube,
   User,
   Users,
-  Bell,
-  Heart,
-  Clock,
   Wallet,
+  Baby,
+  Stethoscope,
+  AlertCircle,
+  LayoutDashboard,
   History,
   Receipt,
-  ShoppingCart,
+  LogOut,
+  Bell,
+  Clock,
 } from "lucide-react"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -55,9 +60,9 @@ const PATIENT_ID = "J8K9M" // Fixed ID for consistency
 // Navigation items
 const navigationItems = [
   {
-    title: "Overview",
+    title: "Dashboard",
     url: "/dashboard",
-    icon: Home,
+    icon: LayoutDashboard,
     badge: null,
   },
   {
@@ -158,11 +163,28 @@ interface AppSidebarProps {
     medicalNumber?: string;
     profileImage?: string;
   }
+  // Optional custom navigation items
+  navigation?: Array<{
+    name: string;
+    href: string;
+    icon: React.ElementType;
+    current: boolean;
+    badge?: string | null;
+  }>
 }
 
-export function AppSidebar({ onNavigate, currentPage, hideProfileHeader = false, profileData, ...props }: AppSidebarProps) {
+export function AppSidebar({ onNavigate, currentPage, hideProfileHeader = false, profileData, navigation, ...props }: AppSidebarProps) {
   // Use our hospital context to prevent "hospital not found" errors
   const { hospital } = useHospitalContext();
+  
+  // Use provided navigation items or fall back to default
+  const menuItems = navigation || navigationItems.map(item => ({
+    name: item.title,
+    href: item.url,
+    icon: item.icon,
+    current: currentPage === item.url.replace("/", ""),
+    badge: item.badge
+  }));
   return (
     <Sidebar variant="inset" {...props}>
       <SidebarHeader>
@@ -190,16 +212,27 @@ export function AppSidebar({ onNavigate, currentPage, hideProfileHeader = false,
           <SidebarGroupLabel>Navigation</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navigationItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
+              {menuItems.map((item) => (
+                <SidebarMenuItem key={item.name || item.href}>
                   <SidebarMenuButton
-                    onClick={() => onNavigate?.(item.url.replace("/", ""))}
-                    isActive={currentPage === item.url.replace("/", "")}
+                    onClick={() => {
+                      // Fix URL duplication by handling navigation properly
+                      const cleanPath = item.href.startsWith('/patient/') 
+                        ? item.href.substring(9) // Remove '/patient/' prefix if it exists
+                        : item.href.startsWith('/patient') 
+                          ? item.href.substring(8) // Remove '/patient' prefix if it exists
+                          : item.href.startsWith('/') 
+                            ? item.href.substring(1) // Remove leading slash
+                            : item.href;
+                      
+                      onNavigate?.(cleanPath);
+                    }}
+                    isActive={currentPage === item.href.replace("/", "").replace("/patient/", "").replace("/patient", "")}
                   >
                     <div className="flex items-center justify-between w-full">
                       <div className="flex items-center space-x-2">
-                        <item.icon className="h-4 w-4" />
-                        <span>{item.title}</span>
+                        {item.icon && <item.icon className="h-4 w-4" />}
+                        <span>{item.name}</span>
                       </div>
                       {item.badge && (
                         <Badge variant="secondary" className="ml-auto">
@@ -254,6 +287,18 @@ export function AppSidebar({ onNavigate, currentPage, hideProfileHeader = false,
                   3
                 </Badge>
               </div>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton 
+              onClick={() => {
+                // Handle signout by redirecting to the signout API endpoint
+                window.location.href = '/api/patients/signout'; 
+              }}
+              className="text-red-500 hover:text-red-700 hover:bg-red-50"
+            >
+              <LogOut className="h-4 w-4" />
+              <span>Sign Out</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

@@ -1,0 +1,134 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hospital FHIR Cache Cleaner</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1 {
+            color: #0070f3;
+        }
+        button {
+            background: #0070f3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 0;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #0051a2;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f0f9ff;
+            border-left: 4px solid #0070f3;
+        }
+        .warning {
+            color: #d32f2f;
+            font-weight: bold;
+        }
+        code {
+            background: #f1f1f1;
+            padding: 2px 5px;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Hospital FHIR Cache Cleaner</h1>
+    <p>This utility helps clear browser cache and localStorage data that might contain old patient records or medical IDs like "MOHAM".</p>
+
+    <div>
+        <h2>Step 1: Clear localStorage</h2>
+        <p>This will remove all patient-related data stored in your browser's localStorage:</p>
+        <button id="clearLocalStorage">Clear localStorage</button>
+        <div id="localStorageResult" class="result"></div>
+    </div>
+
+    <div>
+        <h2>Step 2: Clear Session Cookies</h2>
+        <p>This will remove all session cookies related to patient authentication:</p>
+        <button id="clearCookies">Clear Session Cookies</button>
+        <div id="cookieResult" class="result"></div>
+    </div>
+
+    <div>
+        <h2>Step 3: Browser Cache</h2>
+        <p>To clear your entire browser cache:</p>
+        <ul>
+            <li>Chrome: Settings → Privacy and Security → Clear browsing data</li>
+            <li>Firefox: Settings → Privacy & Security → Cookies and Site Data → Clear Data</li>
+            <li>Safari: Preferences → Privacy → Manage Website Data → Remove All</li>
+        </ul>
+        <p class="warning">After clearing cache, please restart your browser and then try using the system again.</p>
+    </div>
+
+    <script>
+        document.getElementById('clearLocalStorage').addEventListener('click', function() {
+            const result = document.getElementById('localStorageResult');
+            let foundMedicalID = false;
+            
+            // Check for any MOHAM references
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                try {
+                    const value = localStorage.getItem(key);
+                    if (value && (value.includes('MOHAM') || value.includes('9K3F4'))) {
+                        result.innerHTML += `Found reference to problematic medical ID in key: ${key}<br>`;
+                        foundMedicalID = true;
+                    }
+                } catch (e) {
+                    console.error("Error reading localStorage item:", e);
+                }
+            }
+            
+            // Clear all localStorage
+            localStorage.clear();
+            
+            if (foundMedicalID) {
+                result.innerHTML += '<strong>Found and cleared problematic medical IDs!</strong><br>';
+            }
+            
+            result.innerHTML += 'All localStorage data has been cleared. Please reload the application.';
+        });
+        
+        document.getElementById('clearCookies').addEventListener('click', function() {
+            const result = document.getElementById('cookieResult');
+            
+            // Delete all cookies
+            const cookies = document.cookie.split(";");
+            let patientSessionFound = false;
+            
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i];
+                const eqPos = cookie.indexOf("=");
+                const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim();
+                
+                if (name === 'patient-session') {
+                    patientSessionFound = true;
+                }
+                
+                document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;";
+            }
+            
+            if (patientSessionFound) {
+                result.innerHTML = '<strong>Found and cleared patient session cookie!</strong><br>';
+            }
+            
+            result.innerHTML += 'All cookies have been cleared. Please reload the application.';
+        });
+    </script>
+</body>
+</html>

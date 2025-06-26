@@ -1,0 +1,492 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
+import { parse, isValid, differenceInYears } from 'date-fns';
+import { v4 as uuidv4 } from 'uuid';
+
+// Add response caching to prevent excessive database queries
+let cachedResponse: any = null;
+let cacheTimestamp: number = 0;
+const CACHE_TTL = 30000; // 30 seconds cache TTL in milliseconds
+
+// Type definition for processed patient data
+interface ProcessedPatient {
+  id: string;
+  userId?: string;
+  hospitalId?: string;
+  medicalNumber?: string;
+  mrn?: string;            // Additional medical ID field
+  medicalId?: string;      // Another variation of medical ID
+  name?: any;
+  email?: string;
+  phone?: string;
+  birthDate?: string;
+  gender?: string;
+  address?: any;
+  telecom?: any;
+  extension?: any;         // FHIR extensions field
+  active?: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
+  displayName?: string;
+  photo?: string;
+  fullName?: string;
+  firstName?: string;
+  lastName?: string;
+  displayMedicalNumber?: string;
+  phoneNumber?: string;
+  profileImage?: string | null;
+  resourceType?: string;   // FHIR resource type
+  User?: any;              // User relation with capital U (matching Prisma schema)
+  contact?: any;
+  medicalHistory?: any;
+  onboardingCompleted?: boolean;
+  registrationData?: any;  // Combined registration data
+  contactInfo?: {
+    emails: string[];
+    phones: string[];
+    emergencyContacts: any[];
+  };
+  onboardingStatus?: string;
+  [key: string]: any;      // Allow other properties
+}
+
+// Extended Patient interface for when we need Hospital and User relations
+interface ExtendedPatient extends ProcessedPatient {
+  Hospital?: {
+    id: string;
+    name: string;
+    subdomain: string;
+  };
+}
+
+/**
+ * Helper function to format patient name from FHIR data
+ * Parses FHIR-compliant patient names with fallbacks
+ */
+function formatPatientName(patient: ProcessedPatient): { firstName: string; lastName: string; fullName: string } {
+  let firstName = '';
+  let lastName = '';
+  let fullName = '';
+  
+  try {
+    // First try to use displayName or fullName if already available
+    if (patient.displayName) {
+      fullName = patient.displayName;
+      // Try to split display name into first and last
+      const nameParts = fullName.trim().split(/ +/);
+      if (nameParts.length >= 2) {
+        firstName = nameParts[0];
+        lastName = nameParts.slice(1).join(' ');
+      } else {
+        firstName = fullName;
+      }
+      return { firstName, lastName, fullName };
+    }
+    
+    if (patient.fullName) {
+      fullName = patient.fullName;
+      // Try to split full name into first and last
+      const nameParts = fullName.trim().split(/ +/);
+      if (nameParts.length >= 2) {
+        firstName = nameParts[0];
+        lastName = nameParts.slice(1).join(' ');
+      } else {
+        firstName = fullName;
+      }
+      return { firstName, lastName, fullName };
+    }
+
+    // Process FHIR name format if available
+    if (patient.name && Array.isArray(patient.name) && patient.name.length > 0) {
+      // Get the first 'official' or any name if official not found
+      const nameObj = patient.name.find((n: any) => n.use === 'official') || patient.name[0];
+      
+      if (nameObj) {
+        // Extract given (first) name
+        if (nameObj.given && Array.isArray(nameObj.given) && nameObj.given.length > 0) {
+          firstName = nameObj.given[0];
+        }
+        
+        // Extract family (last) name
+        if (nameObj.family) {
+          lastName = typeof nameObj.family === 'string' ? nameObj.family : '';
+        }
+        
+        // Create full name
+        fullName = firstName + (lastName ? ' ' + lastName : '');
+        
+        // If we got a valid name, return it
+        if (fullName.trim()) {
+          return { firstName, lastName, fullName };
+        }
+        
+        // Check for text property as backup
+        if (nameObj.text) {
+          fullName = nameObj.text;
+          const parts = fullName.split(' ');
+          if (parts.length > 1) {
+            firstName = parts[0];
+            lastName = parts.slice(1).join(' ');
+          } else {
+            firstName = fullName;
+          }
+          return { firstName, lastName, fullName };
+        }
+      }
+    }
+    
+    // If we have User.name as backup
+    if (patient.User?.name) {
+      fullName = patient.User.name;
+      const parts = fullName.split(' ');
+      if (parts.length > 1) {
+        firstName = parts[0];
+        lastName = parts.slice(1).join(' ');
+      } else {
+        firstName = fullName;
+      }
+      return { firstName, lastName, fullName };
+    }
+    
+    // Fallback to Unknown
+    return {
+      firstName: patient.firstName || 'Unknown',
+      lastName: patient.lastName || '',
+      fullName: patient.firstName && patient.lastName ? `${patient.firstName} ${patient.lastName}` : 'Unknown'
+    };
+  } catch (error) {
+    console.error('Error parsing patient name:', error);
+    return { firstName: 'Unknown', lastName: '', fullName: 'Unknown' };
+  }
+}
+
+/**
+ * Helper function to create a friendly display medical ID
+ * 
+ * Preserves the original 5-character medical IDs (like T6YB8) generated during registration.
+ * These are unique identifiers that exclude visually similar characters (1, l, 0, i)
+ * and are the primary identifiers used across the hospital system.
+ */
+function createFriendlyMedicalId(medicalId: string | undefined): string {
+  if (!medicalId) return 'Not Assigned';
+  
+  // If it's a 5-character registration ID, preserve it exactly as is
+  // These are the primary medical IDs used by the hospital system
+  // Example: T6YB8 (deliberately excludes similar chars like 1, l, 0, i)
+  if (medicalId.length === 5 && /^[A-Z0-9]{5}$/i.test(medicalId)) {
+    return medicalId.toUpperCase(); // Just ensure it's uppercase for consistency
+  }
+  
+  // If already in our P-format, return as is
+  if (medicalId.match(/^P-[A-Z0-9]{4,6}$/)) {
+    return medicalId;
+  }
+  
+  // If it's a UUID, create a shorter, more user-friendly format
+  if (medicalId.includes('-')) {
+    // For UUIDs, use format P-1234 (first 4 chars after first dash)
+    const parts = medicalId.split('-');
+    if (parts.length > 1) {
+      return `P-${parts[1].substring(0, 4).toUpperCase()}`;
+    }
+  }
+  
+  // For any other format (non-UUID), use first 4-6 chars with P- prefix
+  // This handles numeric IDs, alphanumeric IDs, etc.
+  return `P-${medicalId.substring(0, Math.min(6, medicalId.length)).toUpperCase()}`;
+}
+
+/**
+ * Parse telecom contact info from patient data
+ * Extracts emails, phones, and emergency contacts from FHIR telecom array
+ */
+function parseContactInfo(patient: ProcessedPatient): {
+  emails: string[];
+  phones: string[];
+  emergencyContacts: any[];
+} {
+  const contactInfo = {
+    emails: [] as string[],
+    phones: [] as string[],
+    emergencyContacts: [] as any[]
+  };
+
+  try {
+    // First check if patient has email/phone directly
+    if (patient.email) {
+      contactInfo.emails.push(patient.email);
+    }
+    
+    if (patient.phone) {
+      contactInfo.phones.push(patient.phone);
+    }
+    
+    if (patient.phoneNumber) {
+      contactInfo.phones.push(patient.phoneNumber);
+    }
+    
+    // Check for User data
+    if (patient.User?.email && !contactInfo.emails.includes(patient.User.email)) {
+      contactInfo.emails.push(patient.User.email);
+    }
+    
+    // Process FHIR telecom field if available
+    if (patient.telecom && Array.isArray(patient.telecom)) {
+      patient.telecom.forEach((item: any) => {
+        if (!item) return;
+        
+        const value = item.value;
+        if (!value) return;
+        
+        // Process by system type
+        switch(item.system) {
+          case 'email':
+            if (!contactInfo.emails.includes(value)) {
+              contactInfo.emails.push(value);
+            }
+            break;
+            
+          case 'phone':
+            if (!contactInfo.phones.includes(value)) {
+              contactInfo.phones.push(value);
+            }
+            
+            // Check for emergency contact
+            if (item.use === 'emergency') {
+              contactInfo.emergencyContacts.push({
+                type: 'phone',
+                value,
+                rank: item.rank || 1
+              });
+            }
+            break;
+            
+          default:
+            // For other types, add to appropriate array if we can recognize the format
+            if (value.includes('@') && !contactInfo.emails.includes(value)) {
+              contactInfo.emails.push(value);
+            } else if (value.match(/[0-9+\-\(\)\s]{7,}/) && !contactInfo.phones.includes(value)) {
+              contactInfo.phones.push(value);
+            }
+        }
+      });
+    }
+    
+    // Process contact field for emergency contacts
+    if (patient.contact && Array.isArray(patient.contact)) {
+      patient.contact.forEach((contact: any) => {
+        if (!contact) return;
+        
+        // Process emergency contact
+        if (contact.relationship && 
+            Array.isArray(contact.relationship) && 
+            contact.relationship.some((r: any) => 
+              r.coding && Array.isArray(r.coding) && 
+              r.coding.some((c: any) => c.code === 'E' || c.code === 'emergency')
+            )) {
+          
+          // Add telecom info for this emergency contact
+          if (contact.telecom && Array.isArray(contact.telecom)) {
+            contact.telecom.forEach((tel: any) => {
+              if (tel.value) {
+                contactInfo.emergencyContacts.push({
+                  name: contact.name?.text || 'Emergency Contact',
+                  type: tel.system || 'phone',
+                  value: tel.value,
+                  relationship: contact.relationship?.[0]?.text || 'Emergency'
+                });
+              }
+            });
+          }
+        }
+      });
+    }
+    
+  } catch (error) {
+    console.error('Error parsing contact information:', error);
+  }
+  
+  return contactInfo;
+}
+
+/**
+ * Calculate patient age from birth date
+ */
+function calculateAge(birthDateStr: string | undefined): number | null {
+  if (!birthDateStr) return null;
+  
+  try {
+    // Try different date formats
+    let birthDate: Date | null = null;
+    
+    // Try ISO format (YYYY-MM-DD)
+    if (birthDateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
+      birthDate = new Date(birthDateStr);
+    } 
+    // Try DD/MM/YYYY format
+    else if (birthDateStr.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
+      birthDate = parse(birthDateStr, 'dd/MM/yyyy', new Date());
+    } 
+    // Try MM/DD/YYYY format
+    else if (birthDateStr.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
+      birthDate = parse(birthDateStr, 'MM/dd/yyyy', new Date());
+    }
+    
+    if (birthDate && isValid(birthDate)) {
+      return differenceInYears(new Date(), birthDate);
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error calculating age:', error);
+    return null;
+  }
+}
+
+/**
+ * Handler for GET requests
+ */
+export async function GET(request: NextRequest) {
+  try {
+    // Check for valid cached response
+    if (cachedResponse && (Date.now() - cacheTimestamp < CACHE_TTL)) {
+      console.log('Returning cached patients response');
+      return cachedResponse;
+    }
+    
+    const startTime = Date.now();
+    
+    // Parse query parameters
+    const url = new URL(request.url);
+    const page = parseInt(url.searchParams.get('page') || '1');
+    const pageSize = parseInt(url.searchParams.get('pageSize') || '10');
+    const searchQuery = url.searchParams.get('search') || '';
+    const hospitalId = url.searchParams.get('hospitalId');
+    
+    // Calculate pagination values
+    const skip = (page - 1) * pageSize;
+    
+    // Build the where clause for Prisma
+    const where: any = {};
+    
+    if (searchQuery) {
+      // Enable search by name, email, medical ID, etc.
+      where.OR = [
+        { id: { contains: searchQuery } },
+        { medicalNumber: { contains: searchQuery } },
+        { User: { name: { contains: searchQuery } } },
+        { User: { email: { contains: searchQuery } } }
+      ];
+    }
+    
+    if (hospitalId) {
+      where.hospitalId = hospitalId;
+    }
+    
+    // Get total count for pagination
+    const total = await prisma.patient.count({ where });
+    
+    // Fetch patients with relations
+    const patients = await prisma.patient.findMany({
+      where,
+      skip,
+      take: pageSize,
+      include: {
+        User: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            photo: true
+          }
+        },
+        Hospital: {
+          select: {
+            id: true,
+            name: true,
+            subdomain: true
+          }
+        }
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+    
+    // Process patient data
+    const processedPatients: ProcessedPatient[] = [];
+    
+    for (const patient of patients) {
+      try {
+        const processedPatient: ProcessedPatient = {
+          ...patient,
+          resourceType: 'Patient'
+        };
+        
+        // Process name information
+        const nameInfo = formatPatientName(processedPatient);
+        processedPatient.firstName = nameInfo.firstName;
+        processedPatient.lastName = nameInfo.lastName;
+        processedPatient.fullName = nameInfo.fullName;
+        processedPatient.displayName = nameInfo.fullName;
+        
+        // Process medical ID for display
+        processedPatient.displayMedicalNumber = createFriendlyMedicalId(
+          processedPatient.medicalNumber || processedPatient.medicalId || processedPatient.mrn || processedPatient.id
+        );
+        
+        // Extract contact information
+        processedPatient.contactInfo = parseContactInfo(processedPatient);
+        
+        // Calculate age if birth date available
+        if (processedPatient.birthDate) {
+          const age = calculateAge(processedPatient.birthDate);
+          if (age !== null) {
+            processedPatient.age = age;
+          }
+        }
+        
+        // Handle profile image
+        if (processedPatient.User?.photo) {
+          processedPatient.profileImage = processedPatient.User.photo;
+        }
+        
+        // Determine onboarding status
+        processedPatient.onboardingStatus = processedPatient.onboardingCompleted ? 'Completed' : 'Pending';
+        
+        // Add the processed patient to our results array
+        processedPatients.push(processedPatient);
+      } catch (error) {
+        console.error(`Error processing patient ${patient.id}:`, error);
+      }
+    }
+    
+    // Determine processing duration
+    const duration = Date.now() - startTime;
+    console.log(`Processed ${processedPatients.length} patients in ${duration}ms`);
+    
+    // Create response object
+    const responseData = {
+      patients: processedPatients,
+      totalCount: total,
+      page,
+      pageSize,
+      totalPages: Math.ceil(total / pageSize),
+      duration
+    };
+    
+    // Cache the response
+    const response = NextResponse.json(responseData);
+    cachedResponse = response.clone();
+    cacheTimestamp = Date.now();
+    
+    // Return the response
+    return response;
+  } catch (error) {
+    console.error('Error in patients API route:', error);
+    return NextResponse.json(
+      { error: 'Failed to retrieve patients' },
+      { status: 500 }
+    );
+  }
+}

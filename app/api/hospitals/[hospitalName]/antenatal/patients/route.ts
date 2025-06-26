@@ -41,8 +41,8 @@ export async function GET(
       console.log('AntenatalRecord table does not exist or is not accessible')
     }
 
-    // Fetch patients with pagination
-    const patients = await prisma.patient.findMany({
+    // Fetch antenatal records with patients
+    const antenatalRecords = await prisma.antenatalRecord.findMany({
       where: {
         hospitalId: hospital.id,
       },
@@ -51,29 +51,35 @@ export async function GET(
       },
       skip,
       take: limit,
-      select: {
-        id: true,
-        mrn: true, // Add medical record number
-        name: true,
-        dateOfBirth: true, // Updated from birthDate
-        gender: true,
-        contact: true,
-        createdAt: true,
-        updatedAt: true
+      include: {
+        Patient: {
+          select: {
+            id: true,
+            mrn: true,
+            name: true,
+            dateOfBirth: true,
+            gender: true,
+            contact: true,
+            createdAt: true,
+            updatedAt: true
+          }
+        }
       }
     })
-    
-    console.log(`Found ${patients.length} patients`)
+
+    console.log(`Found ${antenatalRecords.length} antenatal records`)
     
     // Get total count for pagination info
-    const totalCount = await prisma.patient.count({
+    const totalCount = await prisma.antenatalRecord.count({
       where: {
-        hospitalId: hospital.id
+        hospitalId: hospital.id,
       }
     })
     
-    // Transform patient data with better error handling
-    const transformedPatients = patients.map(patient => {
+    // Transform antenatal and patient data with better error handling
+    const transformedPatients = antenatalRecords.map(record => {
+      const patient = record.Patient;
+      
       // Default values
       let firstName = ''
       let lastName = ''
@@ -110,7 +116,15 @@ export async function GET(
       // Type assertion for contactInfo to avoid TypeScript errors
       const typedContactInfo = contactInfo as Record<string, any>;
       
-      // Build patient object with appropriate defaults
+      // Get antenatal specific data
+      const riskLevel = record.riskLevel?.toString().toLowerCase() || 'low';
+      const trimester = record.trimester || 1;
+      const gestationalAge = record.gestationalAge || 0;
+      const nextAppointment = record.nextAppointment;
+      const expectedDueDate = record.expectedDueDate;
+      const status = record.status?.toString().toLowerCase() || 'active';
+      
+      // Build patient object with appropriate defaults and antenatal data
       return {
         id: patient.id,
         medicalNumber: patient.mrn || '',
@@ -121,13 +135,13 @@ export async function GET(
               (typedContactInfo.telecom && Array.isArray(typedContactInfo.telecom) && typedContactInfo.telecom[0]?.value) || 
               '',
         email: typedContactInfo.email || '',
-        gestationalAge: 0, // Default values for antenatal data
-        riskLevel: "low",
-        status: "active",
-        trimester: 1,
-        nextAppointment: null,
+        gestationalAge,
+        riskLevel,
+        status,
+        trimester,
+        nextAppointment,
         imageUrl: undefined,
-        expectedDueDate: null,
+        expectedDueDate,
         createdAt: patient.createdAt,
         updatedAt: patient.updatedAt
       }
@@ -135,24 +149,36 @@ export async function GET(
 
     // Calculate stats
     const totalPatients = totalCount
-    const activePatients = totalPatients // All patients are considered active for now
+    const activePatients = antenatalRecords.filter(record => 
+      record.status === 'ACTIVE').length
     
     // New registrations in last 30 days
     const thirtyDaysAgo = new Date()
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-    const newRegistrations = transformedPatients.filter(p => p.createdAt > thirtyDaysAgo).length
+    const newRegistrations = antenatalRecords.filter(record => 
+      record.createdAt > thirtyDaysAgo).length
     
-    // Simplified stats for MVP
-    const upcomingAppointments = 0
+    // Count upcoming appointments in next 7 days
+    const today = new Date()
+    const nextWeek = new Date()
+    nextWeek.setDate(today.getDate() + 7)
+    
+    const upcomingAppointments = antenatalRecords.filter(record => 
+      record.nextAppointment && 
+      record.nextAppointment > today && 
+      record.nextAppointment < nextWeek
+    ).length
 
     console.log('Successfully prepared antenatal patient data')
     
     return NextResponse.json({
       patients: transformedPatients,
-      totalPatients,
-      activePatients,
-      newRegistrations,
-      upcomingAppointments
+      stats: {
+        totalPatients,
+        activePatients,
+        newRegistrations,
+        upcomingAppointments
+      }
     })
 
   } catch (error) {

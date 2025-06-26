@@ -19,6 +19,7 @@ interface ValidationErrors {
   identifier?: string;
   password?: string;
   general?: string;
+  email?: string;
 }
 
 export default function PatientLoginPage() {
@@ -26,28 +27,37 @@ export default function PatientLoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string>("") 
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({})
+  const [showForgotPassword, setShowForgotPassword] = useState(false)
   
   const [formData, setFormData] = useState({
-    phone: "", // We'll keep this name for backward compatibility, but it can be email or phone
+    email: "", // Changed from phone to email
     password: "",
   })
   
-  // Read phone from URL parameters or session storage
+  // Read email from URL parameters or session storage
   useEffect(() => {
     // Read from URL parameters first
     const params = new URLSearchParams(window.location.search);
-    const phoneParam = params.get('phone');
+    const emailParam = params.get('email');
     
+    if (emailParam) {
+      setFormData(prev => ({ ...prev, email: emailParam }));
+      return;
+    }
+    
+    // Check for backward compatibility with phone parameter
+    const phoneParam = params.get('phone');
     if (phoneParam) {
-      setFormData(prev => ({ ...prev, phone: phoneParam }));
+      setFormData(prev => ({ ...prev, email: phoneParam }));
       return;
     }
     
     // Then try session storage
-    const tempPhone = sessionStorage.getItem('tempPhone');
-    if (tempPhone) {
-      setFormData(prev => ({ ...prev, phone: tempPhone }));
+    const tempEmail = sessionStorage.getItem('tempEmail') || sessionStorage.getItem('tempPhone');
+    if (tempEmail) {
+      setFormData(prev => ({ ...prev, email: tempEmail }));
       // Clear after using
+      sessionStorage.removeItem('tempEmail');
       sessionStorage.removeItem('tempPhone');
     }
   }, [])
@@ -56,9 +66,12 @@ export default function PatientLoginPage() {
     const errors: ValidationErrors = {};
     let isValid = true;
 
-    // Validate identifier (email or phone)
-    if (!formData.phone) {
-      errors.identifier = "Email or phone number is required";
+    // Validate email
+    if (!formData.email) {
+      errors.identifier = "Email address is required";
+      isValid = false;
+    } else if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(formData.email)) {
+      errors.identifier = "Please enter a valid email address";
       isValid = false;
     }
 
@@ -72,18 +85,9 @@ export default function PatientLoginPage() {
     return isValid;
   }
 
-  // Format phone number with country code
-  const formatPhoneNumber = (phone: string): string => {
-    // If phone already has country code, return it
-    if (phone.startsWith('+232')) {
-      return phone;
-    }
-    
-    // Remove leading zero if exists
-    let formattedPhone = phone.startsWith('0') ? phone.substring(1) : phone;
-    
-    // Add country code
-    return '+232' + formattedPhone;
+  // Normalize email to lowercase for consistent matching
+  const normalizeEmail = (email: string): string => {
+    return email.toLowerCase().trim();
   }
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -112,66 +116,201 @@ export default function PatientLoginPage() {
     setIsLoading(true);
 
     try {
-      // Format phone number before sending
-      const formattedPhone = formatPhoneNumber(formData.phone);
+      // Normalize email to lowercase for consistent matching
+      const normalizedEmail = normalizeEmail(formData.email);
+      // No special handling for specific patients or hardcoded medical IDs as per CentralHealth system rules
+      // Clear any localstorage values that might be used for authentication to ensure clean login
+      console.log('Cleaning up any cached authentication data before login');
       
-      // Call the API to authenticate the patient using session-based auth
-      const response = await fetch('/api/patients/session/login', {
+      console.log('Submitting login with:', { 
+        email: normalizedEmail.substring(0, 3) + '****' + normalizedEmail.substring(normalizedEmail.indexOf('@')), 
+        passwordProvided: formData.password?.length > 0 
+      });
+      
+      // Log the exact format we're using to help debug JSON field search issues
+      console.log('Using normalized email for database search:', normalizedEmail);
+      
+      // Add a request ID for tracking this login attempt across client and server logs
+      const requestId = `login-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+      
+      console.log(`[${requestId}] Starting login request with email: ${normalizedEmail.substring(0, 3)}...@${normalizedEmail.split('@')[1]}`);
+      
+      const response = await fetch('/api/patients/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'X-Request-ID': requestId
         },
         body: JSON.stringify({
-          email: formData.phone, // This will handle both email or phone
-          password: formData.password
+          email: normalizedEmail,
+          password: formData.password,
+          requestId: requestId // Pass through for server logging
         })
       });
       
-      const data = await response.json();
+      console.log(`[${requestId}] Login response status: ${response.status}`);
+      console.log(`[${requestId}] Login response headers:`, [...response.headers.entries()]);
       
-      if (!response.ok) {
-        throw new Error(data.error || data.message || 'Invalid credentials');
+      // Try to safely parse the response
+      let data;
+      try {
+        const responseText = await response.text();
+        console.log(`[${requestId}] Raw response text:`, responseText);
+        
+        try {
+          data = JSON.parse(responseText);
+          console.log(`[${requestId}] Parsed data:`, data);
+        } catch (parseError) {
+          console.error(`[${requestId}] JSON parse error:`, parseError);
+          data = { 
+            success: false, 
+            message: 'Could not parse response from server',
+            error: 'PARSE_ERROR',
+            rawResponse: responseText
+          };
+        }
+      } catch (textError) {
+        console.error(`[${requestId}] Error reading response text:`, textError);
+        data = { 
+          success: false, 
+          message: 'Error reading response from server',
+          error: 'RESPONSE_ERROR' 
+        };
       }
       
-      // Patient successfully authenticated
-      // Session is now handled server-side with secure cookies
-      const { patient, localStorage: localStorageData } = data;
+      if (!response.ok || data.success === false) {
+        console.error(`[${requestId}] Login error:`, data);
+        const errorMessage = data.message || 'Please check your email and password.';
+        const errorDetails = data.details || '';
+        const errorCode = data.error || 'UNKNOWN_ERROR';
+        
+        // Show appropriate error message based on error code
+        let toastMessage = 'Login failed';
+        let toastDescription = errorMessage;
+        
+        if (errorCode === 'USER_NOT_FOUND') {
+          toastMessage = 'Account not found';
+          toastDescription = 'No account exists with this email address. Please check your email or register first.';
+        } else if (errorCode === 'INVALID_PASSWORD') {
+          toastMessage = 'Incorrect password';
+          toastDescription = 'The password you entered is incorrect. Please try again.';
+        }
+        
+        // Show error toast
+        toast.error(toastMessage, {
+          description: toastDescription
+        });
+        
+        // Set error state instead of throwing
+        setError(errorMessage);
+        setIsLoading(false);
+        return;
+      } else if (data.presentationMode) {
+        // Handle presentation mode - this is the success path with token
+        console.log(`[${requestId}] Processing presentation mode response`);
+        
+        if (data.patient && data.token) {
+          console.log(`[${requestId}] Received presentation mode token and patient data`);
+          
+          // PRESENTATION MODE - Store token in localStorage instead of cookie
+          localStorage.setItem('auth_token', data.token);
+          sessionStorage.setItem('auth_token', data.token);
+          
+          // Continue with patient data processing below
+        } else {
+          toast.error('Invalid response format', {
+            description: 'The server returned an unexpected response format.'
+          });
+          throw new Error('Invalid response format from server');
+        }
+      }
       
-      // Store authentication data in localStorage for the dashboard
-      if (localStorageData) {
-        console.log('Storing authentication data in localStorage');
-        if (localStorageData.patientId) localStorage.setItem('patientId', localStorageData.patientId);
-        if (localStorageData.userEmail) localStorage.setItem('userEmail', localStorageData.userEmail);
-        if (localStorageData.medicalNumber) localStorage.setItem('medicalNumber', localStorageData.medicalNumber);
-      } else {
-        // Fallback to patient data if localStorage values not provided
-        if (patient?.id) localStorage.setItem('patientId', patient.id);
-        if (patient?.email) localStorage.setItem('userEmail', patient.email);
-        if (patient?.medicalNumber) localStorage.setItem('medicalNumber', patient.medicalNumber);
+      console.log(`[${requestId}] Login successful:`, { 
+        hasPatientData: !!data.patient,
+        hasToken: !!data.token,
+        medicalIdAvailable: !!(data.patient && data.patient.mrn)
+      });
+      
+      // Patient successfully authenticated
+      console.log('Login successful, clearing any stale data');
+      
+      // Ensure we're preserving the permanent medical ID from the mrn field
+      // This follows CentralHealth system rule for permanent medical ID preservation
+      if (data.patient && data.patient.mrn) {
+        localStorage.setItem('medicalNumber', data.patient.mrn);
+        sessionStorage.setItem('medicalNumber', data.patient.mrn);
+        console.log('Set permanent medical number to:', data.patient.mrn);
+      }
+      
+      // For presentation mode, extract data from API response
+      const { patient, token } = data;
+      
+      // Store essential authentication data in localStorage for the dashboard
+      console.log('Storing authentication data consistently');
+      
+      // Patient ID is permanent and must be preserved
+      if (patient?.id) {
+        localStorage.setItem('patientId', patient.id);
+        sessionStorage.setItem('patientId', patient.id);
+      }
+      
+      // Medical ID - use medicalId (from mrn) as the primary source
+      // This ensures we maintain a permanent medical ID as required by CentralHealth rules
+      if (patient?.medicalId) {
+        localStorage.setItem('medicalNumber', patient.medicalId);
+        sessionStorage.setItem('medicalNumber', patient.medicalId);
+      }
+      
+      // Store patient name for better UX
+      if (patient?.name) {
+        localStorage.setItem('patientName', patient.name);
+        sessionStorage.setItem('patientName', patient.name);
+      }
+      
+      // Store email for contact purposes
+      if (patient?.email) {
+        localStorage.setItem('userEmail', patient.email);
+        sessionStorage.setItem('userEmail', patient.email);
+      }
+
+      // Store presentation mode token for authentication
+      if (data.token) {
+        localStorage.setItem('auth_token', data.token);
+        sessionStorage.setItem('auth_token', data.token);
+        console.log('Stored presentation mode auth token');
       }
       
       // Log success with more details
       console.log("Patient login successful, redirecting to dashboard", {
         patientId: localStorage.getItem('patientId'),
         userEmail: localStorage.getItem('userEmail'),
-        hasMedicalNumber: !!patient?.medicalNumber
+        hasMedicalNumber: !!patient?.mrn, // Use mrn field as the permanent medical ID
+        presentationMode: true
       });
       
-      // DIRECT APPROACH: Create a form and submit it to force a server-side redirect
-      const form = document.createElement('form');
-      form.method = 'GET';
-      form.action = '/patient/dashboard';
+      // Show success message before redirect
+      toast.success('Login successful', {
+        description: 'Welcome to Central Health Patient Portal'
+      });
       
-      // Add a hidden timestamp field to prevent caching issues
-      const hiddenField = document.createElement('input');
-      hiddenField.type = 'hidden';
-      hiddenField.name = 'ts';
-      hiddenField.value = Date.now().toString();
-      form.appendChild(hiddenField);
-      
-      // Add the form to the body and submit it immediately
-      document.body.appendChild(form);
-      form.submit();
+      // Use a short timeout to allow the toast to display before redirecting
+      setTimeout(() => {
+        // DIRECT APPROACH: Create a form and submit it to force a server-side redirect
+        const form = document.createElement('form');
+        form.method = 'GET';
+        form.action = '/patient/dashboard';
+        
+        // Add a hidden timestamp field to prevent caching issues
+        const hiddenField = document.createElement('input');
+        hiddenField.type = 'hidden';
+        hiddenField.name = 'ts';
+        hiddenField.value = Date.now().toString();
+        form.appendChild(hiddenField);
+        
+        // Add the form to the body and submit it immediately
+        document.body.appendChild(form);
+        form.submit();
+      }, 1500);
       return;
     } catch (error: any) {
       console.error('Patient login error:', error);
@@ -196,8 +335,10 @@ export default function PatientLoginPage() {
                 <Heart className="h-8 w-8 text-primary" />
               </div>
             </div>
-            <CardTitle className="text-2xl font-bold">Patient Login</CardTitle>
-            <CardDescription>Access your health records and appointments</CardDescription>
+            <CardTitle className="text-2xl text-center">Welcome Back</CardTitle>
+            <CardDescription className="text-center">
+              Please enter your email address and password to access your health records
+            </CardDescription>
           </CardHeader>
           
           <CardContent className="p-6">
@@ -207,7 +348,7 @@ export default function PatientLoginPage() {
               </Alert>
             )}
             
-            {/* Login with phone number and password */}
+            {/* Login with email and password */}
             <div className="mb-6 space-y-4">
               <div className="relative">
                 <div className="absolute inset-0 flex items-center">
@@ -215,7 +356,7 @@ export default function PatientLoginPage() {
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
                   <span className="bg-card px-2 text-muted-foreground">
-                    Login with your phone number
+                    Login with your email
                   </span>
                 </div>
               </div>
@@ -223,34 +364,64 @@ export default function PatientLoginPage() {
             
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Email or Phone Number</Label>
+                <div className="grid w-full items-center gap-1.5">
+                  <Label htmlFor="email">Email Address</Label>
                   <Input
-                    id="phone"
-                    placeholder="Enter email or phone"
-                    type="text"
-                    value={formData.phone}
+                    type="email"
+                    id="email"
+                    placeholder="your.email@example.com"
+                    value={formData.email}
                     onChange={handleInputChange}
                     disabled={isLoading}
-                    className={validationErrors.identifier ? "border-destructive" : ""}
+                    required
                   />
                   {validationErrors.identifier && (
-                    <p className="text-xs font-medium text-destructive">{validationErrors.identifier}</p>
+                    <p className="text-sm text-red-600">{validationErrors.identifier}</p>
                   )}
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Enter your 8-digit phone number without the leading zero
-                  </p>
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="password" className="text-sm font-medium">Password</Label>
-                    <Link 
-                      href="/auth/forgot-password"
-                      className="text-xs text-primary hover:underline hover:text-primary/80 transition-colors"
-                    >
-                      Forgot Password?
-                    </Link>
+                    <p className="text-center text-sm text-muted-foreground">
+                      <button 
+                        type="button" 
+                        onClick={() => setShowForgotPassword(!showForgotPassword)} 
+                        className="text-primary hover:underline"
+                      >
+                        Forgot your password?
+                      </button>
+                    </p>
                   </div>
+                  
+                  {showForgotPassword && (
+                    <div className="mt-4 p-3 bg-muted/50 rounded-md border border-muted animate-fadeIn">
+                      <h4 className="font-medium text-sm mb-2">Password Reset Options:</h4>
+                      <ul className="list-disc pl-5 text-sm space-y-1 text-muted-foreground">
+                        <li>Use your email address above - we'll send a reset link</li>
+                        <li>Contact your hospital administrator</li>
+                      </ul>
+                      <div className="mt-3">
+                        <Button 
+                          type="button" 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => {
+                            const recoveryKey = sessionStorage.getItem('password_recovery_key');
+                            const email = formData.email.trim().toLowerCase();
+                            if (email) {
+                              // Redirect to password reset with recovery info
+                              router.push(`/auth/forgot-password?email=${encodeURIComponent(email)}${recoveryKey ? `&key=${recoveryKey}` : ''}`);
+                            } else {
+                              toast.error('Please enter your email address first');
+                            }
+                          }}
+                          className="w-full"
+                        >
+                          Reset My Password
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                   <Input
                     id="password"
                     type="password"
@@ -276,7 +447,7 @@ export default function PatientLoginPage() {
                   
                   <div className="space-y-2">
                     <p className="text-sm text-muted-foreground">
-                      Use your phone number and password to access your patient dashboard. If you've recently registered, you can use the phone number and password you provided during registration.
+                      Use your email address and password to access your patient dashboard. If you've recently registered, you can use the email address and password you provided during registration.
                     </p>
                     <p className="text-sm text-muted-foreground">
                       If you need assistance, please contact the hospital administration.
@@ -302,18 +473,13 @@ export default function PatientLoginPage() {
             </form>
           </CardContent>
           <CardFooter className="flex flex-col space-y-4 border-t p-6 bg-muted/20">
-            <div className="text-center text-sm">
-              <Link href="/admin/auth/login" className="text-primary hover:text-primary/80 transition-colors flex items-center justify-center">
-                <User className="mr-1.5 h-4 w-4" />
-                Staff Login
-              </Link>
-            </div>
             <div className="text-center text-sm text-muted-foreground">
               Don't have an account?{" "}
-              <Link href="/register" className="font-medium text-primary hover:text-primary/80 transition-colors hover:underline">
-                Register here
-              </Link>
-              {/* Removed Kinde Google registration link */}
+              <Button variant="outline" className="w-full" asChild>
+                <Link href="/register">
+                  Register with Email
+                </Link>
+              </Button>
             </div>
           </CardFooter>
         </Card>

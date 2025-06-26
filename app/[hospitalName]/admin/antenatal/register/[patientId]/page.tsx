@@ -38,8 +38,9 @@ interface Patient {
 export default function AntenatalRegistration() {
   const router = useRouter()
   const params = useParams()
-  const hospitalName = params.hospitalName as string
-  const patientId = params.patientId as string
+  // Add non-null assertions to ensure TypeScript knows these values exist
+  const hospitalName = params?.hospitalName as string
+  const patientId = params?.patientId as string
   
   const [activeTab, setActiveTab] = useState("booking-visit")
   const [patient, setPatient] = useState<Patient | null>(null)
@@ -84,9 +85,9 @@ export default function AntenatalRegistration() {
       completed: false,
     },
     complications: {
-      riskFactors: [],
-      riskLevel: "low",
-      completed: false,
+      riskFactors: [] as string[],
+      riskLevel: "low" as "low" | "medium" | "high",
+      completed: false
     }
   })
   

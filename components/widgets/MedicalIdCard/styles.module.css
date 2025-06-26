@@ -1,0 +1,189 @@
+.card {
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  background-color: #ffffff;
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.cardCompact {
+  flex-direction: row;
+  align-items: center;
+  padding: 0.75rem;
+  gap: 12px;
+  max-width: 320px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.cardCompact .header {
+  margin-bottom: 0;
+}
+
+.hospitalLogo {
+  height: 32px;
+  width: auto;
+}
+
+.cardTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #718096;
+  margin: 0;
+}
+
+.cardCompact .cardTitle {
+  font-size: 0.75rem;
+}
+
+.idContainer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 1rem 0;
+}
+
+.cardCompact .idContainer {
+  padding: 0;
+  flex: 1;
+  align-items: flex-start;
+}
+
+.idLabel {
+  font-size: 0.75rem;
+  color: #4a5568;
+  margin-bottom: 0.25rem;
+  font-weight: 500;
+}
+
+.medicalId {
+  font-size: 1.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #2d3748;
+  padding: 0.5rem 1rem;
+  background-color: #edf2f7;
+  border-radius: 4px;
+  display: inline-block;
+  text-align: center;
+  font-family: 'Courier New', monospace;
+  position: relative;
+}
+
+.cardCompact .medicalId {
+  font-size: 1.25rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.patientInfo {
+  margin-top: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.cardCompact .patientInfo {
+  margin-top: 0;
+  align-items: flex-start;
+}
+
+.patientName {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #2d3748;
+  margin-bottom: 0.25rem;
+}
+
+.cardCompact .patientName {
+  font-size: 0.875rem;
+}
+
+.registrationDate {
+  font-size: 0.75rem;
+  color: #718096;
+}
+
+.qrCodeContainer {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.cardCompact .qrCodeContainer {
+  display: none;
+}
+
+.qrCode {
+  width: 100px;
+  height: 100px;
+  background-color: #f7fafc;
+  padding: 0.5rem;
+  border-radius: 4px;
+}
+
+.watermark {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  opacity: 0.05;
+  font-size: 8rem;
+  line-height: 1;
+  font-weight: 900;
+  color: #2d3748;
+  transform: rotate(-10deg) translate(20%, 20%);
+  z-index: 1;
+  pointer-events: none;
+}
+
+.cardCompact .watermark {
+  display: none;
+}
+
+.content {
+  position: relative;
+  z-index: 2;
+}
+
+.loadingContainer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 120px;
+  width: 100%;
+}
+
+.loading {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #e2e8f0;
+  border-top-color: #3182ce;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.errorContainer {
+  padding: 1rem;
+  text-align: center;
+  color: #e53e3e;
+}

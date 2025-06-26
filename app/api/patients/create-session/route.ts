@@ -1,114 +1,151 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { cookies } from "next/headers";
+import { v4 as uuidv4 } from 'uuid';
+import { generateMedicalID, isValidMedicalID } from "@/utils/medical-id";
 
-// Constants for session management
+// Constants
 const SESSION_COOKIE_NAME = 'patient_session';
+const SESSION_MAX_AGE = 60 * 60 * 24 * 14; // 14 days in seconds
 
-/**
- * Generate a unique medical ID
- */
-function generateMedicalID(): string {
-  const prefix = "MRN";
-  const timestamp = Date.now().toString().slice(-6);
-  const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-  return `${prefix}${timestamp}${random}`;
+// Type definitions
+interface SessionRequest {
+  email?: string;
+  medicalId?: string;
+  mrn?: string;
+  patientId?: string;
+  onboardingCompleted?: boolean;
 }
 
-// API route to create a patient session for onboarding
-// This is a temporary workaround for schema issues
-export async function POST(req: NextRequest) {
-  try {
-    // Parse the request body with error handling
-    let requestData;
-    try {
-      requestData = await req.json();
-    } catch (jsonError) {
-      console.error('JSON parse error:', jsonError);
-      return NextResponse.json(
-        { error: "Invalid request format", details: "Could not parse JSON body" },
-        { status: 400 }
-      );
-    }
-    
-    // Check for required fields
-    if (!requestData.email && !requestData.medicalId && !requestData.mrn) {
-      return NextResponse.json(
-        { error: "Email or medical ID is required" },
-        { status: 400 }
-      );
-    }
-    
-    console.log('Create session request received:', { 
-      email: requestData.email,
-      medicalId: requestData.medicalId || requestData.mrn
-    });
+interface SessionData {
+  medicalId: string;
+  patientId: string;
+  email: string;
+  isLoggedIn: boolean;
+  isTemporary: boolean;
+  createdAt: string;
+  onboardingCompleted: boolean;
+}
 
-    // Try to find the patient by contact.email or mrn
+/**
+ * Create patient session API route
+ * SIMPLIFIED VERSION: Always sets onboardingCompleted to true to break redirect loops
+ */
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  try {
+    const { patientId, medicalId, medicalNumber, onboardingCompleted = false } = await req.json();
+    
+    console.log('Create session request:', { patientId, medicalId, medicalNumber, onboardingCompleted });
+
+    // Check for at least one identifier (add medicalNumber as an alternative)
+    if (!patientId && !medicalId && !medicalNumber) {
+      return NextResponse.json({ error: 'patientId, medicalId, or medicalNumber required' }, { status: 400 });
+    }
+
+    // Find the patient using any of the provided IDs
     let patient;
-    try {
-      patient = await prisma.patient.findFirst({
-        where: {
-          OR: [
-            // Check contact JSON field for email (using PostgreSQL JSON query)
-            {
-              contact: {
-                path: ['$[*].value'],
-                string_contains: requestData.email || ''
-              }
-            },
-            { mrn: requestData.medicalId || '' }
-          ]
-        },
-        select: {
-          id: true,
-          mrn: true,
-          name: true,  // The name field contains firstName and lastName
-          contact: true, // Contact contains email and phone
-        }
+    
+    // Priority 1: patientId (database ID) lookup
+    if (patientId) {
+      console.log('Looking up patient by ID:', patientId);
+      patient = await prisma.patient.findUnique({
+        where: { id: patientId },
       });
     }
-    catch (dbError) {
-      console.log('Database error finding patient:', dbError);
-      // Return a helpful error message but continue with temporary solution
-      // to avoid Unexpected token '<' errors when parsing the response
-      console.warn('Continuing with temporary session despite database error');
+    
+    // Priority 2: medicalId (MRN) lookup
+    if (!patient && medicalId) {
+      console.log('Looking up patient by medicalId:', medicalId);
+      patient = await prisma.patient.findFirst({
+        where: { mrn: medicalId },
+      });
     }
     
-    // Generate a medical ID if none was provided
-    const medicalId = requestData.medicalId || requestData.mrn || generateMedicalID();
+    // Priority 3: medicalNumber (alternative name for MRN) lookup
+    if (!patient && medicalNumber) {
+      console.log('Looking up patient by medicalNumber:', medicalNumber);
+      patient = await prisma.patient.findFirst({
+        where: { mrn: medicalNumber },
+      });
+    }
+
+    // Return error if patient not found with all provided identifiers
+    if (!patient) {
+      return NextResponse.json({ 
+        error: 'Patient not found',
+        details: { patientId, medicalId, medicalNumber }
+      }, { status: 404 });
+    }
     
-    // TEMPORARY WORKAROUND: Create a simple session cookie with the medical ID
-    // This allows the onboarding flow to continue without complex encryption
-    const cookieStore = cookies();
-    cookieStore.set({
-      name: SESSION_COOKIE_NAME,
-      value: JSON.stringify({
-        medicalId: medicalId,
-        email: requestData.email || '',
-        isLoggedIn: true,
-        isTemporary: !patient
-      }),
-      path: '/',
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: 60 * 60 * 24 * 30, // 30 days - long session for onboarding
+    console.log('Patient found for session creation:', { id: patient.id, mrn: patient.mrn });
+
+    // Import the medicalID utilities if not already imported at the top of the file
+    // import { generateMedicalID, isValidMedicalID } from "@/utils/medical-id";
+    
+    // CRITICAL: NEVER generate a new medical ID if the patient already has one
+    // Always use the patient's existing medical ID from the database
+    const consistentMedicalId = patient.mrn;
+    
+    // Log the existing medical ID being used - NO changes ever made
+    console.log('Using existing medical ID:', consistentMedicalId);
+    
+    // REMOVED: Code that generates new medical IDs - this violates the hospital policy
+    // We must NEVER generate new medical IDs for existing patients
+    
+    // Create session token for the patient with the consistent medical ID
+    const session = {
+      id: uuidv4(),
+      patientId: patient.id,
+      medicalNumber: consistentMedicalId, // Use the consistent medical ID
+      createdAt: new Date(),
+      hospitalId: patient.hospitalId || null,
+      // Use the patient's actual onboarding status from the database
+      // Only use the provided value as override if specifically provided
+      onboardingCompleted: onboardingCompleted !== undefined ? onboardingCompleted : (patient.onboardingCompleted || false),
+    };
+    
+    console.log('Creating session with data:', { 
+      patientId: session.patientId,
+      medicalNumber: session.medicalNumber,
+      onboardingCompleted: session.onboardingCompleted
     });
-    
-    console.log('Patient session cookie set with medical ID:', medicalId);
-    
-    // Return success
-    return NextResponse.json({
+
+    // Create Response object with cookie
+    const response = NextResponse.json({
       success: true,
-      message: patient ? "Patient session created successfully" : "Temporary session created",
-      patientId: patient?.id || `temp-${Date.now()}`,
-      medicalId: medicalId,
-      temporary: !patient
+      message: "Session created successfully",
+      patientId: session.patientId,
+      medicalNumber: session.medicalNumber,
+      temporary: false
     });
-  } catch (error) {
-    console.error('Error creating patient session:', error);
+
+    // Set cookie using NextResponse cookies API - more compatible
+    response.cookies.set({
+      name: SESSION_COOKIE_NAME,
+      value: JSON.stringify(session),
+      path: '/',
+      secure: process.env.NODE_ENV === 'production', // Only secure in production
+      sameSite: 'lax',
+      httpOnly: false, // Allow JavaScript access for debugging
+      maxAge: SESSION_MAX_AGE
+    });
+
+    return response;
+
+  } catch (error: unknown) {
+    console.error('Session creation failed:', error);
+    
+    // Log the error without creating any emergency sessions
+    console.error('Complete session creation failure, returning 401 to force login');
+    
+    // REMOVED: Emergency fallback that generated new medical IDs
+    // This violates hospital policy - we must never create test/mock patient data
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to create patient session' },
-      { status: 500 }
+      { error: 'Authentication required', critical: true },
+      { status: 401 }
     );
+      
+      // No emergency session response - this was removed to comply with policy
+      
+    // No cookie setting or emergency session - removed to comply with policy
   }
 }

@@ -1,0 +1,205 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "node_modules/.prisma/client"
+  // Standard output path for easier imports
+  // previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+model AntenatalRecord {
+  id                                         String          @id @default(uuid())
+  patientId                                  String
+  hospitalId                                 String
+  gestationalAge                             Int
+  nextAppointment                            DateTime?
+  riskLevel                                  RiskLevel       @default(LOW)
+  status                                     AntenatalStatus @default(ACTIVE)
+  trimester                                  Int             @default(1)
+  lastVisitDate                              DateTime?
+  expectedDueDate                            DateTime
+  mrn                                        String?         @unique // Medical Record Number - permanent patient identifier
+  ultrasoundReports                          Json?
+  labResults                                 Json?
+  createdAt                                  DateTime        @default(now())
+  updatedAt                                  DateTime
+  createdByUserId                            String
+  updatedByUserId                            String
+  User_AntenatalRecord_createdByUserIdToUser User            @relation("AntenatalRecord_createdByUserIdToUser", fields: [createdByUserId], references: [id])
+  Hospital                                   Hospital        @relation(fields: [hospitalId], references: [id])
+  Patient                                    Patient         @relation(fields: [patientId], references: [id])
+  User_AntenatalRecord_updatedByUserIdToUser User            @relation("AntenatalRecord_updatedByUserIdToUser", fields: [updatedByUserId], references: [id])
+
+  @@index([hospitalId])
+  @@index([patientId])
+  @@index([riskLevel])
+  @@index([status])
+}
+
+model Appointment {
+  id        String   @id @default(uuid())
+  patientId String
+  doctorId  String
+  date      DateTime
+  status    String
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime
+  User      User     @relation(fields: [doctorId], references: [id])
+  Patient   Patient  @relation(fields: [patientId], references: [id])
+}
+
+model Hospital {
+  id              String            @id @default(uuid())
+  name            String
+  subdomain       String            @unique
+  description     String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime
+  settings        Json
+  branding        Json?
+  AntenatalRecord AntenatalRecord[]
+  NeonatalRecord  NeonatalRecord[]
+  Patient         Patient[]
+  User            User[]
+}
+
+model MedicalRecord {
+  id        String   @id @default(uuid())
+  patientId String
+  doctorId  String
+  type      String
+  details   Json
+  date      DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime
+  User      User     @relation(fields: [doctorId], references: [id])
+  Patient   Patient  @relation(fields: [patientId], references: [id])
+}
+
+model NeonatalRecord {
+  id                                        String           @id @default(uuid())
+  patientId                                 String
+  hospitalId                                String
+  birthWeight                               Float
+  gestationalAgeAtBirth                     Int
+  careLevel                                 CareLevel        @default(NORMAL)
+  status                                    NeonatalStatus   @default(ACTIVE)
+  dischargeStatus                           DischargeStatus?
+  apgarScore                                Int?
+  motherId                                  String?
+  birthComplications                        String?
+  mrn                                        String?         @unique // Medical Record Number - permanent patient identifier
+  feedingMethod                             String?
+  createdAt                                 DateTime         @default(now())
+  updatedAt                                 DateTime
+  createdByUserId                           String
+  updatedByUserId                           String
+  User_NeonatalRecord_createdByUserIdToUser User             @relation("NeonatalRecord_createdByUserIdToUser", fields: [createdByUserId], references: [id])
+  Hospital                                  Hospital         @relation(fields: [hospitalId], references: [id])
+  Patient_NeonatalRecord_motherIdToPatient  Patient?         @relation("NeonatalRecord_motherIdToPatient", fields: [motherId], references: [id])
+  Patient_NeonatalRecord_patientIdToPatient Patient          @relation("NeonatalRecord_patientIdToPatient", fields: [patientId], references: [id])
+  User_NeonatalRecord_updatedByUserIdToUser User             @relation("NeonatalRecord_updatedByUserIdToUser", fields: [updatedByUserId], references: [id])
+
+  @@index([careLevel])
+  @@index([hospitalId])
+  @@index([motherId])
+  @@index([patientId])
+  @@index([status])
+}
+
+model Patient {
+  id                                               String            @id @default(uuid())
+  mrn                                              String?           @unique // Medical Record Number - permanent patient identifier
+  name                                             String
+  dateOfBirth                                      DateTime
+  gender                                           String
+  contact                                          Json
+  medicalHistory                                   Json?
+  createdAt                                        DateTime          @default(now())
+  updatedAt                                        DateTime
+  hospitalId                                       String
+  onboardingCompleted                              Boolean           @default(true)
+  AntenatalRecord                                  AntenatalRecord[]
+  Appointment                                      Appointment[]
+  MedicalRecord                                    MedicalRecord[]
+  NeonatalRecord_NeonatalRecord_motherIdToPatient  NeonatalRecord[]  @relation("NeonatalRecord_motherIdToPatient")
+  NeonatalRecord_NeonatalRecord_patientIdToPatient NeonatalRecord[]  @relation("NeonatalRecord_patientIdToPatient")
+  Hospital                                         Hospital          @relation(fields: [hospitalId], references: [id])
+  User                                             User[]            @relation("DoctorPatients")
+  PasswordReset                                    PasswordReset[]
+}
+
+model User {
+  id                                                    String            @id @default(uuid())
+  email                                                 String            @unique
+  password                                              String
+  name                                                  String?
+  role                                                  String
+  createdAt                                             DateTime          @default(now())
+  updatedAt                                             DateTime
+  hospitalId                                            String
+  AntenatalRecord_AntenatalRecord_createdByUserIdToUser AntenatalRecord[] @relation("AntenatalRecord_createdByUserIdToUser")
+  AntenatalRecord_AntenatalRecord_updatedByUserIdToUser AntenatalRecord[] @relation("AntenatalRecord_updatedByUserIdToUser")
+  Appointment                                           Appointment[]
+  MedicalRecord                                         MedicalRecord[]
+  NeonatalRecord_NeonatalRecord_createdByUserIdToUser   NeonatalRecord[]  @relation("NeonatalRecord_createdByUserIdToUser")
+  NeonatalRecord_NeonatalRecord_updatedByUserIdToUser   NeonatalRecord[]  @relation("NeonatalRecord_updatedByUserIdToUser")
+  Hospital                                              Hospital          @relation(fields: [hospitalId], references: [id])
+  Patient                                               Patient[]         @relation("DoctorPatients")
+  PasswordReset                                         PasswordReset[]
+}
+
+// New model for password reset functionality
+model PasswordReset {
+  id          String    @id @default(uuid())
+  token       String    @unique
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
+  userId      String?
+  user        User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  patientId   String?
+  patient     Patient?  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  email       String
+  usedAt      DateTime?
+  
+  @@index([token])
+  @@index([userId])
+  @@index([patientId])
+  @@index([email])
+}
+
+enum AntenatalStatus {
+  ACTIVE
+  COMPLETED
+  REFERRED
+  TRANSFERRED
+}
+
+enum CareLevel {
+  NORMAL
+  INTENSIVE
+  CRITICAL
+}
+
+enum DischargeStatus {
+  READY
+  NOT_READY
+}
+
+enum NeonatalStatus {
+  ACTIVE
+  DISCHARGED
+  TRANSFERRED
+  DECEASED
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}

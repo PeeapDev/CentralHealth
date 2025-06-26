@@ -19,7 +19,158 @@ class DatabaseStorage {
 
   // Hospitals
   async getHospitals(): Promise<Hospital[]> {
-    return this.getData<Hospital>("hospitals")
+    const hospitals = this.getData<Hospital>("hospitals");
+    
+    // Auto-initialize demo hospital data if none exists
+    if (hospitals.length === 0) {
+      console.log('No hospitals found, initializing demo hospitals');
+      const demoHospitals: Hospital[] = [
+        {
+          _id: '1',
+          name: 'Central Hospital',
+          slug: 'central',
+          subdomain: 'central',
+          admin_email: 'admin@central.com',
+          contact: {
+            email: 'info@central.com',
+            phone: '+1-555-123-4567',
+            address: {
+              street: '123 Main St',
+              city: 'New York',
+              state: 'NY',
+              zipCode: '10001',
+              country: 'USA',
+            }
+          },
+          subscription: {
+            package: 'enterprise',
+            status: 'active',
+            startDate: new Date(),
+            endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year
+            maxUsers: 50,
+            maxPatients: 5000,
+            features: ['all']
+          },
+          settings: {
+            timezone: 'America/New_York',
+            currency: 'USD',
+            language: 'en',
+            branches: [{
+              name: 'Main Branch',
+              address: {location: '123 Main St'},
+              phone: '+1-555-123-4567',
+              isMain: true
+            }],
+            modules: [{
+              name: 'all',
+              enabled: true,
+              config: {}
+            }]
+          },
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          isActive: true
+        },
+        {
+          _id: '2',
+          name: 'Memorial Hospital',
+          slug: 'memorial',
+          subdomain: 'memorial',
+          admin_email: 'admin@memorial.com',
+          contact: {
+            email: 'info@memorial.com',
+            phone: '+1-555-456-7890',
+            address: {
+              street: '456 Park Ave',
+              city: 'Boston',
+              state: 'MA',
+              zipCode: '02108',
+              country: 'USA',
+            }
+          },
+          subscription: {
+            package: 'standard',
+            status: 'active',
+            startDate: new Date(),
+            endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year
+            maxUsers: 20,
+            maxPatients: 2000,
+            features: ['basic', 'standard']
+          },
+          settings: {
+            timezone: 'America/New_York',
+            currency: 'USD',
+            language: 'en',
+            branches: [{
+              name: 'Main Branch',
+              address: {location: '456 Park Ave'},
+              phone: '+1-555-456-7890',
+              isMain: true
+            }],
+            modules: [{
+              name: 'all',
+              enabled: true,
+              config: {}
+            }]
+          },
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          isActive: true
+        },
+        {
+          _id: '3',
+          name: 'Community Medical Center',
+          slug: 'community',
+          subdomain: 'community',
+          admin_email: 'admin@community.com',
+          contact: {
+            email: 'info@community.com',
+            phone: '+1-555-789-0123',
+            address: {
+              street: '789 Oak St',
+              city: 'Chicago',
+              state: 'IL',
+              zipCode: '60007',
+              country: 'USA',
+            }
+          },
+          subscription: {
+            package: 'basic',
+            status: 'active',
+            startDate: new Date(),
+            endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000), // 1 year
+            maxUsers: 10,
+            maxPatients: 1000,
+            features: ['basic']
+          },
+          settings: {
+            timezone: 'America/Chicago',
+            currency: 'USD',
+            language: 'en',
+            branches: [{
+              name: 'Main Branch',
+              address: {location: '789 Oak St'},
+              phone: '+1-555-789-0123',
+              isMain: true
+            }],
+            modules: [{
+              name: 'all',
+              enabled: true,
+              config: {}
+            }]
+          },
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          isActive: true
+        },
+      ];
+      
+      // Save demo hospitals
+      this.setData('hospitals', demoHospitals);
+      return demoHospitals;
+    }
+    
+    return hospitals;
   }
 
   async getHospitalBySlug(slug: string): Promise<Hospital | null> {
@@ -42,7 +193,43 @@ class DatabaseStorage {
 
   // Users
   async getUsers(hospitalId: string): Promise<User[]> {
-    return this.getData<User>(this.getStorageKey("users", hospitalId))
+    const users = this.getData<User>(this.getStorageKey("users", hospitalId));
+    
+    // Auto-initialize demo admin user if no users exist for this hospital
+    if (users.length === 0) {
+      console.log(`No users found for hospital ${hospitalId}, initializing demo admin user`);
+      
+      // Get hospital info for email
+      const hospitals = await this.getHospitals();
+      const hospital = hospitals.find(h => h._id === hospitalId || h.slug === hospitalId);
+      
+      if (hospital) {
+        const demoAdmin: User = {
+          _id: `admin-${hospitalId}`,
+          hospitalId: hospitalId,
+          firstName: 'Admin',
+          lastName: 'User',
+          email: hospital.admin_email || `admin@${hospital.slug}.com`,
+          password: '$2a$10$rRsdM7NaOhC3jm5tQB9pAu88nNhKTGJnYqQGQD.SlzTYIdbIEeDpq', // bcrypt hash for 'admin123'
+          role: 'admin',
+          permissions: ['all'],
+          profile: {
+            employeeId: 'EMP001',
+          },
+          isActive: true,
+          isVerified: true,
+          lastLoginAt: new Date(),
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        
+        // Save demo admin user
+        this.setData(this.getStorageKey("users", hospitalId), [demoAdmin]);
+        return [demoAdmin];
+      }
+    }
+    
+    return users;
   }
 
   async getUserByEmail(hospitalId: string, email: string): Promise<User | null> {

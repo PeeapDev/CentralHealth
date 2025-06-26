@@ -1,13 +1,14 @@
 import { redirect } from 'next/navigation'
 
-// For Next.js 15.2.4, use an async component to properly handle dynamic params
+// Next.js 15.2.4+ requires careful handling of dynamic params
 export default async function HospitalPage({
   params,
 }: {
   params: { hospitalName: string }
 }) {
-  // In Next.js 15.2.4, dynamic params must be properly awaited
-  const hospitalName = await Promise.resolve(params.hospitalName)
+  // Don't use Promise.resolve on params - this causes the error
+  // Instead directly use the params in the async component
+  const { hospitalName } = params;
   
   // Redirect from hospital root to hospital home page
   if (hospitalName) {

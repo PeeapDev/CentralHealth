@@ -1,0 +1,266 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { cookies } from "next/headers";
+
+// Constants
+const SESSION_COOKIE_NAME = 'patient_session';
+const SESSION_MAX_AGE = 60 * 60 * 24 * 14; // 14 days in seconds
+
+// Type definitions
+interface SessionRequest {
+  email?: string;
+  medicalId?: string;
+  mrn?: string;
+  // Add explicit onboarding status to allow it to be passed from the client
+  onboardingCompleted?: boolean;
+}
+
+interface SessionData {
+  medicalId: string;
+  email: string;
+  isLoggedIn: boolean;
+  isTemporary: boolean;
+  createdAt: string;
+  // Add onboarding status to the session data
+  onboardingCompleted: boolean;
+}
+
+interface PatientResponse {
+  id: string;
+  mrn: string;
+  name: string | null;
+  // Use any type for contact to handle both string and JSON
+  contact: any;
+  // Added onboardingCompleted status - may not exist in database yet
+  onboardingCompleted?: boolean;
+  // Add medicalHistory to support extraction of onboarding status as fallback
+  // Using any to handle both string and JSON from Prisma
+  medicalHistory?: any;
+}
+
+// For the case where onboardingCompleted doesn't exist in database
+interface PartialPatientResponse {
+  id: string;
+  mrn: string;
+  name: string | null;
+  contact: any;
+  medicalHistory?: any;
+}
+
+/**
+ * Generate a unique medical ID
+ */
+function generateMedicalID(): string {
+  const prefix = "MRN";
+  const timestamp = Date.now().toString().slice(-6);
+  const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+  return `${prefix}${timestamp}${random}`;
+}
+
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  try {
+    // Parse and validate request
+    const requestData: SessionRequest = await req.json().catch(() => {
+      throw new Error("Invalid JSON format");
+    });
+
+    if (!requestData.email && !requestData.medicalId && !requestData.mrn) {
+      return NextResponse.json(
+        { error: "At least one of email, medicalId, or mrn is required" },
+        { status: 400 }
+      );
+    }
+
+    console.log('Create session request:', {
+      email: requestData.email,
+      medicalId: requestData.medicalId || requestData.mrn
+    });
+
+    // Try to find patient
+    let patient: PatientResponse | null = null;
+    try {
+      const whereClause = requestData.email 
+        ? {
+            OR: [
+              { contact: { path: ['$[*].value'], string_contains: requestData.email } },
+              { mrn: requestData.medicalId || requestData.mrn || '' }
+            ]
+          }
+        : { mrn: requestData.medicalId || requestData.mrn || '' };
+
+      // Enhanced patient lookup to get onboardingCompleted status
+      // Logging the query to debug issues
+      console.log('Patient lookup query:', JSON.stringify(whereClause));
+      
+      try {
+        // First try with onboardingCompleted included
+        patient = await prisma.patient.findFirst({
+          where: whereClause,
+          select: {
+            id: true,
+            mrn: true,
+            name: true,
+            contact: true,
+            onboardingCompleted: true,
+            medicalHistory: true
+          }
+        });
+      } catch (dbFieldError) {
+        // If onboardingCompleted field doesn't exist, try without it
+        console.warn('Could not query with onboardingCompleted, field may not exist in database:', dbFieldError);
+        
+        // Use proper interface when field is missing
+        const partialPatient = await prisma.patient.findFirst({
+          where: whereClause,
+          select: {
+            id: true,
+            mrn: true,
+            name: true,
+            contact: true,
+            medicalHistory: true
+          }
+        }) as PartialPatientResponse | null;
+        
+        if (partialPatient) {
+          // Convert to PatientResponse with default onboardingCompleted
+          const patientWithStatus: PatientResponse = {
+            ...partialPatient,
+            onboardingCompleted: true // Default to true
+          };
+          
+          // Try to extract from medicalHistory if available
+          if (partialPatient.medicalHistory) {
+            try {
+              // Handle both string and pre-parsed JSON
+              const medicalData = typeof partialPatient.medicalHistory === 'string' ? 
+                JSON.parse(partialPatient.medicalHistory) : 
+                partialPatient.medicalHistory;
+                
+              if (medicalData && 'onboardingCompleted' in medicalData) {
+                patientWithStatus.onboardingCompleted = !!medicalData.onboardingCompleted;
+                console.log('Found onboardingCompleted in medicalHistory JSON:', patientWithStatus.onboardingCompleted);
+              }
+            } catch (e) {
+              console.error('Failed to parse medicalHistory JSON:', e);
+            }
+          }
+          
+          patient = patientWithStatus;
+        }
+      }
+      
+      console.log('Patient lookup result:', {
+        found: !!patient,
+        name: patient?.name,
+        medicalId: patient?.mrn,
+        onboardingCompleted: patient?.onboardingCompleted,
+      });
+    } catch (dbError) {
+      console.error('Database error:', dbError);
+      // Continue with temporary session
+    }
+
+    // Determine medical ID (use existing, provided, or generate new)
+    const medicalId = patient?.mrn || requestData.medicalId || requestData.mrn || generateMedicalID();
+
+    // Check for onboarding status in medicalHistory as fallback
+    let onboardingCompletedFromMedicalHistory = false;
+    if (patient?.medicalHistory) {
+      try {
+        // Handle both string and pre-parsed JSON
+        const medicalData = typeof patient.medicalHistory === 'string' ? 
+          JSON.parse(patient.medicalHistory) : 
+          patient.medicalHistory;
+          
+        onboardingCompletedFromMedicalHistory = !!medicalData.onboardingCompleted;
+        console.log('Extracted onboardingCompleted from medicalHistory:', {
+          medicalDataType: typeof medicalData,
+          onboardingCompleted: onboardingCompletedFromMedicalHistory,
+          rawValue: medicalData.onboardingCompleted
+        });
+      } catch (e) {
+        console.error('Failed to process medicalHistory:', e);
+      }
+    }
+    
+    // Determine final onboarding status, with enhanced logging
+    const onboardingCompleted = 
+      // Priority 1: Explicit request parameter
+      requestData.onboardingCompleted !== undefined ? requestData.onboardingCompleted : 
+      // Priority 2: Direct field in patient record
+      (patient?.onboardingCompleted !== undefined && patient?.onboardingCompleted !== null) ? patient.onboardingCompleted :
+      // Priority 3: From medicalHistory JSON
+      onboardingCompletedFromMedicalHistory ? true :
+      // Default if nothing else available
+      false;
+      
+    // Create session data with enhanced onboarding status determination
+    const sessionData: SessionData = {
+      medicalId,
+      email: requestData.email || extractEmailFromContact(patient?.contact) || '',
+      isLoggedIn: true,
+      isTemporary: !patient,
+      createdAt: new Date().toISOString(),
+      onboardingCompleted
+    };
+    
+    console.log('Created session with onboardingCompleted:', {
+      requestParam: requestData.onboardingCompleted,
+      patientRecord: patient?.onboardingCompleted,
+      medicalHistoryStatus: onboardingCompletedFromMedicalHistory,
+      finalValue: sessionData.onboardingCompleted,
+      patientId: patient?.id || 'none'
+    });
+
+    // CRITICAL FIX: Set cookie with development-compatible settings
+    const cookieStore = cookies();
+    cookieStore.set({
+      name: SESSION_COOKIE_NAME,
+      value: JSON.stringify(sessionData),
+      path: '/',
+      // Must be false in dev environment to work without HTTPS
+      secure: false,
+      sameSite: 'lax',
+      // Setting httpOnly to false in development allows debugging
+      httpOnly: false,
+      maxAge: SESSION_MAX_AGE,
+    });
+
+    console.log('Session created:', {
+      patientId: patient?.id || `temp-${Date.now()}`,
+      medicalId,
+      isTemporary: !patient
+    });
+
+    return NextResponse.json({
+      success: true,
+      message: patient ? "Session created" : "Temporary session created",
+      patientId: patient?.id || `temp-${Date.now()}`,
+      medicalId,
+      temporary: !patient
+    });
+
+  } catch (error: unknown) {
+    console.error('Session creation failed:', error);
+    return NextResponse.json(
+      { 
+        error: error instanceof Error ? error.message : 'Internal server error',
+        details: process.env.NODE_ENV === 'development' ? String(error) : undefined
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// Helper function to extract email from contact info
+function extractEmailFromContact(contact: string | null): string {
+  if (!contact) return '';
+  try {
+    const contactData = JSON.parse(contact) as Array<{ system?: string; value?: string }>;
+    const emailEntry = contactData.find(entry => entry.system === 'email');
+    return emailEntry?.value || '';
+  } catch (error) {
+    console.error('Error parsing contact:', error);
+    return '';
+  }
+}

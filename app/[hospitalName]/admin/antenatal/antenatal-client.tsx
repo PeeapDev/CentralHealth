@@ -57,6 +57,16 @@ export default function AntenatalClient({ hospitalName }: AntenatalClientProps) 
             const data = JSON.parse(responseText);
             console.log('Antenatal API response:', data);
             
+            // Update stats with the nested structure
+            if (data.stats) {
+              setStats({
+                totalPatients: data.stats.totalPatients || 0,
+                activePatients: data.stats.activePatients || 0,
+                newRegistrations: data.stats.newRegistrations || 0,
+                upcomingAppointments: data.stats.upcomingAppointments || 0
+              });
+            }
+            
             // Safely set patients with validation
             if (Array.isArray(data.patients)) {
               // Ensure each patient has required fields for rendering
@@ -67,9 +77,27 @@ export default function AntenatalClient({ hospitalName }: AntenatalClientProps) 
                 age: patient.age || 0,
                 gestationalAge: patient.gestationalAge || 0,
                 nextAppointment: patient.nextAppointment || null,
-                riskLevel: patient.riskLevel?.toLowerCase() || 'low',
-                status: patient.status?.toLowerCase() || 'active',
-                trimester: patient.trimester || 1,
+                // Ensure riskLevel is one of the allowed values in the type definition
+                riskLevel: ((): "low" | "medium" | "high" => {
+                  const riskValue = patient.riskLevel?.toLowerCase() || '';
+                  if (riskValue === "medium" || riskValue === "high") return riskValue;
+                  return "low"; // Default value
+                })(),
+                // Ensure status is one of the allowed values in the type definition
+                status: ((): "active" | "completed" | "referred" | "transferred" => {
+                  const statusValue = patient.status?.toLowerCase() || '';
+                  if (["completed", "referred", "transferred"].includes(statusValue)) {
+                    return statusValue as "completed" | "referred" | "transferred";
+                  }
+                  return "active"; // Default value
+                })(),
+                // Ensure trimester is one of the allowed values (1, 2, or 3)
+                trimester: ((): 1 | 2 | 3 => {
+                  const trimesterValue = parseInt(String(patient.trimester || 1), 10);
+                  if (trimesterValue === 2) return 2;
+                  if (trimesterValue === 3) return 3;
+                  return 1; // Default to first trimester if invalid
+                })(),
                 imageUrl: patient.imageUrl || undefined,
                 expectedDueDate: patient.expectedDueDate || null
               }));

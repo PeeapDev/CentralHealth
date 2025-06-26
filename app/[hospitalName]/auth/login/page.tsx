@@ -131,14 +131,20 @@ export default function HospitalLoginPage() {
       }
 
       // Login successful - store the token in local storage and cookies
+      // Log successful login data for debugging
+      console.log('Login successful, received data:', data);
+      
+      // Store auth data with proper structure
       localStorage.setItem(
         "auth",
         JSON.stringify({
           user: {
             email: formData.email,
             role: data.data.user.role,
-            hospitalId: hospital?.id,
-            hospitalSlug: hospital?.subdomain,
+            id: data.data.user.id, // Include user ID
+            hospitalId: data.data.user.hospital.id, // Use API-provided hospital ID
+            hospitalSlug: data.data.user.hospital.slug, // Use API-provided hospital slug
+            hospitalName: data.data.user.hospital.name, // Use API-provided hospital name
             name: data.data.user.name || 'Hospital Admin',
             isLoggedIn: true,
           },
@@ -146,7 +152,13 @@ export default function HospitalLoginPage() {
           expiry: new Date().getTime() + 24 * 60 * 60 * 1000, // 24 hours
         }),
       )
-      router.push(`/${hospital?.subdomain}/admin`)
+
+      // Add token to cookies for API access
+      document.cookie = `auth_token=${data.data.token}; path=/; max-age=${24 * 60 * 60}; SameSite=Lax`;
+      
+      // Navigate to admin dashboard with the correct hospital slug
+      const targetSlug = data.data.user.hospital.slug || hospital?.subdomain;
+      router.push(`/${targetSlug}/admin`)
     } catch (error) {
       console.error('Login error:', error);
       setError(error instanceof Error ? error.message : 'Login failed. Please check your credentials.');

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -8,12 +8,21 @@ import { Label } from "@/components/ui/label"
 import Link from "next/link"
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
+import { storePatientCredentials, isPatientLoggedIn } from "@/lib/patient-auth"
 
 export default function PatientLoginPage() {
   const router = useRouter()
   const [medicalNumber, setMedicalNumber] = useState("")
   const [email, setEmail] = useState("")
   const [loading, setLoading] = useState(false)
+  
+  // Check if already logged in
+  useEffect(() => {
+    if (isPatientLoggedIn()) {
+      // User is already logged in, redirect to patient dashboard
+      router.push("/patient")
+    }
+  }, [])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -26,19 +35,20 @@ export default function PatientLoginPage() {
         return
       }
 
-      // For testing purposes, we'll store the medical number in localStorage
-      localStorage.setItem("medicalNumber", medicalNumber)
+      // Use our centralized auth utility to store credentials consistently
+      const stored = storePatientCredentials(medicalNumber, email)
       
-      // Store a patient name for display purposes
-      localStorage.setItem("patientName", email ? email.split('@')[0] : "Test Patient")
-
-      toast.success("Login successful")
-
-      // Redirect to the patient dashboard
-      router.push("/patient/dashboard")
+      if (stored) {
+        toast.success("Login successful")
+        
+        // Redirect to the patient dashboard
+        router.push("/patient")
+      } else {
+        toast.error("Failed to store credentials. Please try again.")
+      }
     } catch (error) {
       console.error("Login error:", error)
-      toast.error("An error occurred")
+      toast.error("Invalid credentials. Please try again.")
     } finally {
       setLoading(false)
     }

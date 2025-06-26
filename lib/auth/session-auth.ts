@@ -1,52 +1,101 @@
+// Using the non-promise version of cookies() from next/headers
+// This is important for middleware which runs synchronously
 import { cookies } from 'next/headers';
-import { verifyToken, JWTPayload } from './jwt';
 
-// Extend the JWTPayload to include patient-specific properties
-interface PatientJWTPayload extends JWTPayload {
-  patientId?: string;
-  name?: string;
-  onboardingCompleted?: boolean;
-  // Add other patient-specific fields as needed
+/**
+ * Interface for our session data structure from the create-session API
+ */
+interface PatientSession {
+  medicalId: string;
+  email?: string;
+  isLoggedIn: boolean;
+  isTemporary?: boolean;
+  createdAt?: string;
+  onboardingCompleted?: boolean; // Added to match the API's session data structure
 }
 
 /**
- * Get the authenticated patient from the session
- * @returns The patient data if authenticated, null otherwise
+ * Patient information returned from session authentication
  */
-export async function getPatientFromSession() {
+interface PatientAuthInfo {
+  id: string;
+  medicalId: string;
+  email?: string;
+  name?: string;
+  authenticated: boolean;
+  onboardingCompleted: boolean;
+}
+
+/**
+ * Gets the authenticated patient from the session cookie.
+ * Uses the JSON session cookie format from the create-session API.
+ * 
+ * @returns The patient data object if authenticated, null otherwise
+ */
+export function getPatientFromSession(): PatientAuthInfo | null {
   try {
-    // Get the cookie store and handle it as a promise if needed
+    // Get the cookies store - handling both synchronous and asynchronous cases
     const cookieStore = cookies();
-    // Since cookieStore is not a promise in the latest Next.js, this works without await
-    const sessionCookie = cookieStore.get('patient_session');
+    // Check if cookies() returned a promise (middleware context) or direct object
+    let sessionCookie;
+    let cookieValue;
     
-    if (!sessionCookie || !sessionCookie.value) {
-      return null;
-    }
-    
-    // Verify the JWT token from the cookie
-    try {
-      const payload = await verifyToken(sessionCookie.value) as PatientJWTPayload;
-      
-      // Check if this is a patient token (not an admin/staff token)
-      if (!payload || !payload.patientId) {
+    // Handle both sync and async cookie stores
+    if ('get' in cookieStore) {
+      try {
+        // Direct access (synchronous) with proper type casting
+        const typedCookieStore = cookieStore as { get(name: string): { value: string } | undefined };
+        sessionCookie = typedCookieStore.get('patient_session');
+        cookieValue = sessionCookie?.value;
+      } catch (e) {
+        console.error('Error accessing cookie:', e);
         return null;
       }
-      
-      // Return the patient data from the token payload
-      return {
-        id: payload.patientId,
-        name: payload.name,
-        onboardingCompleted: payload.onboardingCompleted || false,
-        authenticated: true,
-        ...payload
-      };
-    } catch (jwtError) {
-      console.error('Invalid or expired JWT token:', jwtError);
+    } else {
+      // This is likely a Promise - we can't await in middleware
+      // Instead, we'll use localStorage as fallback for compatibility
+      console.log('Cookie store is not directly accessible, using fallback');
       return null;
     }
+    
+    // No cookie value means no session
+    if (!cookieValue) {
+      console.log('No patient session cookie found');
+      return null;
+    }
+    
+    // Try to parse the cookie as JSON
+    try {
+      const sessionData = JSON.parse(cookieValue) as PatientSession;
+      
+      // Validate the session data has a medical ID which is our identifier
+      if (sessionData?.medicalId) {
+        console.log('Valid patient session found with medical ID:', sessionData.medicalId);
+        
+        // Use the actual onboardingCompleted status from the session
+        // This is critical because the middleware checks for this property
+        const isOnboardingCompleted = sessionData.onboardingCompleted === true;
+        
+        console.log('Session onboardingCompleted status:', {
+          fromSession: sessionData.onboardingCompleted,
+          finalValue: isOnboardingCompleted
+        });
+        
+        return {
+          id: sessionData.medicalId,
+          medicalId: sessionData.medicalId,
+          email: sessionData.email || '',
+          authenticated: true,
+          onboardingCompleted: isOnboardingCompleted
+        };
+      }
+    } catch (error) {
+      console.error('Error parsing session cookie:', error);
+    }
+    
+    return null;
   } catch (error) {
-    console.error('Error getting patient from session:', error);
+    console.error('Error accessing patient session:', error);
     return null;
   }
 }

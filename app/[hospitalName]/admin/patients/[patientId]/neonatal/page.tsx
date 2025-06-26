@@ -10,6 +10,35 @@ import { AlertCircle, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { NeonatalForm } from "@/components/neonatal/neonatal-form";
 import { Badge } from "@/components/ui/badge";
+import { JsonValue } from "@prisma/client/runtime/library";
+
+// Patient data interface
+interface PatientData {
+  id: string;
+  name?: string | { text?: string; given?: string[]; family?: string }[];
+  medicalNumber?: string;
+  mrn?: string;
+  dateOfBirth?: string | Date;
+  gender?: string;
+  contact?: JsonValue;
+  medicalHistory?: JsonValue;
+  onboardingCompleted?: boolean;
+  User?: { name?: string; photo?: string };
+  [key: string]: any; // For backward compatibility with other fields
+}
+
+// Neonatal data interface
+interface NeonatalData {
+  birthWeight?: number;
+  birthLength?: number;
+  headCircumference?: number;
+  gestationalAgeAtBirth?: number;
+  apgarScore?: number;
+  delivery?: string;
+  complications?: string[];
+  notes?: string;
+  [key: string]: any; // For backward compatibility with other fields
+}
 
 export default function NeonatalPage() {
   const params = useParams();
@@ -18,8 +47,8 @@ export default function NeonatalPage() {
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [patientData, setPatientData] = useState<any>(null);
-  const [neonatalData, setNeonatalData] = useState<any>(null);
+  const [patientData, setPatientData] = useState<PatientData | null>(null);
+  const [neonatalData, setNeonatalData] = useState<NeonatalData | null>(null);
   
   // Fetch patient data on component mount
   useEffect(() => {
