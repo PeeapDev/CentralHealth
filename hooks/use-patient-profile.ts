@@ -1,501 +1,689 @@
 "use client";
 
-import { useState, useEffect } from 'react';
-import { DEFAULT_HOSPITAL } from '@/lib/hospital-context';
-import { getUserEmail, getPatientId, clearPatientData } from '@/utils/session-utils';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { getUserEmail, getPatientId, clearPatientData } from '../utils/session-utils';
+import { redirect } from 'next/navigation';
 
+// Default hospital fallback
+const DEFAULT_HOSPITAL = 'CENTRAL';
+
+/**
+ * Patient profile interface
+ * Comprehensive patient information model
+ */
 export interface PatientProfile {
+  // Patient identifiers
   id: string;
   patientId: string;
-  medicalNumber?: string;
-  displayMedicalNumber?: string;
-  medicalID?: string; // Added for compatibility with variations in API responses
+  mrn: string; // Standard medical record number per CentralHealth standards
+  medicalNumber: string; // Legacy field - maintained for backward compatibility
+  displayMedicalNumber: string; // Legacy field - maintained for backward compatibility
+  
+  // Personal information
   name: string;
-  fullName?: string; // Added to match API response format
-  firstName?: string;
-  lastName?: string;
+  fullName: string;
+  firstName: string;
+  lastName: string;
   dob: string;
-  dateOfBirth?: string; // Added for compatibility with variations in API responses
-  birthDate?: Date | null;
+  dateOfBirth: string;
+  birthDate: Date | string | null;
   age: number;
   gender: string;
+  
+  // Medical information
   bloodType: string;
   height: string;
   weight: string;
+  
+  // Contact information
   address: string;
   phone: string;
   email: string;
+  
+  // Hospital information
   hospitalCode: string;
-  hospitalName?: string; // Added to match hospital data in API responses
-  room?: string;
-  admittedDate?: string;
-  attendingDoctor?: string;
-  onboardingCompleted?: boolean;
-  profileImage?: string; // Added for profile photo from API
-  avatarUrl?: string; // Added for profile photo URL
+  hospitalName: string;
+  room: string;
+  admittedDate: string;
+  attendingDoctor: string;
+  
+  // Media and identification
+  photo?: string;
+  profileImage?: string;
+  avatarUrl?: string;
+  qrCode?: string;
+  
+  // Status flags
+  onboardingCompleted: boolean;
+  
+  // Insurance details
   insurance: {
     provider: string;
     policyNumber: string;
     group: string;
     expirationDate: string;
   };
+  
+  // Emergency contacts
   emergencyContacts?: Array<{
     name: string;
     relationship: string;
     phone: string;
   }>;
-  allergies: Array<{
-    name: string;
-    severity: string;
-  }>;
+  
+  // Medical details
+  allergies: string[];
   conditions: string[];
-  medications: Array<{
-    name: string;
-    dosage: string;
-    frequency: string;
-  }>;
-  createdAt?: Date;
-  updatedAt?: Date;
-  photo?: string; // Patient profile photo as base64 string
-  qrCode?: string; // Added for stored QR code data from registration
+  medications: string[];
 }
 
-// Note: We're now using the clearPatientData function imported from utils/session-utils.ts
-// This provides better consistency across the application
+/**
+ * Return type definition for the usePatientProfile hook
+ */
+interface UsePatientProfileResult {
+  profile: PatientProfile | null;
+  isLoading: boolean;
+  error: string;
+  qrCodeValue: string;
+  profilePhotoUrl: string;
+  isProfilePhotoLoading: boolean;
+  refreshProfile: () => Promise<void>;
+}
 
-// Fetch patient profile from the API
-async function fetchPatientProfile(): Promise<PatientProfile> {
-  console.log('DEBUG: Checking localStorage values')
-  console.log('localStorage.userEmail:', typeof window !== 'undefined' ? localStorage.getItem('userEmail') : 'N/A');
-  console.log('localStorage.patientId:', typeof window !== 'undefined' ? localStorage.getItem('patientId') : 'N/A');
-  console.log('sessionStorage.userEmail:', typeof window !== 'undefined' ? sessionStorage.getItem('userEmail') : 'N/A');
-  
-  // Get the current user's email
-  const userEmail = getUserEmail();
-  const patientId = getPatientId();
-  
-  console.log('Resolved userEmail:', userEmail);
-  console.log('Resolved patientId:', patientId);
-  
-  // Do not override real authentication data if it exists
-  // Only log that we're missing identifiers for debugging purposes
-  if (!userEmail && !patientId) {
-    console.log('No authentication data found. User may need to sign in again.');
-  }
-  
-  // Check for session cookie data first (most reliable source)
-  const sessionCookie = document.cookie
-    .split('; ')
-    .find(row => row.startsWith('patient_session='));
-  
-  let sessionData = null;
-  if (sessionCookie) {
-    try {
-      const decodedCookie = decodeURIComponent(sessionCookie.split('=')[1]);
-      sessionData = JSON.parse(decodedCookie);
-      console.log('Found session cookie data:', 
-        { patientId: sessionData.patientId, medicalNumber: sessionData.medicalNumber });
-    } catch (e) {
-      console.error('Failed to parse session cookie:', e);
-    }
-  }
+/**
+ * Global in-memory cache for patient profiles during the session
+ * This avoids redundant fetches across component instances
+ */
+interface ProfileCacheEntry {
+  profile: PatientProfile;
+  timestamp: number;
+}
 
-  // Use standard session data for all patients
-  const email = userEmail;
-  let id = sessionData?.patientId || patientId;
-  let medicalNumber = sessionData?.medicalNumber || localStorage.getItem('medicalNumber') || localStorage.getItem('medicalId');
-  
-  // Build the API URL with all possible parameters for maximum chance of success
-  const url = new URL('/api/patients/profile', window.location.origin);
-  
-  // Store these values in localStorage to aid in recovery if needed
-  if (id) localStorage.setItem('patientId', id);
-  if (medicalNumber) localStorage.setItem('medicalNumber', medicalNumber);
-  if (email) localStorage.setItem('userEmail', email);
-  
-  // Add ALL available identifiers to maximize chances of finding the patient
-  // Previously we only sent one parameter, now we send all we have
-  let hasIdentifier = false;
-  
-  if (id) {
-    url.searchParams.append('patientId', id);
-    console.log('Including patientId in profile request:', id);
-    hasIdentifier = true;
-  }
-  
-  if (medicalNumber) {
-    url.searchParams.append('medicalNumber', medicalNumber);
-    console.log('Including medicalNumber in profile request:', medicalNumber);
-    hasIdentifier = true;
-  }
-  
-  if (email) {
-    url.searchParams.append('email', email);
-    console.log('Including email in profile request:', email);
-    hasIdentifier = true;
-  }
-  
-  if (!hasIdentifier) {
-    console.error('No patient identifier available in storage or cookies');
-    throw new Error('Please log in or register to view your profile');
-  }
-  
-  console.log('Sending API request to:', url.toString());
+// Using let instead of const to allow cache clearing
+let globalProfileCache: Record<string, ProfileCacheEntry> = {};
+
+// Cache time-to-live in milliseconds (30 minutes)
+const CACHE_TTL = 30 * 60 * 1000;
+
+// Force refresh flag key in localStorage
+const FORCE_REFRESH_KEY = 'patient_profile_force_refresh';
+
+// Profile cache key in localStorage
+const PROFILE_CACHE_KEY = 'cached_patient_profile';
+
+// Navigation timestamp to prevent redundant loading on page changes
+let lastNavigationTimestamp = 0;
+
+// Optimization flag to track if we've already loaded the profile during this session
+let initialProfileLoadComplete = false;
+
+// Utility function to safely access localStorage
+function safeLocalStorage(operation: 'get' | 'set' | 'remove', key: string, value?: string): string | null {
+  if (typeof window === 'undefined') return null;
   
   try {
-    const response = await fetch(url.toString(), {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
-    
-    console.log('API response status:', response.status);
-    
-    // Handle non-OK responses with more detailed error info
-    if (!response.ok) {
-      // Check the content type to avoid parsing HTML as JSON
-      const contentType = response.headers.get('content-type');
-      
-      if (contentType && contentType.includes('application/json')) {
-        try {
-          const errorData = await response.json();
-          console.error('API error response data:', errorData);
-          throw new Error(errorData.error || `Failed with status ${response.status}`);
-        } catch (jsonError) {
-          console.error('Failed to parse error response as JSON:', jsonError);
-          throw new Error(`API error ${response.status}: ${response.statusText}`);
-        }
-      } else {
-        // If not JSON, don't try to parse it
-        console.error('Non-JSON response received:', await response.text().catch(() => 'Unable to read response text'));
-        throw new Error(`API returned non-JSON response with status ${response.status}: ${response.statusText}`);
-      }
+    if (operation === 'get') {
+      return localStorage.getItem(key);
+    } else if (operation === 'set' && value !== undefined) {
+      localStorage.setItem(key, value);
+      return value;
+    } else if (operation === 'remove') {
+      localStorage.removeItem(key);
     }
-    
-    // Parse successful response
-    // Check if the response is actually JSON before parsing
-    const contentType = response.headers.get('content-type');
-    if (!contentType || !contentType.includes('application/json')) {
-      console.error('Expected JSON response but got:', contentType);
-      const responseText = await response.text().catch(() => 'Unable to read response text');
-      console.error('Response text preview:', responseText.substring(0, 200) + '...');
-      throw new Error('API returned non-JSON response');
-    }
-    
-    try {
-      const data = await response.json();
-      console.log('API returned patient data successfully');
-      
-      // Ensure hospitalCode exists to prevent "hospital not found" errors
-      // This is important because we're using a centralized hospital system
-      if (!data.hospitalCode) {
-        data.hospitalCode = DEFAULT_HOSPITAL.id;
-      }
-      
-      // Helper function to calculate age from DOB string
-      const calculateAgeFromDob = (dobString: string | undefined | null): number => {
-        if (!dobString) return 0;
-        try {
-          const dob = new Date(dobString);
-          if (isNaN(dob.getTime())) return 0;
-          
-          const today = new Date();
-          let age = today.getFullYear() - dob.getFullYear();
-          const monthDiff = today.getMonth() - dob.getMonth();
-          
-          if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
-            age--;
-          }
-          
-          return age;
-        } catch (e) {
-          console.error('Error calculating age:', e);
-          return 0;
-        }
-      };
-      
-      // Format profile data with default values as needed
-      return {
-        id: data.id || id,
-        patientId: data.id || id,
-        medicalNumber: data.medicalNumber,
-        displayMedicalNumber: data.displayMedicalNumber || medicalNumber,
-        medicalID: data.medicalID || data.medicalNumber || medicalNumber, // For compatibility
-        name: data.fullName || data.name || data.displayName || 'Unknown',
-        fullName: data.fullName || data.name || data.displayName || 'Unknown',
-        firstName: data.firstName || '',
-        lastName: data.lastName || '',
-        dob: data.dob || data.dateOfBirth || '',
-        dateOfBirth: data.dateOfBirth || data.dob || '',
-        birthDate: data.birthDate || null,
-        age: data.age || calculateAgeFromDob(data.dob || data.dateOfBirth),
-        gender: data.gender || 'Other',
-        bloodType: data.bloodType || 'Unknown',
-        height: data.height || '',
-        weight: data.weight || '',
-        address: data.address || '',
-        phone: data.phone || '',
-        email: data.email || userEmail || '',
-        hospitalCode: data.hospitalCode || DEFAULT_HOSPITAL.id,
-        hospitalName: data.hospitalName || DEFAULT_HOSPITAL.name,
-        room: data.room || '',
-        admittedDate: data.admittedDate || '',
-        attendingDoctor: data.attendingDoctor || '',
-        onboardingCompleted: data.onboardingCompleted || false,
-        // Include default values for required properties in the PatientProfile interface
-        insurance: data.insurance || {
-          provider: '',
-          policyNumber: '',
-          group: '',
-          expirationDate: ''
-        },
-        allergies: data.allergies || [],
-        conditions: data.conditions || [],
-        medications: data.medications || [],
-        createdAt: data.createdAt,
-        updatedAt: data.updatedAt,
-        profileImage: data.photo || data.profileImage || data.avatarUrl || 
-          (data.id ? `${window.location.origin}/api/patients/${data.id}/photo` : undefined),
-        avatarUrl: data.avatarUrl || 
-          (data.id ? `${window.location.origin}/api/patients/${data.id}/photo` : undefined),
-        photo: data.photo || data.profileImage || data.avatarUrl || 
-          (data.id ? `${window.location.origin}/api/patients/${data.id}/photo` : undefined)
-      };
-    } catch (error) {
-      console.error('Error parsing JSON response:', error);
-      throw new Error('Failed to parse patient data from server');
-    }
-  } catch (fetchError) {
-    console.error('Fetch operation failed:', fetchError);
-    throw fetchError;
+    return null;
+  } catch (error) {
+    console.error(`LocalStorage ${operation} error for key ${key}:`, error);
+    return null;
   }
 }
 
-export function usePatientProfile() {
-  const [profile, setProfile] = useState<PatientProfile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [shouldRedirect, setShouldRedirect] = useState(false);
-  const [redirectTarget, setRedirectTarget] = useState('/auth/login');
+/**
+ * Safe JSON parse with error handling
+ */
+function safeJsonParse<T>(json: string | null, fallback: T): T {
+  if (!json) return fallback;
+  try {
+    return JSON.parse(json) as T;
+  } catch (e) {
+    console.error('JSON parse error:', e);
+    return fallback;
+  }
+}
 
-  useEffect(() => {
-    // If we need to redirect due to auth issues
-    if (shouldRedirect) {
-      // Clear all stored data since it's causing problems
-      clearPatientData();
+/**
+ * Calculate age from date of birth
+ */
+function calculateAgeFromDob(dob: string): number {
+  if (!dob) return 0;
+  
+  try {
+    const birthDate = new Date(dob);
+    const today = new Date();
+    let age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--;
+    }
+    
+    return age;
+  } catch (error) {
+    console.error('Error calculating age:', error);
+    return 0;
+  }
+}
+
+/**
+ * Generate QR code value from patient data
+ * Following CentralHealth rules: NEVER regenerate medical IDs for existing patients
+ */
+function generateQRCodeValue(profile: PatientProfile | null): string {
+  if (!profile) return '';
+  
+  // Use existing medical number if available (never regenerate according to CentralHealth rules)
+  if (profile.medicalNumber) {
+    return `CentralHealth:${profile.medicalNumber}`;
+  }
+  
+  // Fallback to patientId if medical number is not available
+  if (profile.patientId) {
+    return `CentralHealth:ID:${profile.patientId}`;
+  }
+  
+  // Last resort (should never happen in production systems per CentralHealth rules)
+  return '';
+}
+
+/**
+ * Generate a consistent cache key based on available patient identifiers
+ * Prioritizes medicalNumber > patientId > email
+ */
+function getCacheKey(medicalNumber?: string | null, patientId?: string | null, email?: string | null): string {
+  if (medicalNumber) return `med_${medicalNumber}`;
+  if (patientId) return `pid_${patientId}`;
+  if (email) return `email_${email}`;
+  return 'unknown_patient';
+}
+
+/**
+ * Fetch patient profile from API
+ * Includes multiple identifier strategies and comprehensive error handling
+ */
+async function fetchPatientProfile(
+  email?: string | null,
+  patientId?: string | null,
+  mrn?: string | null
+): Promise<PatientProfile | null> {
+  console.log('Fetching patient profile with identifiers:', { email, patientId, mrn });
+  const startTime = performance.now();
+  
+  try {
+    // Build query params with available identifiers
+    const params = new URLSearchParams();
+    if (email) params.append('email', email);
+    if (patientId) params.append('patientId', patientId);
+    if (mrn) params.append('medicalNumber', mrn); // Still using medicalNumber as param name for API compatibility
+    
+    const response = await fetch(`/api/patients/profile?${params.toString()}`);
+    
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        console.warn('Session expired, redirecting to login');
+        clearPatientData();
+        redirect('/login');
+      }
       
-      // Redirect to login/onboarding page
-      if (typeof window !== 'undefined') {
-        console.log(`Redirecting to ${redirectTarget} due to auth issues`);
-        setTimeout(() => {
-          window.location.href = redirectTarget;
-        }, 2000); // Small delay to allow user to see the error message
-        return;
-      }
+      throw new Error(`API error: ${response.status} ${response.statusText}`);
     }
-  }, [shouldRedirect, redirectTarget]);
+    
+    const data = await response.json();
+    
+    // Performance logging
+    const endTime = performance.now();
+    console.log(`Profile fetch completed in ${Math.round(endTime - startTime)}ms`);
+    
+    // Normalize the response into our PatientProfile structure
+    const profile: PatientProfile = {
+      // Core identifiers - preserve existing medical ID (critical for CentralHealth)
+      id: data.id || '',
+      patientId: data.patientId || patientId || '',
+      mrn: data.mrn || data.medicalNumber || mrn || '', // Standard field name per CentralHealth
+      medicalNumber: data.medicalNumber || '', // Legacy field - keep for backward compatibility
+      displayMedicalNumber: data.displayMedicalNumber || data.medicalNumber || '', // Legacy field
+      
+      // Name fields
+      name: data.name || `${data.firstName || ''} ${data.lastName || ''}`.trim(),
+      fullName: data.fullName || data.name || `${data.firstName || ''} ${data.lastName || ''}`.trim(),
+      firstName: data.firstName || '',
+      lastName: data.lastName || '',
+      
+      // Date of birth fields
+      dob: data.dob || data.dateOfBirth || '',
+      dateOfBirth: data.dateOfBirth || data.dob || '',
+      birthDate: data.birthDate || null,
+      
+      // Calculate age or use provided value
+      age: data.age || calculateAgeFromDob(data.dob || data.dateOfBirth),
+      
+      // Contact and demographic information
+      gender: data.gender || '',
+      bloodType: data.bloodType || '',
+      height: data.height || '',
+      weight: data.weight || '',
+      address: data.address || '',
+      phone: data.phone || '',
+      email: data.email || email || '', // Use provided email as fallback
+      
+      // Hospital information
+      hospitalCode: data.hospitalCode || DEFAULT_HOSPITAL,
+      hospitalName: data.hospitalName || '',
+      room: data.room || '',
+      admittedDate: data.admittedDate || '',
+      attendingDoctor: data.attendingDoctor || '',
+      
+      // Photo and QR code data
+      photo: data.photo || data.profileImage || data.profilePicture || '',
+      profileImage: data.profileImage || data.photo || data.profilePicture || '',
+      avatarUrl: data.avatarUrl || data.userPhoto || '',
+      qrCode: data.qrCode || '',
+      
+      // Status flags
+      onboardingCompleted: data.onboardingCompleted !== undefined ? data.onboardingCompleted : true,
+      
+      // Insurance information
+      insurance: data.insurance || {
+        provider: '',
+        policyNumber: '',
+        group: '',
+        expirationDate: ''
+      },
+      
+      // Emergency contacts
+      emergencyContacts: data.emergencyContacts || [],
+      
+      // Medical details
+      allergies: data.allergies || [],
+      conditions: data.conditions || [],
+      medications: data.medications || []
+    };
+    
+    // Update cache with fresh data
+    if (profile.medicalNumber || profile.patientId || profile.email) {
+      const cacheKey = getCacheKey(profile.medicalNumber, profile.patientId, profile.email);
+      
+      // Update in-memory cache
+      globalProfileCache[cacheKey] = {
+        profile,
+        timestamp: Date.now()
+      };
+      
+      // Update localStorage cache
+      const localStorageCache = safeJsonParse<Record<string, ProfileCacheEntry>>(
+        safeLocalStorage('get', PROFILE_CACHE_KEY), 
+        {}
+      );
+      
+      localStorageCache[cacheKey] = {
+        profile,
+        timestamp: Date.now()
+      };
+      
+      safeLocalStorage('set', PROFILE_CACHE_KEY, JSON.stringify(localStorageCache));
+    }
+    
+    return profile;
+  } catch (error) {
+    console.error('Error fetching patient profile:', error);
+    
+    // Handle session expiration
+    if (error instanceof Error && error.message.includes('401')) {
+      clearPatientData();
+      redirect('/login');
+    }
+    
+    return null;
+  }
+}
 
-  useEffect(() => {
-    async function loadPatientProfile() {      
-      try {
-        // Clear any cached incorrect medical IDs from localStorage
-        // No special handling for specific medical IDs as per CentralHealth rules
-
-        // Check if we have authentication data before making API call
-        const userEmail = getUserEmail();
-        const patientId = getPatientId();
+/**
+ * Hook for accessing and caching patient profile data with built-in caching
+ * Uses a multi-level approach:
+ * 1. In-memory cache during the session
+ * 2. LocalStorage persistence across page reloads
+ * 3. Progressive loading to provide immediate feedback
+ */
+export function usePatientProfile(
+  options: {
+    forceRefresh?: boolean;
+    skipCache?: boolean;
+    loadProfilePhoto?: boolean;
+  } = {}
+): UsePatientProfileResult {
+  // State for patient profile data
+  const [profile, setProfile] = useState<PatientProfile | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string>('');
+  const [qrCodeValue, setQRCodeValue] = useState<string>('');
+  const [profilePhotoUrl, setProfilePhotoUrl] = useState<string>('');
+  const [isProfilePhotoLoading, setIsProfilePhotoLoading] = useState<boolean>(false);
+  
+  // Prevent duplicate refreshes
+  const isRefreshingRef = useRef<boolean>(false);
+  
+  // Function to fetch patient profile with multi-level caching
+  const loadPatientProfile = useCallback(async (forceRefresh: boolean = false): Promise<void> => {
+    if (isRefreshingRef.current) return;
+    isRefreshingRef.current = true;
+    
+    try {
+      setIsLoading(true);
+      setError('');
+      
+      // Get patient identifiers
+      const email = getUserEmail();
+      const patientId = getPatientId();
+      
+      // Try to get medical record number from localStorage - use mrn field per CentralHealth standards
+      // Check both mrn (new standard) and medicalNumber (legacy) for backward compatibility
+      const mrn = safeLocalStorage('get', 'mrn') || safeLocalStorage('get', 'medicalNumber');
+      
+      if (!email && !patientId && !mrn) {
+        throw new Error('No patient identifiers available');
+      }
+      
+      // Generate cache key from available identifiers
+      const cacheKey = getCacheKey(mrn, patientId, email);
+      
+      // Check if we need to force refresh
+      const shouldForceRefresh = forceRefresh || options.forceRefresh || 
+        safeJsonParse<boolean>(safeLocalStorage('get', FORCE_REFRESH_KEY), false);
+      
+      // Clear force refresh flag after checking
+      if (shouldForceRefresh) {
+        safeLocalStorage('remove', FORCE_REFRESH_KEY);
+      }
+      
+      // Skip cache if explicitly requested or forced refresh
+      if (!options.skipCache && !shouldForceRefresh) {
+        // Try in-memory cache first (fastest)
+        const inMemoryCacheEntry = globalProfileCache[cacheKey];
         
-        if (!userEmail && !patientId) {
-          console.log('No auth data found, will redirect to login');
-          setError('Please sign in to view your dashboard');
-          setRedirectTarget('/auth/login');
-          setShouldRedirect(true);
-          return null;
-        }
-        
-        // Check if we're in a recovery loop by using a counter in sessionStorage
-        const recoveryAttempts = parseInt(sessionStorage.getItem('profileRecoveryAttempts') || '0');
-        if (recoveryAttempts > 2) { // Limit to 3 attempts (0, 1, 2)
-          console.error('Too many recovery attempts, showing error to user');
-          setError("We're having trouble loading your profile. Please try logging in again.");
-          setRedirectTarget('/auth/login');
-          setShouldRedirect(true);
-          setIsLoading(false);
-          return null;
-        }
-        
-        setIsLoading(true);
-        const profileData = await fetchPatientProfile();
-        
-        // Success! Reset recovery counter
-        sessionStorage.removeItem('profileRecoveryAttempts');
-        
-        // Try to find photo URL - use our new endpoint if a photo isn't provided directly
-        try {
-          // Check if profile has photo
-          if (profileData.photo) {
-            localStorage.setItem('patientProfilePhoto', profileData.photo);
-          } else {
-            // Try to load from registration data as fallback
-            const registrationData = localStorage.getItem('patientRegistrationData');
-            if (registrationData) {
-              const parsedData = JSON.parse(registrationData);
-              if (parsedData.photo) {
-                localStorage.setItem('patientProfilePhoto', parsedData.photo);
-              }
-            }
-          }
-        } catch (photoError) {
-          console.error('Error loading patient photo:', photoError);
-        }
-        
-        // Make sure we have the name property populated from fullName for frontend compatibility
-        const processedProfile = {
-          ...profileData,
-          // If API returns fullName but not name, use fullName as name
-          name: profileData.name || profileData.fullName || 'Unknown',
-          // If API returns name but not fullName, use name as fullName
-          fullName: profileData.fullName || profileData.name || 'Unknown'
-        };
-        
-        setProfile(processedProfile);
-        setError(null);
-
-        // Check if onboarding is needed
-        if (profileData && !profileData.onboardingCompleted) {
-          console.log('Patient onboarding not completed');
-          // Could redirect to onboarding here or handle in the UI
-        }
-      } catch (error: any) {
-        console.error('Error fetching patient profile:', error);
-        setIsLoading(false);
-        
-        // Extract error message
-        let errorMessage = error.message || 'Failed to load profile';
-        console.error('Error message:', errorMessage);
-        
-        // Handle 404 errors specially - try to create a session with stored medical ID or patient ID
-        if (errorMessage.includes('404') || errorMessage.includes('not found')) {
-          // Increment recovery counter to prevent infinite loops
-          const currentAttempts = parseInt(sessionStorage.getItem('profileRecoveryAttempts') || '0');
-          const newAttempts = currentAttempts + 1;
-          sessionStorage.setItem('profileRecoveryAttempts', newAttempts.toString());
+        if (inMemoryCacheEntry) {
+          const isCacheValid = (Date.now() - inMemoryCacheEntry.timestamp) < CACHE_TTL;
           
-          console.log(`Patient not found (404), recovery attempt ${newAttempts}/3`);
-          
-          // Stop after 3 attempts to prevent infinite loops
-          if (newAttempts > 2) {
-            console.error('Maximum recovery attempts reached, giving up');
-            errorMessage = 'We could not find your patient account. Please log in again.';
-            setError(errorMessage);
-            setRedirectTarget('/auth/login');
-            setShouldRedirect(true);
-            return null;
-          }
-          
-          try {
-            console.log('Attempting to use available medical ID from storage');
-            // No hardcoded medical IDs or special handling for test accounts as per CentralHealth rules
-            const storedPatientId = localStorage.getItem('patientId');
-            const storedMedicalNumber = localStorage.getItem('medicalNumber');
+          if (isCacheValid) {
+            console.log('Using in-memory cached profile data');
+            setProfile(inMemoryCacheEntry.profile);
+            setQRCodeValue(generateQRCodeValue(inMemoryCacheEntry.profile));
+            setIsLoading(false);
             
-            // Use ONLY the real medical ID - never generate a new one or use invalid cached ones
-            const medicalId = storedMedicalNumber;
-            
-            console.log(`Forcing recovery with Fatima Kamara's real medical ID: ${medicalId}`);
-            
-            // Request body for the API call - only send the real medical ID
-            // This ensures we never create new patients or IDs
-            const requestBody = {
-              medicalId: medicalId,
-              onboardingCompleted: true, // Always true to prevent redirect loops
-            };
-            
-            // Call the create-session API
-            const response = await fetch('/api/patients/create-session', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify(requestBody)
-            });
-            
-            if (!response.ok) {
-              // If first attempt failed, try one more time with just the patientId if we have it
-              if (storedPatientId) {
-                console.log('First attempt failed, trying with patientId:', storedPatientId);
-                const secondResponse = await fetch('/api/patients/create-session', {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json'
-                  },
-                  body: JSON.stringify({ patientId: storedPatientId, onboardingCompleted: true })
+            // Return early but still update in background after a delay
+            setTimeout(() => {
+              fetchPatientProfile(email, patientId, mrn)
+                .then(freshProfile => {
+                  if (freshProfile) {
+                    setProfile(freshProfile);
+                    setQRCodeValue(generateQRCodeValue(freshProfile));
+                  }
+                })
+                .catch(console.error)
+                .finally(() => {
+                  isRefreshingRef.current = false;
                 });
-                
-                if (!secondResponse.ok) {
-                  throw new Error(`Session creation failed: ${secondResponse.status} ${secondResponse.statusText}`);
-                }
-              } else {
-                throw new Error(`Session creation failed: ${response.status} ${response.statusText}`);
-              }
-            }
+            }, 2000);
             
-            // Add a small delay before reloading to prevent too rapid retries
-            await new Promise(resolve => setTimeout(resolve, 500));
-            
-            // If we successfully created a session, reload the page to access the dashboard with new cookie
-            window.location.href = `/patient/dashboard?ts=${Date.now()}`;
-            return null; // Return null since we're reloading the page
-          } catch (recoveryError) {
-            console.error('Recovery attempt failed:', recoveryError);
-            errorMessage = 'We could not find your patient account. Please log in again.';
-          }  
-        } else if (errorMessage.includes('401') || errorMessage.includes('403')) {
-          setError("Your session has expired. Please sign in again.");
-          setRedirectTarget('/auth/login');
-          setShouldRedirect(true);
-        } else if (errorMessage.includes('5')) { // 500 errors
-          setError("The server encountered an error. Please try again later.");
-        } else {
-          setError("We're having trouble loading your profile. Please try again or sign in again.");
-          setRedirectTarget('/auth/login');
-          setShouldRedirect(true);
+            return;
+          }
         }
-      } finally {
-        setIsLoading(false);
+        
+        // Try localStorage cache if in-memory cache is not available or expired
+        const localStorageCacheData = safeLocalStorage('get', PROFILE_CACHE_KEY);
+        const localStorageCache = safeJsonParse<Record<string, ProfileCacheEntry>>(localStorageCacheData, {});
+        const localStorageCacheEntry = localStorageCache[cacheKey];
+        
+        if (localStorageCacheEntry) {
+          const isCacheValid = (Date.now() - localStorageCacheEntry.timestamp) < CACHE_TTL;
+          
+          if (isCacheValid) {
+            console.log('Using localStorage cached profile data');
+            
+            // Update in-memory cache
+            globalProfileCache[cacheKey] = localStorageCacheEntry;
+            
+            // Update state
+            setProfile(localStorageCacheEntry.profile);
+            setQRCodeValue(generateQRCodeValue(localStorageCacheEntry.profile));
+            setIsLoading(false);
+            
+            // Return early but still update in background after a delay
+            setTimeout(() => {
+              fetchPatientProfile(email, patientId, mrn)
+                .then(freshProfile => {
+                  if (freshProfile) {
+                    setProfile(freshProfile);
+                    setQRCodeValue(generateQRCodeValue(freshProfile));
+                  }
+                })
+                .catch(console.error)
+                .finally(() => {
+                  isRefreshingRef.current = false;
+                });
+            }, 2000);
+            
+            return;
+          }
+        }
+      }
+      
+      // If we get here, we need to fetch fresh data
+      console.log('Fetching fresh profile data');
+      const freshProfile = await fetchPatientProfile(email, patientId, mrn);
+      
+      if (freshProfile) {
+        setProfile(freshProfile);
+        setQRCodeValue(generateQRCodeValue(freshProfile));
+      } else {
+        throw new Error('Failed to fetch patient profile');
+      }
+    } catch (error) {
+      console.error('Error loading patient profile:', error);
+      setError(error instanceof Error ? error.message : String(error));
+      
+      // Handle auth errors
+      if (error instanceof Error && 
+          (error.message.includes('401') || error.message.includes('403'))) {
+        clearPatientData();
+        redirect('/login');
+      }
+    } finally {
+      setIsLoading(false);
+      isRefreshingRef.current = false;
+    }
+  }, [options.forceRefresh, options.skipCache]);
+  
+  // Function to manually refresh the profile
+  const refreshProfile = useCallback(async (): Promise<void> => {
+    console.log('Manual profile refresh requested');
+    
+    // Set force refresh flag in localStorage so other components know to refresh as well
+    safeLocalStorage('set', FORCE_REFRESH_KEY, JSON.stringify(true));
+    
+    // Clear in-memory cache to force fresh fetch
+    globalProfileCache = {};
+    
+    return loadPatientProfile(true);
+  }, [loadPatientProfile]);
+  
+  // Load profile photo from dedicated endpoint
+  const loadProfilePhoto = useCallback(async (medicalId: string) => {
+    if (!medicalId || isProfilePhotoLoading) return;
+    
+    setIsProfilePhotoLoading(true);
+    
+    // Set default avatar immediately for better UX
+    const defaultAvatar = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzNiODJmNiIgZD0iTTEyIDJDNi41IDIgMiA2LjUgMiAxMnM0LjUgMTAgMTAgMTAgMTAtNC41IDEwLTEwUzE3LjUgMiAxMiAyek0xMiA1YTMgMyAwIDEgMSAwIDYgMyAzIDAgMCAxIDAtNnptMCAxM2MtMi43IDAtNS4xLTEuNC02LjUtMy41LjMtMS4xIDMuMi0xLjcgNi41LTEuNyAzLjMgMCA2LjIuNiA2LjUgMS43QzE3LjEgMTYuNiAxNC43IDE4IDEyIDE4eiIvPjwvc3ZnPg==';
+    setProfilePhotoUrl(defaultAvatar);
+    
+    // Check localStorage first for cached photo
+    try {
+      const cachedPhoto = safeLocalStorage('get', `patient_photo_${medicalId}`);
+      const cachedTimestamp = safeLocalStorage('get', `patient_photo_timestamp_${medicalId}`);
+      const now = Date.now();
+      const cacheMaxAge = 1000 * 60 * 30; // 30 minutes cache duration
+      
+      // Check if we have a valid cached timestamp and it's recent enough
+      const timestamp = cachedTimestamp ? parseInt(cachedTimestamp as string, 10) : 0;
+      const isCacheValid = now - timestamp < cacheMaxAge;
+      
+      if (cachedPhoto && typeof cachedPhoto === 'string' && isCacheValid) {
+        if (cachedPhoto === 'NO_PHOTO_AVAILABLE') {
+          // We previously determined this patient has no photo
+          console.log('Using cached "no photo" status from localStorage');
+          // Already set default above, keep that
+          // Skip the API call entirely by returning early
+          setIsProfilePhotoLoading(false);
+          return;
+        } else {
+          // We have a valid cached photo
+          console.log('Using cached profile photo from localStorage');
+          setProfilePhotoUrl(cachedPhoto);
+          // Set loading false since we have a good cached value
+          setIsProfilePhotoLoading(false);
+          return; // Skip API call entirely
+        }
+      } else if (cachedTimestamp && !isCacheValid) {
+        console.log('Cached photo expired, fetching fresh version');
+      }
+    } catch (e) {
+      console.warn('Error accessing cached profile photo:', e);
+    }
+    
+    // Create an AbortController with a timeout to prevent hanging requests
+    const controller = new AbortController();
+    const timeoutMs = 8000; // 8 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    
+    try {
+      console.log(`Making API request for profile photo with ID: ${medicalId}`);
+      
+      // Make the fetch request with proper signal and headers
+      const response = await fetch(`/api/patients/${medicalId}/profile-picture`, {
+        signal: controller.signal,
+        headers: { 'Cache-Control': 'no-cache' }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Profile photo fetch failed: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      if (data.imageUrl) {
+        console.log('Successfully loaded profile photo from API');
+        setProfilePhotoUrl(data.imageUrl);
+        // Cache successful photos in localStorage for faster subsequent loads
+        safeLocalStorage('set', `patient_photo_${medicalId}`, data.imageUrl);
+        // Store timestamp of when we last fetched this photo
+        safeLocalStorage('set', `patient_photo_timestamp_${medicalId}`, Date.now().toString());
+      } else {
+        console.log('No profile image found, using default avatar');
+        // Also cache negative results to prevent repeated API calls
+        // Store a special value to indicate "no photo found"
+        safeLocalStorage('set', `patient_photo_${medicalId}`, 'NO_PHOTO_AVAILABLE');
+        safeLocalStorage('set', `patient_photo_timestamp_${medicalId}`, Date.now().toString());
+      }
+    } catch (err) {
+      // Handle errors gracefully
+      console.error('Error fetching profile photo:', err instanceof Error ? err.message : String(err));
+      // Keep using the default photo or cached one - already set above
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+      setIsProfilePhotoLoading(false);
+    }
+  }, [isProfilePhotoLoading]); // Remove profilePhotoUrl from deps to prevent loops
+
+  // Effect to load profile photo when profile data is available - MUST BE FIRST useEffect
+  // This effect should run only once per profile change and not block rendering
+  useEffect(() => {
+    if (profile && options.loadProfilePhoto !== false) {
+      const medicalId = profile.medicalNumber || profile.displayMedicalNumber || profile.patientId || profile.id;
+      
+      // Safety check to prevent unnecessary rerenders
+      if (medicalId) {
+        // Small delay to ensure UI rendering isn't blocked
+        const timer = setTimeout(() => {
+          console.log(`Loading profile photo for medical ID: ${medicalId}`);
+          loadProfilePhoto(medicalId);
+        }, 100);
+        
+        return () => clearTimeout(timer);
       }
     }
-
-    loadPatientProfile();
-  }, []);
-
-  // Get QR code from profile or generate a fallback
-  const getQrCodeValue = () => {
-    if (!profile) return "";
+  }, [profile, options.loadProfilePhoto, loadProfilePhoto]);
+  
+  // Guaranteed exit from loading state
+  useEffect(() => {
+    // Add a safety timeout to ensure we're never stuck loading
+    const maxLoadingTimeout = setTimeout(() => {
+      if (isLoading) {
+        console.warn('usePatientProfile forcing exit from loading state after timeout');
+        setIsLoading(false);
+        if (!profile) {
+          setError('Failed to load profile data in a reasonable time. Please try again.');
+        }
+      }
+    }, 5000); // 5 seconds maximum loading time
     
-    // If the profile has a stored QR code from registration, use it
-    if (profile.qrCode) {
-      console.log('Using stored QR code from database');
-      return profile.qrCode;
+    return () => clearTimeout(maxLoadingTimeout);
+  }, [isLoading, profile]);
+  
+  // Effect to load profile data on mount (must be in same position as before)
+  useEffect(() => {
+    // Check if we've navigated very recently (within 1 second)
+    // This prevents duplicate loading during page navigation
+    const now = Date.now();
+    const hasRecentlyNavigated = now - lastNavigationTimestamp < 1000;
+    
+    if (options.forceRefresh || !initialProfileLoadComplete || hasRecentlyNavigated === false) {
+      // Set a very short timeout to ensure React can render initial UI first
+      const timer = setTimeout(() => {
+        loadPatientProfile(options.forceRefresh);
+      }, 10);
+      
+      // Update navigation timestamp
+      lastNavigationTimestamp = now;
+      
+      return () => clearTimeout(timer);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  
+  // Fallback effect - ensure UI is not stuck in loading state for too long
+  useEffect(() => {
+    const maxLoadingTime = 10000; // 10 seconds maximum loading time
+    const fallbackTimer = setTimeout(() => {
+      if (isLoading) {
+        console.warn('Profile loading took too long, forcing loading state to false');
+        setIsLoading(false);
+      }
+    }, maxLoadingTime);
     
-    // Fallback to generating QR code data if not stored in database
-    // This uses the same format as our QR code generator: CentralHealth:MRN
-    console.log('No stored QR code found, using fallback format');
-    const medicalId = profile.medicalNumber || profile.displayMedicalNumber || profile.medicalID || '';
-    return `CentralHealth:${medicalId}`;
-  };
-
-  return { 
-    profile, 
-    isLoading, 
+    return () => clearTimeout(fallbackTimer);
+  }, [isLoading]);
+  
+  // Return hook result
+  return {
+    profile,
+    isLoading,
     error,
-    qrCodeValue: getQrCodeValue()
+    qrCodeValue,
+    profilePhotoUrl,
+    isProfilePhotoLoading,
+    refreshProfile
   };
 }
 
-// API functions for updating patient profile
+// Export utility functions for use in other components
 export async function updatePatientProfile(profileData: Partial<PatientProfile>): Promise<PatientProfile> {
   const response = await fetch('/api/patients/profile', {
     method: 'PUT',
@@ -506,26 +694,9 @@ export async function updatePatientProfile(profileData: Partial<PatientProfile>)
   });
 
   if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.error || 'Failed to update patient profile');
+    throw new Error(`Failed to update profile: ${response.status}`);
   }
 
-  return await response.json();
-}
-
-export async function completeOnboarding(onboardingData: any): Promise<{ success: boolean }> {
-  const response = await fetch('/api/patients/onboarding', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(onboardingData),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.error || 'Failed to complete patient onboarding');
-  }
-
-  return await response.json();
+  const data = await response.json();
+  return data;
 }

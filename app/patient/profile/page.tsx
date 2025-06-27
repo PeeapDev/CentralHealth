@@ -31,61 +31,45 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Spinner } from "@/components/ui/spinner"
 import { DashboardLayout } from "@/components/patients/dashboard/dashboard-layout"
 import { usePatientProfile } from "@/hooks/use-patient-profile"
+import { useHospitalContext } from "@/hooks/use-hospital-context"
 import { DEFAULT_HOSPITAL } from "@/lib/hospital-context"
 
+// Define proper TypeScript interfaces for patient medical data
 interface Allergy {
-  name: string
-  severity: "Mild" | "Moderate" | "Severe"
+  name: string;
+  severity?: string;
 }
 
 interface Medication {
-  name: string
-  dosage: string
-  frequency: string
+  name: string;
+  dosage?: string;
+  frequency?: string;
 }
 
-// Allow conditions to be either strings or objects with name/status
-type ConditionType = string | { name: string; status?: string };
-
 interface Condition {
-  name: string
-  status?: string
+  name: string;
+  status?: string;
 }
 
 interface PatientProfile {
-  id: string
-  name: string
-  fullName: string
-  medicalNumber: string
-  displayMedicalNumber: string
-  dob: string
-  age: number
-  gender: string
-  height: string
-  weight: string
-  bloodType: string
-  email: string
-  phone: string
-  address: string
+  id?: string
+  name?: string
+  dateOfBirth?: string
+  gender?: string
+  email?: string
+  phone?: string
+  address?: string
+  mrn?: string // Standard medical record number per CentralHealth
+  medicalNumber?: string // Legacy field
+  displayMedicalNumber?: string // Legacy field
+  emergencyContact?: string
+  hospitalCode?: string
+  allergies?: Array<Allergy | string>
+  conditions?: Array<Condition | string>
+  medications?: Array<Medication | string>
   photo?: string
   profileImage?: string
-  qrCode?: string
-  allergies: Allergy[]
-  conditions: ConditionType[]
-  medications: Medication[]
-  insurance: {
-    provider: string
-    policyNumber: string
-    group: string
-    expirationDate: string
-  }
-  // Support for nested user data structures that might contain profile photos
-  User?: {
-    photo?: string
-  }
-  user?: {
-    photo?: string
-  }
+  [key: string]: any // For dynamic properties
 }
 
 export default function PatientProfile() {
@@ -113,13 +97,34 @@ export default function PatientProfile() {
     }
   }, [])
 
-  // Fetch patient data
-  const { profile, isLoading, error, qrCodeValue } = usePatientProfile()
+  // Fetch patient data with safety checks for proper loading
+  const { profile, isLoading, error, qrCodeValue, profilePhotoUrl } = usePatientProfile()
   const hospitalCode = profile?.hospitalCode || DEFAULT_HOSPITAL.id
-  // Safe localStorage access with SSR check
-  const [medicalID, setMedicalID] = useState(
-    typeof window !== 'undefined' ? localStorage.getItem('medicalNumber') || "" : ""
+  
+  // Safe localStorage access with SSR check - use mrn as the standardized field name per CentralHealth standards
+  const [mrn, setMRN] = useState(
+    typeof window !== 'undefined' ? localStorage.getItem('mrn') || localStorage.getItem('medicalNumber') || "" : ""
   )
+  
+  // Add guaranteed loading timeout to prevent infinite loading
+  useEffect(() => {
+    let loadingTimeout: NodeJS.Timeout | null = null;
+    
+    if (isLoading) {
+      // Force exit from loading state after 5 seconds to prevent UI being stuck
+      loadingTimeout = setTimeout(() => {
+        console.warn('Profile page forced to exit loading state due to timeout');
+        // If we have a cached profile photo, use it immediately
+        if (profilePhotoUrl) {
+          setProfileImage(profilePhotoUrl);
+        }
+      }, 5000);
+    }
+    
+    return () => {
+      if (loadingTimeout) clearTimeout(loadingTimeout);
+    };
+  }, [isLoading, profilePhotoUrl])
 
   // Load profile data with better performance
   useEffect(() => {
@@ -131,15 +136,16 @@ export default function PatientProfile() {
       }
 
       try {
-        // Set medical ID from profile or fallback - priority based approach
-        const dashboardMedicalID = profile?.medicalNumber || profile?.displayMedicalNumber || ""
-        if (dashboardMedicalID) {
-          setMedicalID(dashboardMedicalID)
-          // Safe localStorage operations
+        // Set medical ID from profile with standardized mrn field per CentralHealth standards
+        // Priority approach: mrn > medicalNumber > displayMedicalNumber
+        const patientMrn = profile?.mrn || profile?.medicalNumber || profile?.displayMedicalNumber || ""
+        if (patientMrn) {
+          setMRN(patientMrn)
+          // Safe localStorage operations - consistently use mrn as the key
           try {
-            localStorage.setItem('medicalNumber', dashboardMedicalID)
+            localStorage.setItem('mrn', patientMrn)
           } catch (e) {
-            console.warn('Unable to save medical ID to localStorage:', e)
+            console.warn('Unable to save medical record number to localStorage:', e)
           }
         }
 
@@ -240,10 +246,10 @@ export default function PatientProfile() {
     }
   };
 
-  // Prepare profile data for sidebar
+  // Prepare profile data for sidebar - use standardized mrn field per CentralHealth standards
   const profileDataForSidebar = {
     name: profile?.name || "",
-    medicalNumber: medicalID || "",
+    medicalNumber: mrn || "", // Using proper medical record number
     profileImage: profileImage || undefined,
   }
 
@@ -280,11 +286,22 @@ export default function PatientProfile() {
     if (error) {
       return (
         <div className="p-6 rounded-lg border border-red-200 bg-red-50">
-          <h2 className="text-red-700 text-lg font-medium mb-2">Error Loading Data</h2>
-          <p className="text-red-600">{error}</p>
-          <Button className="mt-4" onClick={() => window.location.reload()}>
-            Try Again
-          </Button>
+          <h2 className="text-red-700 text-lg font-medium mb-2">Error Loading Profile Data</h2>
+          <p className="text-red-600">Failed to load profile data in a reasonable time. Please try again.</p>
+          <div className="flex gap-3 mt-4">
+            <Button 
+              onClick={() => window.location.reload()}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              Try Again
+            </Button>
+            <Button 
+              variant="outline" 
+              onClick={() => router.push('/patient/dashboard')}
+            >
+              Return to Dashboard
+            </Button>
+          </div>
         </div>
       );
     }
@@ -325,7 +342,7 @@ export default function PatientProfile() {
                   ) : (
                     <div ref={qrCodeRef}>
                       <QRCode 
-                        value={qrCodeValue || `CentralHealth:${medicalID || profile.medicalNumber || 'NA'}`} 
+                        value={qrCodeValue || `CentralHealth:${mrn}`} 
                         size={130} 
                         style={{ height: "auto", maxWidth: "100%", width: "100%" }}
                         viewBox={`0 0 256 256`}
@@ -338,34 +355,38 @@ export default function PatientProfile() {
                     <Avatar className="h-20 w-20 ring-4 ring-blue-50 shadow-md border border-blue-100">
                       <AvatarImage 
                         src={profileImage || profile.photo || defaultPhoto} 
-                        alt={profile.fullName || "Patient"}
+                        alt={profile.name || "Patient"}
                         onError={(e) => {
                           (e.target as HTMLImageElement).src = defaultPhoto
                         }}
                       />
                       <AvatarFallback className="bg-blue-600 text-white text-lg">
-                        {profile.fullName?.substring(0, 2).toUpperCase() || "P"}
+                        {profile.name?.substring(0, 2).toUpperCase() || "P"}
                       </AvatarFallback>
                     </Avatar>
                     <div>
-                      <h3 className="text-xl font-bold text-gray-900">{profile.fullName}</h3>
+                      <h3 className="text-xl font-bold text-gray-900">{profile.name}</h3>
                       <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500">
-                        <span>Age: {profile.age}</span>
-                        <span>•</span>
-                        <span>{profile.gender}</span>
-                        <span>•</span>
-                        <span>Blood Type: {profile.bloodType || "Unknown"}</span>
+                        <span>{profile.dateOfBirth ? `DOB: ${profile.dateOfBirth}` : ''}</span>
+                        {profile.gender && <>
+                          <span>•</span>
+                          <span>{profile.gender}</span>
+                        </>}
+                        {profile.bloodType && <>
+                          <span>•</span>
+                          <span>Blood Type: {profile.bloodType || "Unknown"}</span>
+                        </>}
                       </div>
                     </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="bg-white p-3 rounded-lg border">
-                      <p className="text-sm text-gray-500">Medical Number</p>
-                      <p className="font-medium">{medicalID || profile.medicalNumber}</p>
+                    <div className="relative flex items-center space-x-2">
+                      <p className="text-sm text-gray-500">Medical ID:</p>
+                      <p className="font-medium">{mrn}</p>
                     </div>
                     <div className="bg-white p-3 rounded-lg border">
                       <p className="text-sm text-gray-500">Date of Birth</p>
-                      <p className="font-medium">{profile.dob}</p>
+                      <p className="font-medium">{profile.dateOfBirth || 'Not available'}</p>
                     </div>
                     <div className="bg-white p-3 rounded-lg border">
                       <p className="text-sm text-gray-500">Insurance</p>
@@ -552,22 +573,29 @@ export default function PatientProfile() {
                   <CardContent>
                     <div className="space-y-3">
                       {profile.allergies && profile.allergies.length > 0 ? (
-                        profile.allergies.map((allergy, index) => (
-                          <div key={index} className="flex items-center justify-between">
-                            <div className="font-medium">{allergy.name}</div>
-                            <Badge 
-                              className={
-                                allergy.severity === "Severe" 
-                                  ? "bg-red-100 text-red-800" 
-                                  : allergy.severity === "Moderate"
-                                    ? "bg-orange-100 text-orange-800"
-                                    : "bg-yellow-100 text-yellow-800"
-                              }
-                            >
-                              {allergy.severity}
-                            </Badge>
-                          </div>
-                        ))
+                        profile.allergies.map((allergy, index) => {
+                          // Handle both string and object formats with proper type checking
+                          const allergyObj = allergy as any;
+                          const allergyName = typeof allergy === 'string' ? allergy : (allergyObj?.name || 'Unknown Allergy');
+                          const allergySeverity = typeof allergy === 'string' ? 'Unknown' : (allergyObj?.severity || 'Unknown');
+                          
+                          return (
+                            <div key={index} className="flex items-center justify-between">
+                              <div className="font-medium">{allergyName}</div>
+                              <Badge 
+                                className={
+                                  allergySeverity === "Severe" 
+                                    ? "bg-red-100 text-red-800" 
+                                    : allergySeverity === "Moderate"
+                                      ? "bg-orange-100 text-orange-800"
+                                      : "bg-yellow-100 text-yellow-800"
+                                }
+                              >
+                                {allergySeverity}
+                              </Badge>
+                            </div>
+                          );
+                        })
                       ) : (
                         <p className="text-gray-500">No allergies recorded.</p>
                       )}
@@ -587,9 +615,9 @@ export default function PatientProfile() {
                       {profile.conditions && profile.conditions.length > 0 ? (
                         profile.conditions.map((condition, index) => {
                           // Explicitly type check and cast to prevent TypeScript errors
-                          const isStringCondition = typeof condition === 'string';
-                          const conditionName = isStringCondition ? condition : (condition as Condition).name;
-                          const conditionStatus = isStringCondition ? null : (condition as Condition).status;
+                          const condObj = condition as any;
+                          const conditionName = typeof condition === 'string' ? condition : (condObj?.name || 'Unknown Condition');
+                          const conditionStatus = typeof condition === 'string' ? null : condObj?.status;
                           
                           return (
                             <div key={index} className="flex items-center justify-between">
@@ -620,17 +648,27 @@ export default function PatientProfile() {
                   <CardContent>
                     <div className="space-y-4">
                       {profile.medications && profile.medications.length > 0 ? (
-                        profile.medications.map((med, index) => (
-                          <div key={index} className="flex items-start justify-between pb-3 border-b last:border-b-0 last:pb-0">
-                            <div>
-                              <p className="font-medium">{med.name}</p>
-                              <p className="text-sm text-gray-500">{med.dosage}</p>
+                        profile.medications.map((med, index) => {
+                          // Handle both string and object formats with proper type checking
+                          const medObj = med as any;
+                          const medName = typeof med === 'string' ? med : (medObj?.name || 'Unknown Medication');
+                          const medDosage = typeof med === 'string' ? '' : (medObj?.dosage || '');
+                          const medFrequency = typeof med === 'string' ? '' : (medObj?.frequency || '');
+                          
+                          return (
+                            <div key={index} className="flex items-start justify-between pb-3 border-b last:border-b-0 last:pb-0">
+                              <div>
+                                <p className="font-medium">{medName}</p>
+                                {medDosage && <p className="text-sm text-gray-500">{medDosage}</p>}
+                              </div>
+                              {medFrequency && (
+                                <Badge variant="outline" className="text-purple-600 border-purple-300">
+                                  {medFrequency}
+                                </Badge>
+                              )}
                             </div>
-                            <Badge variant="outline" className="text-purple-600 border-purple-300">
-                              {med.frequency}
-                            </Badge>
-                          </div>
-                        ))
+                          );
+                        })
                       ) : (
                         <p className="text-gray-500">No medications recorded.</p>
                       )}
@@ -720,7 +758,7 @@ export default function PatientProfile() {
         </div>
       </div>
     );
-  }, [isLoading, error, profile, medicalID, profileImage, qrCodeValue, activeTab, defaultPhoto, handlePrint]);
+  }, [isLoading, error, profile, mrn, profileImage, qrCodeValue, activeTab, defaultPhoto, handlePrint]);
 
   return (
     <DashboardLayout 

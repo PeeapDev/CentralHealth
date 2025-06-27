@@ -6,15 +6,20 @@ export default async function HospitalPage({
 }: {
   params: { hospitalName: string }
 }) {
-  // Don't use Promise.resolve on params - this causes the error
-  // Instead directly use the params in the async component
-  const { hospitalName } = params;
-  
-  // Redirect from hospital root to hospital home page
-  if (hospitalName) {
-    redirect(`/${hospitalName}/home`)
-  } else {
-    // Fallback if hospital name is not available
-    redirect('/')
+  try {
+    // Properly handle params in async component by awaiting them
+    const resolvedParams = await Promise.resolve(params);
+    const { hospitalName } = resolvedParams;
+    
+    // Redirect from hospital root to hospital home page
+    if (hospitalName) {
+      redirect(`/${hospitalName}/home`)
+    } else {
+      // Fallback if hospital name is not available
+      redirect('/')
+    }
+  } catch (error) {
+    console.error('Error resolving hospital parameters:', error);
+    redirect('/');
   }
 }

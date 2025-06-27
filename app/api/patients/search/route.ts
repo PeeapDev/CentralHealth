@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/database/prisma-client";
 import { v4 as uuidv4 } from "uuid";
 import crypto from "crypto";
+import { safeLogSecurityEvent } from '@/utils/security-logging';
+
 // Define simple IP extraction function instead of importing missing module
 function getClientIp(request: NextRequest): string | null {
   const forwardedFor = request.headers.get('x-forwarded-for');
@@ -173,7 +175,7 @@ export async function GET(request: NextRequest) {
       const totalPages = Math.ceil(totalCount / pageSize);
 
       // Log successful search
-      await logSecurityEvent({
+      await safeLogSecurityEvent({
         action: 'PATIENT_SEARCH_SUCCESS',
         ipAddress,
         details: {
@@ -222,7 +224,7 @@ export async function GET(request: NextRequest) {
     const requestId = crypto.randomUUID();
     console.error(`[${requestId}] Patient search error:`, error);
     
-    await logSecurityEvent({
+    await safeLogSecurityEvent({
       action: 'PATIENT_SEARCH_ERROR',
       details: {
         error: error instanceof Error ? error.message : 'Unknown error',
@@ -596,7 +598,7 @@ async function checkRateLimit(ipAddress: string, endpoint: keyof typeof RATE_LIM
   record.count++;
   
   if (record.count > config.limit) {
-    await logSecurityEvent({
+    await safeLogSecurityEvent({
       action: `${endpoint}_RATE_LIMIT_EXCEEDED`,
       ipAddress,
       details: {
@@ -619,7 +621,7 @@ async function checkRateLimit(ipAddress: string, endpoint: keyof typeof RATE_LIM
 }
 
 // Simplified security logging to avoid Prisma schema issues
-async function logSecurityEvent(data: AuditLogData): Promise<void> {
+async function safeLogSecurityEvent(data: AuditLogData): Promise<void> {
   try {
     // Convert patientId to details if it exists
     let finalDetails = {...(data.details || {})};

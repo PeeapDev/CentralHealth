@@ -1,19 +1,12 @@
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { prisma } from '@/lib/database/prisma-client';
 import { getRequestIdentifier, rateLimit } from '@/lib/rate-limiting';
 import { getPatientEmail } from '@/lib/patient-data-utils';
 import crypto from 'crypto';
 import { createTransport } from 'nodemailer';
 import { Patient, PatientEmail } from '@/lib/generated/prisma';
 
-interface AuditLogData {
-  action: string;
-  ipAddress?: string;
-  details?: string | object;
-  userId?: string;
-  patientId?: string;
-  success?: boolean;
-}
+import { safeLogSecurityEvent, AuditLogData } from '@/utils/security-logging';
 
 interface EmailResult {
   success: boolean;
@@ -21,31 +14,7 @@ interface EmailResult {
   devModeInfo?: any;
 }
 
-async function logSecurityEvent(data: AuditLogData): Promise<void> {
-  try {
-    const details = typeof data.details === 'string' 
-      ? data.details 
-      : JSON.stringify(data.details || {});
-      
-    // Include patient ID in details field if present, since securityAuditLog doesn't have a direct patientId field
-    const detailsWithPatient = data.patientId ? 
-      {...JSON.parse(details), patientId: data.patientId} : 
-      JSON.parse(details);
-      
-    await prisma.securityAuditLog.create({
-      data: {
-        action: data.action,
-        ipAddress: data.ipAddress || null,
-        details: JSON.stringify(detailsWithPatient),
-        userId: data.userId || '00000000-0000-0000-0000-000000000000', // Default system user ID when none provided
-        success: data.success ?? false,
-        // Let Prisma handle these default values
-      }
-    });
-  } catch (error) {
-    console.error('Failed to log security event:', error instanceof Error ? error.message : String(error));
-  }
-}
+// Use the safeLogSecurityEvent function from the security-logging utility
 
 async function sendEmail({ to, subject, html }: { to: string; subject: string; html: string }): Promise<EmailResult> {
   const smtpConfigured = !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD);
@@ -97,7 +66,7 @@ export async function POST(request: Request) {
   try {
     const rateLimitResult = await rateLimit(identifier, 'PASSWORD_RESET');
     if (rateLimitResult) {
-      await logSecurityEvent({
+      await safeLogSecurityEvent({
         action: 'PASSWORD_RESET_RATE_LIMIT',
         ipAddress: identifier,
         details: { message: 'Rate limit exceeded for password reset' },
@@ -170,7 +139,7 @@ export async function POST(request: Request) {
     const hasEmail = primaryEmail.trim().length > 0;
 
     if (!patient) {
-      await logSecurityEvent({
+      await safeLogSecurityEvent({
         action: 'PASSWORD_RESET_NO_PATIENT_FOUND',
         ipAddress: identifier,
         details: {
@@ -218,7 +187,7 @@ export async function POST(request: Request) {
         });
       }
       
-      await logSecurityEvent({
+      await safeLogSecurityEvent({
         action: 'PASSWORD_RESET_NO_EMAIL',
         patientId: patient.id,
         ipAddress: identifier,
@@ -264,7 +233,7 @@ export async function POST(request: Request) {
     });
     
     if (emailResult.success) {
-      await logSecurityEvent({
+      await safeLogSecurityEvent({
         action: 'PASSWORD_RESET_EMAIL_SENT',
         patientId: patient.id,
         ipAddress: identifier,
@@ -289,7 +258,7 @@ export async function POST(request: Request) {
         })
       });
     } else {
-      await logSecurityEvent({
+      await safeLogSecurityEvent({
         action: 'PASSWORD_RESET_EMAIL_FAILED',
         patientId: patient.id,
         ipAddress: identifier,
@@ -329,7 +298,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error('Password reset request error:', error);
     
-    await logSecurityEvent({
+    await safeLogSecurityEvent({
       action: 'PASSWORD_RESET_REQUEST_ERROR',
       ipAddress: identifier,
       details: { error: error instanceof Error ? error.message : String(error) },

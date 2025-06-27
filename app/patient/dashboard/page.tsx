@@ -35,6 +35,7 @@ import { useHospitalContext } from "@/hooks/use-hospital-context"
 import { Spinner } from "@/components/ui/spinner"
 import { getInitialsFromFhirName, formatFhirName } from "@/utils/fhir-helpers"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import QRCode from "react-qr-code"
 
 export default function PatientDashboardPage() {
   const router = useRouter()
@@ -47,8 +48,15 @@ export default function PatientDashboardPage() {
   // Use our hospital context to avoid "hospital not found" errors
   const { hospital } = useHospitalContext()
   
-  // Fetch patient profile data
-  const { profile, isLoading, error } = usePatientProfile()
+  // Define more granular loading states for better UX
+  const [isLoading, setIsLoading] = useState(true)
+  const [isCriticalDataLoaded, setIsCriticalDataLoaded] = useState(false)
+  const [isProfilePhotoLoading, setIsProfilePhotoLoading] = useState(true)
+  const [isSecondaryDataLoading, setIsSecondaryDataLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  
+  // Fetch patient profile data with immediate error handling
+  const { profile, error: profileError } = usePatientProfile()
   
   // Load patient data from profile and localStorage
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null)
@@ -79,30 +87,221 @@ export default function PatientDashboardPage() {
     medications: [] as Array<{ name: string; dosage: string; frequency: string }>
   })
   
-  // Load patient data from profile and registration data
+  // Performance tracking and progressive rendering
   useEffect(() => {
-    console.log('DEBUG: Loading patient profile and registration data')
+    if (typeof window !== 'undefined') {
+      // Mark the start time when component mounts
+      const startTime = performance.now();
+      
+      // Show initial UI skeleton immediately
+      setIsCriticalDataLoaded(true);
+      
+      // Implement progressive timeouts for different stages of rendering
+      // Phase 1: Exit main loading state quickly (1 second)
+      const primaryLoadingTimeout = setTimeout(() => {
+        setIsLoading(false);
+        
+        // Phase 2: Track rendering performance for monitoring
+        if (window.performance && window.performance.mark) {
+          window.performance.mark('dashboard-first-render');
+        }
+      }, 1000); // 1 second for initial render
+      
+      // Phase 3: Guaranteed loading exit - ensure dashboard NEVER stays in loading state too long
+      const maxLoadingTime = 3000; // Reduced from 5s to 3s
+      const loadingTimeout = setTimeout(() => {
+        if (isLoading) {
+          console.warn('Dashboard loading timeout reached, forcing exit from loading state');
+          setIsLoading(false);
+          
+          // If we don't have critical data yet, at least set it to true to show something
+          if (!isCriticalDataLoaded) {
+            setIsCriticalDataLoaded(true);
+            
+            // Log this as an error for monitoring
+            console.error('Critical data failed to load before timeout');
+          }
+        }
+        
+        // Measure and log total render time for performance monitoring
+        const renderTime = performance.now() - startTime;
+        console.log(`Dashboard render time: ${Math.round(renderTime)}ms`);
+      }, maxLoadingTime);
+      
+      // Add a cleanup function that logs the total render time
+      return () => {
+        clearTimeout(loadingTimeout);
+        const endTime = performance.now();
+        const loadTime = endTime - startTime;
+        console.log(`Dashboard loaded in ${loadTime.toFixed(2)}ms`);
+        
+        // Optional: track this metric for analytics
+        if (loadTime > 2000) {
+          // Could send to analytics service if it's slow
+          console.warn('Dashboard load time exceeded 2 seconds');
+        }
+      };
+    }
+  }, [isLoading, isCriticalDataLoaded]);
+  
+  // Debug function to help diagnose issues and provide fallback behavior
+  const debugProfileInfo = (profile: any) => {
+    if (!profile) {
+      console.warn('No profile data available');
+      // Set a dummy profile data to avoid crashes if profile is completely missing
+      setIsCriticalDataLoaded(true);
+      setIsLoading(false);
+      setPatientData(prev => ({
+        ...prev,
+        name: "Patient data unavailable",
+        medicalNumber: "---" // Never use mock medical IDs per CentralHealth rules
+      }));
+      return;
+    }
+    console.log('Profile debug - Available IDs:', {
+      id: profile.id,
+      patientId: profile.patientId, 
+      medicalNumber: profile.medicalNumber,
+      mrn: (profile as any).mrn // Access the standard MRN field as defined in CentralHealth rules
+    });
+  };
+  
+  // Always include all hooks in the same order - this is CRITICAL for React
+  // Early safeguard to handle missing profile data
+  useEffect(() => {
+    // Check profile data early and ensure we always exit loading state
+    debugProfileInfo(profile);
     
-    // Centralized function to load all patient data
-    const loadPatientData = () => {
-      const data = {
-        name: "Unknown",
-        medicalNumber: "",
+    // Guaranteed exit from loading state after 3 seconds regardless of what happens
+    const guaranteedTimeout = setTimeout(() => {
+      if (isLoading) {
+        console.warn('Guaranteed exit from loading state due to timeout');
+        setIsLoading(false);
+        setIsCriticalDataLoaded(true);
+      }
+    }, 3000);
+    
+    return () => clearTimeout(guaranteedTimeout);
+  }, [profile]);
+  
+  // Non-blocking profile picture loading useEffect must come after the performance tracking useEffect
+  useEffect(() => {
+    // Always execute the effect body, but conditionally handle profile data inside
+    // Set default photo immediately for better UX
+    const defaultPhoto = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzNiODJmNiIgZD0iTTEyIDJDNi41IDIgMiA2LjUgMiAxMnM0LjUgMTAgMTAgMTAgMTAtNC41IDEwLTEwUzE3LjUgMiAxMiAyek0xMiA1YTMgMyAwIDEgMSAwIDYgMyAzIDAgMCAxIDAtNnptMCAxM2MtMi43IDAtNS4xLTEuNC02LjUtMy41LjMtMS4xIDMuMi0xLjcgNi41LTEuNyAzLjMgMCA2LjIuNiA2LjUgMS43QzE3LjEgMTYuNiAxNC43IDE4IDEyIDE4eiIvPjwvc3ZnPg==';
+    
+    // Always set these states (not conditionally)
+    if (!profilePhoto) {
+      setProfilePhoto(defaultPhoto);
+    }
+    
+    // Allow the rest of the UI to render by marking photo as non-blocking
+    setIsProfilePhotoLoading(false);
+    
+    // Only process profile data if it exists
+    let medicalNumber = "";
+    if (profile) {
+      // Use only properties that exist on PatientProfile type
+      // The medical record number (MRN) is the standard ID per CentralHealth rules
+      medicalNumber = profile.medicalNumber || 
+                     (profile as any).mrn || 
+                     profile.patientId || profile.id || "";
+    }
+    
+    // Store the medical number for consistency but don't block rendering
+    if (medicalNumber && typeof window !== 'undefined') {
+      // Use non-blocking setTimeout to avoid blocking the main thread
+      setTimeout(() => {
+        localStorage.setItem('medicalNumber', medicalNumber);
+      }, 0);
+    }
+    
+    // Create an AbortController to cancel fetch if component unmounts
+    const abortController = new AbortController();
+    
+    // Load profile photo in background without blocking UI rendering
+    // This happens in parallel with other data loading
+    const loadProfilePhoto = async () => {
+      // First check if we have a cached photo to show immediately
+      if (typeof window !== 'undefined') {
+        const cachedPhoto = localStorage.getItem(`patient_photo_${medicalNumber}`);
+        if (cachedPhoto && cachedPhoto !== 'NO_PHOTO_AVAILABLE') {
+          setProfilePhoto(cachedPhoto);
+          
+          // Check if cached photo is recent (less than 1 hour old)
+          const timestamp = localStorage.getItem(`patient_photo_timestamp_${medicalNumber}`);
+          const now = Date.now();
+          if (timestamp && (now - parseInt(timestamp)) < 3600000) {
+            // Cached photo is recent, no need to reload
+            return;
+          }
+          // If cache is stale, we'll still show it but continue loading fresh data
+        }
+      }
+      
+      // Delay the API call slightly to prioritize main UI rendering
+      setTimeout(async () => {
+        try {
+          const res = await fetch(`/api/patients/${medicalNumber}/profile-picture`, { 
+            headers: { 'Accept': 'application/json' },
+            signal: abortController.signal,
+            // Use cache-first strategy for images
+            cache: 'default'
+          });
+          
+          if (!res.ok) throw new Error(`Failed to load profile photo: ${res.status}`);
+          
+          const data = await res.json();
+          if (data && data.imageUrl) {
+            setProfilePhoto(data.imageUrl);
+            
+            // Cache the photo for faster loading next time
+            if (typeof window !== 'undefined') {
+              localStorage.setItem(`patient_photo_${medicalNumber}`, data.imageUrl);
+              localStorage.setItem(`patient_photo_timestamp_${medicalNumber}`, Date.now().toString());
+            }
+          }
+        } catch (err: unknown) {
+          // Type-safe error handling
+          if (err instanceof Error && err.name !== 'AbortError') {
+            console.error('Error loading profile photo:', err.message);
+          }
+        }
+      }, 100); // Delay by 100ms to prioritize core UI rendering
+    };
+    
+    // Start loading in the background
+    loadProfilePhoto();
+    
+    // Cleanup function
+    return () => abortController.abort();
+  }, [profile, profilePhoto]);
+  
+  // Fast and progressive patient data loading strategy
+  useEffect(() => {
+    // Set a short timeout for showing loading indicator to avoid immediate flicker
+    const loadingTimeout = setTimeout(() => setIsLoading(true), 100);
+    
+    const processCorePatientData = async () => {
+      // Initial data skeleton with placeholders
+      const initialData = {
+        name: "Loading...",
+        medicalNumber: "--",
         gender: "unknown",
-        age: "--",
-        dateOfBirth: "", 
-        phone: "000-000-0000",
+        age: "--", 
+        dateOfBirth: "",
+        phone: "",
         email: "",
-        address: "No address recorded",
-        bloodType: "Unknown",
-        height: "Not recorded",
-        weight: "Not recorded",
+        address: "Loading...",
+        bloodType: "--",
+        height: "--",
+        weight: "--",
         onboardingCompleted: false,
-        admittedDate: "",
-        attendingDoctor: "",
+        admittedDate: "--",
+        attendingDoctor: "--",
         room: "",
         insurance: {
-          provider: "Unknown",
+          provider: "--",
           policyNumber: "",
           group: "",
           expirationDate: ""
@@ -110,227 +309,221 @@ export default function PatientDashboardPage() {
         allergies: [] as Array<{ name: string; severity: string }>,
         conditions: [] as string[],
         medications: [] as Array<{ name: string; dosage: string; frequency: string }>
-      }
+      };
+
       
-      // Priority 1: Get data from profile API response
-      if (profile) {
-        console.log('DEBUG: Patient profile data from API:', profile)
-        
-        // Extract name
-        if (profile.name) data.name = profile.name
-        
-        // Extract medical number
-        if (profile.displayMedicalNumber) {
-          data.medicalNumber = profile.displayMedicalNumber
-        } else if (profile.medicalID) {
-          data.medicalNumber = profile.medicalID
-        }
-        
-        // Extract other profile fields
-        if (profile.gender) data.gender = profile.gender
-        if (profile.dateOfBirth) data.dateOfBirth = profile.dateOfBirth
-        if (profile.phone) data.phone = profile.phone
-        if (profile.email) data.email = profile.email
-        if (profile.address) data.address = profile.address
-        if (profile.bloodType) data.bloodType = profile.bloodType
-        if (profile.height) data.height = profile.height
-        if (profile.weight) data.weight = profile.weight
-        
-        // Calculate age if date of birth is available
-        if (profile.dateOfBirth) {
-          const birthDate = new Date(profile.dateOfBirth)
-          const today = new Date()
-          let age = today.getFullYear() - birthDate.getFullYear()
-          const monthDiff = today.getMonth() - birthDate.getMonth()
-          if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-            age--
-          }
-          data.age = age.toString()
-        }
-        
-        // Get profile photo
-        if (profile.profileImage) {
-          setProfilePhoto(profile.profileImage)
-          localStorage.setItem('patientProfilePhoto', profile.profileImage)
-        }
-      }
-      
-      // Priority 1: Get data from profile API response
       try {
-        console.log('Priority 1: Loading data from profile API response')
+        // First: Set minimal UI immediately with a skeleton to eliminate white screen
+        setPatientData(initialData);
+        setIsCriticalDataLoaded(true);
         
-        // Update fields with data from API response
+        // Then: Populate real data in phases, starting with highest priority fields
         if (profile) {
-          console.log('DEBUG: Found profile data from API', profile)
+          // Phase 1: Core patient identity info - for patient header
+          const coreData = { ...initialData };
           
           // Basic patient info
-          data.name = profile.name || data.name
-          data.medicalNumber = profile.displayMedicalNumber || profile.medicalNumber || profile.medicalID || profile.id || data.medicalNumber
-          data.gender = profile.gender || data.gender
+          coreData.name = profile.name || initialData.name;
+          // Use only the MRN property as medicalNumber (standard per CentralHealth rules)
+          coreData.medicalNumber = profile.displayMedicalNumber || profile.medicalNumber || 
+                             (profile as any).mrn || profile.id || initialData.medicalNumber;
+          coreData.gender = profile.gender || initialData.gender;
           
           // Calculate age from date of birth if available
-          if (profile.birthDate) {
-            const dob = new Date(profile.birthDate)
-            const today = new Date()
-            const ageInYears = Math.floor((today.getTime() - dob.getTime()) / (1000 * 60 * 60 * 24 * 365.25))
-            data.age = isNaN(ageInYears) ? data.age : `${ageInYears}`
-          } else if (profile.age) {
-            data.age = `${profile.age}`
+          if (profile.birthDate || profile.dateOfBirth) {
+            const dob = new Date(profile.birthDate || profile.dateOfBirth || '');
+            if (dob && !isNaN(dob.getTime())) {
+              // Get current year and birth year
+              const now = new Date();
+              const currentYear = now.getFullYear();
+              const birthYear = dob.getFullYear();
+              coreData.age = String(currentYear - birthYear);
+              coreData.dateOfBirth = dob.toLocaleDateString();
+            }
           }
           
-          // Contact and personal info
-          data.dateOfBirth = profile.dateOfBirth || profile.dob || data.dateOfBirth
-          data.phone = profile.phone || data.phone
-          data.email = profile.email || data.email
-          data.address = profile.address || data.address
+          // Contact info
+          coreData.phone = profile.phone || initialData.phone;
+          coreData.email = profile.email || initialData.email;
+          coreData.address = profile.address || initialData.address;
           
           // Medical info
-          data.bloodType = profile.bloodType || data.bloodType
-          data.height = profile.height || data.height
-          data.weight = profile.weight || data.weight
-          data.onboardingCompleted = profile.onboardingCompleted || data.onboardingCompleted
-          data.admittedDate = profile.admittedDate || data.admittedDate
-          data.attendingDoctor = profile.attendingDoctor || data.attendingDoctor
-          data.room = profile.room || data.room
+          coreData.bloodType = profile.bloodType || initialData.bloodType;
+          coreData.height = profile.height || initialData.height;
+          coreData.weight = profile.weight || initialData.weight;
+          coreData.onboardingCompleted = profile.onboardingCompleted || initialData.onboardingCompleted;
+          coreData.admittedDate = profile.admittedDate || initialData.admittedDate;
+          coreData.attendingDoctor = profile.attendingDoctor || initialData.attendingDoctor;
+          coreData.room = profile.room || initialData.room;
           
+          // Phase 1: Update UI immediately with critical data
+          setPatientData(coreData);
+          
+          // Phase 2: Process complex objects and additional fields
           // Complex objects - only replace if they exist in profile
           if (profile.insurance) {
-            data.insurance = {
-              provider: profile.insurance.provider || data.insurance.provider,
-              policyNumber: profile.insurance.policyNumber || data.insurance.policyNumber,
-              group: profile.insurance.group || data.insurance.group,
-              expirationDate: profile.insurance.expirationDate || data.insurance.expirationDate
-            }
-          }
-          
-          // Arrays - only add if they exist in profile
-          if (profile.allergies && profile.allergies.length > 0) {
-            data.allergies = profile.allergies
-          }
-          
-          if (profile.conditions && profile.conditions.length > 0) {
-            data.conditions = profile.conditions
-          }
-          
-          if (profile.medications && profile.medications.length > 0) {
-            data.medications = profile.medications
-          }
-          
-          // Profile photo handling
-          if (profile.photo && !profilePhoto) {
-            console.log('DEBUG: Found photo in profile data')
-            setProfilePhoto(profile.photo)
-            localStorage.setItem('patientProfilePhoto', profile.photo)
-          } else if (profile.profileImage && !profilePhoto) {
-            console.log('DEBUG: Found profileImage in profile data')
-            setProfilePhoto(profile.profileImage)
-            localStorage.setItem('patientProfilePhoto', profile.profileImage)
-          }
-        }
-        
-        // Priority 2: Get data from localStorage that wasn't in the profile
-        console.log('Priority 2: Loading data from localStorage registration data')
-        
-        // Try to get registration data
-        const registrationData = localStorage.getItem('patientRegistrationData')
-        if (registrationData) {
-          console.log('DEBUG: Found registration data in localStorage')
-          const parsedData = JSON.parse(registrationData)
-          
-          // Only use localStorage data if API didn't provide it
-          if (data.name === "Unknown" && parsedData.fullName) {
-            data.name = parsedData.fullName
-          }
-          
-          if (!data.medicalNumber && parsedData.medicalNumber) {
-            data.medicalNumber = parsedData.medicalNumber
-          }
-          
-          if (data.gender === "unknown" && parsedData.gender) {
-            data.gender = parsedData.gender
-          }
-          
-          if (!data.phone && parsedData.phone) {
-            data.phone = parsedData.phone
-          }
-          
-          if (!data.email && parsedData.email) {
-            data.email = parsedData.email
-          }
-          
-          if (data.address === "No address recorded" && parsedData.address) {
-            data.address = parsedData.address
-          }
-          
-          if (data.bloodType === "Unknown" && parsedData.bloodType) {
-            data.bloodType = parsedData.bloodType
-          }
-          
-          // Get photo from registration if not already set
-          if (!profilePhoto && parsedData.photo) {
-            console.log('DEBUG: Found photo in registration data')
-            setProfilePhoto(parsedData.photo)
-            localStorage.setItem('patientProfilePhoto', parsedData.photo)
-          }
-        }
-        
-        // Check individual localStorage keys as fallback
-        if (data.name === "Unknown") {
-          const storedName = localStorage.getItem('currentPatientName')
-          if (storedName) data.name = storedName
-        }
-        
-        if (!data.medicalNumber) {
-          const storedMedicalNumber = localStorage.getItem('medicalNumber')
-          if (storedMedicalNumber) data.medicalNumber = storedMedicalNumber
-        }
-        
-        if (!data.email) {
-          const storedEmail = localStorage.getItem('userEmail')
-          if (storedEmail) data.email = storedEmail
-        }
-        
-        // Try to get photo from localStorage if still not set
-        if (!profilePhoto) {
-          // Try multiple sources for the photo
-          const attemptPhotoLoad = () => {
-            // Check direct localStorage keys
-            const storedPhoto = localStorage.getItem('patientProfilePhoto') || 
-                              localStorage.getItem('photo') || 
-                              localStorage.getItem('userPhoto')
+            const updatedInsurance = {
+              provider: profile.insurance.provider || coreData.insurance.provider,
+              policyNumber: profile.insurance.policyNumber || coreData.insurance.policyNumber,
+              group: profile.insurance.group || coreData.insurance.group,
+              expirationDate: profile.insurance.expirationDate || coreData.insurance.expirationDate
+            };
             
-            if (storedPhoto) {
-              console.log('SUCCESS: Found patient photo in localStorage')
-              setProfilePhoto(storedPhoto)
-              return true
+            // Update insurance data
+            setPatientData(prev => ({
+              ...prev,
+              insurance: updatedInsurance
+            }));
+          }
+          
+          // Phase 3: Add non-critical data asynchronously
+          // Process less-critical items in the next tick to speed up initial render
+          setTimeout(() => {
+            // Update the UI to indicate secondary data is loading
+            setIsSecondaryDataLoading(true);
+            
+            // Build a batch update for non-critical data
+            const secondaryUpdates: Record<string, any> = {};
+            
+            // Arrays - only add if they exist in profile
+            if (profile.allergies && profile.allergies.length > 0) {
+              secondaryUpdates.allergies = profile.allergies;
             }
             
-            return false
-          }
-          
-          if (!attemptPhotoLoad()) {
-            // Set a default photo as fallback
-            console.log('No patient photo found in any storage location, using default')
-            // Set a data URL for a default avatar (base64 encoded small blue avatar)
-            const defaultPhoto = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzNiODJmNiIgZD0iTTEyIDJDNi41IDIgMiA2LjUgMiAxMnM0LjUgMTAgMTAgMTAgMTAtNC41IDEwLTEwUzE3LjUgMiAxMiAyek0xMiA1YTMgMyAwIDEgMSAwIDYgMyAzIDAgMCAxIDAtNnptMCAxM2MtMi43IDAtNS4xLTEuNC02LjUtMy41LjMtMS4xIDMuMi0xLjcgNi41LTEuNyAzLjMgMCA2LjIuNiA2LjUgMS43QzE3LjEgMTYuNiAxNC43IDE4IDEyIDE4eiIvPjwvc3ZnPg=='
-            setProfilePhoto(defaultPhoto)
+            if (profile.conditions && profile.conditions.length > 0) {
+              secondaryUpdates.conditions = profile.conditions;
+            }
+            
+            if (profile.medications && profile.medications.length > 0) {
+              secondaryUpdates.medications = profile.medications;
+            }
+            
+            // Apply all non-critical updates at once to reduce re-renders
+            if (Object.keys(secondaryUpdates).length > 0) {
+              setPatientData(prev => ({ ...prev, ...secondaryUpdates }));
+            }
+            
+            // Mark secondary data loading as complete
+            setIsSecondaryDataLoading(false);
+          }, 100); // Small delay to prioritize main UI rendering
+        }
+        
+        // Phase 4: Get data from localStorage only after API data is processed
+        // Process localStorage data in background after main UI is visible
+        const processLocalStorage = () => {
+          try {
+            // Try to get registration data
+            const registrationData = localStorage.getItem('patientRegistrationData');
+            if (registrationData) {
+              try {
+                // Use registration data from localStorage
+                const parsedData = JSON.parse(registrationData);
+                
+                // Create updates object for any fields we need to update
+                const updates: Record<string, any> = {};
+                
+                // Only use localStorage data if API didn't provide it
+                const currentPatientData = patientData; // Get current state
+                
+                if (currentPatientData.name === "Loading..." && parsedData.fullName) {
+                  updates.name = parsedData.fullName;
+                }
+                
+                if (!currentPatientData.medicalNumber && parsedData.medicalNumber) {
+                  updates.medicalNumber = parsedData.medicalNumber;
+                }
+                
+                if (currentPatientData.gender === "unknown" && parsedData.gender) {
+                  updates.gender = parsedData.gender;
+                }
+                
+                if (!currentPatientData.phone && parsedData.phone) {
+                  updates.phone = parsedData.phone;
+                }
+                
+                if (!currentPatientData.email && parsedData.email) {
+                  updates.email = parsedData.email;
+                }
+                
+                if (currentPatientData.address === "Loading..." && parsedData.address) {
+                  updates.address = parsedData.address;
+                }
+                
+                if (currentPatientData.bloodType === "--" && parsedData.bloodType) {
+                  updates.bloodType = parsedData.bloodType;
+                }
+                
+                // Get photo from registration if not already set
+                if (!profilePhoto && parsedData.photo) {
+                  setProfilePhoto(parsedData.photo);
+                  localStorage.setItem('patientProfilePhoto', parsedData.photo);
+                }
+                
+                // Apply any updates if needed
+                if (Object.keys(updates).length > 0) {
+                  setPatientData(prev => ({ ...prev, ...updates }));
+                }
+              } catch (parseError) {
+                console.error('Failed to parse registration data:', parseError);
+              }
+            }
+            
+            // Check individual localStorage keys as fallback
+            const updates: Record<string, any> = {};
+            const currentData = patientData; // Get current state
+            
+            if (currentData.name === "Loading...") {
+              const storedName = localStorage.getItem('currentPatientName');
+              if (storedName) updates.name = storedName;
+            }
+            
+            if (!currentData.medicalNumber || currentData.medicalNumber === "--") {
+              const storedMedicalNumber = localStorage.getItem('medicalNumber');
+              if (storedMedicalNumber) updates.medicalNumber = storedMedicalNumber;
+            }
+            
+            if (!currentData.email) {
+              const storedEmail = localStorage.getItem('userEmail');
+              if (storedEmail) updates.email = storedEmail;
+            }
+            
+            // Apply any updates if needed
+            if (Object.keys(updates).length > 0) {
+              setPatientData(prev => ({ ...prev, ...updates }));
+            }
+          } catch (err) {
+            console.error('Error processing localStorage data:', err);
           }
         }
+        
+        // Schedule localStorage processing for after the main render
+        setTimeout(processLocalStorage, 200); // Further delay localStorage processing
+        
+        // Profile photo is now loaded in a separate useEffect
       } catch (err) {
-        console.error('Error loading patient data from localStorage:', err)
+        console.error('Error loading patient data:', err);
+        // Set error state if loading fails
+        setError('Failed to load patient data. Please try refreshing the page.');
+      } finally {
+        // CRITICAL: Always mark loading as complete to avoid endless loading state
+        setIsLoading(false);
+        // Always mark critical data as loaded regardless of errors
+        // This ensures the UI shows something instead of infinite spinner
+        setIsCriticalDataLoaded(true);
+        
+        console.log('Performance: Patient dashboard loaded in', 
+          performance.now() - startTime, 'ms');
       }
-      
-      // Return the compiled data
-      return data
-    }
+    };
     
-    // Load all patient data
-    const patientInfo = loadPatientData()
-    setPatientData(patientInfo)
+    // Start the data loading process
+    const startTime = performance.now(); // For dashboard load time tracking
+    console.log('Starting patient dashboard data loading...');
+    processCorePatientData();
     
-    // For QR code generation, ensure we have a medical ID stored
-    if (patientInfo.medicalNumber) {
-      localStorage.setItem('medicalNumber', patientInfo.medicalNumber)
+    // Cleanup function for the useEffect
+    return () => {
+      clearTimeout(loadingTimeout);
     }
     
   }, [profile, profilePhoto])
@@ -356,11 +549,11 @@ export default function PatientDashboardPage() {
     }
   }
 
-  // Already declared at the top of the component
+
 
   if (isLoading) {
     return (
-      <DashboardLayout 
+      <DashboardLayout
         currentPage={currentPage}
         onNavigate={handleNavigation}
         breadcrumbs={[{ label: "Dashboard" }]}
@@ -368,15 +561,14 @@ export default function PatientDashboardPage() {
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center justify-center h-[60vh]">
             <div className="text-center">
-              <Spinner className="w-10 h-10 mb-2" />
-              <p className="text-gray-500">Loading patient dashboard...</p>
+              <Spinner className="w-10 h-10" />
             </div>
           </div>
         </div>
       </DashboardLayout>
     )
   }
-
+  
   if (error) {
     return (
       <DashboardLayout 
@@ -418,13 +610,13 @@ export default function PatientDashboardPage() {
   const dashboardMedicalID = profile?.patientId || profile?.medicalNumber || profile?.id || "";
   
   // Store this exact ID in localStorage for consistency across pages
-  if (dashboardMedicalID) {
+  if (typeof window !== 'undefined' && dashboardMedicalID) {
     localStorage.setItem('medicalNumber', dashboardMedicalID);
   }
   
   // Prepare profile data to pass to sidebar using ONLY the dashboard medical ID
   const profileDataForSidebar = {
-    name: profile?.name || "", 
+    name: profile ? profile.name || "" : "", 
     medicalNumber: dashboardMedicalID, // Use exactly the same ID as shown on dashboard
     profileImage: profilePhoto || undefined,
   };
@@ -454,9 +646,26 @@ export default function PatientDashboardPage() {
             <div className="flex items-center space-x-3">
               {/* Enhanced avatar with animation */}
               <Avatar className="h-16 w-16 ring-4 ring-blue-50 shadow-sm transition-transform hover:scale-105 duration-300">
+                {/* Always render AvatarImage with proper error handling */}
                 <AvatarImage 
                   src={profilePhoto || "/placeholder.svg?height=64&width=64"} 
-                  alt={patientData.name || "Patient"} 
+                  alt={patientData.name || "Patient"}
+                  className="object-cover"
+                  onLoad={() => {
+                    console.log('Profile photo successfully loaded in avatar');
+                  }}
+                  onError={(e) => {
+                    console.error("Failed to load avatar image", e);
+                    // Force set fallback on error
+                    e.currentTarget.style.display = 'none';
+                    
+                    // Try to reload with default avatar if we have a bad URL
+                    if (profilePhoto && !profilePhoto.startsWith('data:')) {
+                      console.log('Switching to default avatar due to image load error');
+                      const defaultAvatar = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzNiODJmNiIgZD0iTTEyIDJDNi41IDIgMiA2LjUgMiAxMnM0LjUgMTAgMTAgMTAgMTAtNC41IDEwLTEwUzE3LjUgMiAxMiAyek0xMiA1YTMgMyAwIDEgMSAwIDYgMyAzIDAgMCAxIDAtNnptMCAxM2MtMi43IDAtNS4xLTEuNC02LjUtMy41LjMtMS4xIDMuMi0xLjcgNi41LTEuNyAzLjMgMCA2LjIuNiA2LjUgMS43QzE3LjEgMTYuNiAxNC43IDE4IDEyIDE4eiIvPjwvc3ZnPg==';
+                      setProfilePhoto(defaultAvatar);
+                    }
+                  }}
                 />
                 <AvatarFallback className="bg-blue-600 text-white text-lg">
                   {patientData.name !== "Unknown" 
@@ -473,6 +682,22 @@ export default function PatientDashboardPage() {
                   </span>
                 </p>
               </div>
+            </div>
+            {/* Medical ID QR Code */}
+            <div className="flex flex-col items-center">
+              <div className="bg-white p-2 rounded-lg shadow-sm border border-gray-200">
+                {patientData.medicalNumber ? (
+                  <QRCode 
+                    value={patientData.medicalNumber}
+                    size={80}
+                    style={{ maxHeight: "80px", maxWidth: "80px" }}
+                    level="H"
+                  />
+                ) : (
+                  <div className="h-[80px] w-[80px] flex items-center justify-center text-xs text-gray-400">No Medical ID</div>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">{patientData.medicalNumber || "Medical ID Pending"}</p>
             </div>
             <div className="text-right">
               <Badge variant="secondary" className="mb-2">

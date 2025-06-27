@@ -19,11 +19,20 @@ export type SyncOperation = 'create' | 'update' | 'delete'
 
 // Initialize Prisma client with specific options and logging
 export const createPrismaClient = () => {
+  // Create client with proper options format to avoid PrismaClientConstructorValidationError
   return new PrismaClient({
     log: process.env.NODE_ENV === 'development' 
       ? ['query', 'error', 'warn'] 
       : ['error'],
     errorFormat: 'pretty',
+    // Prevent issue with datasources format
+    datasources: process.env.DATABASE_URL
+      ? {
+          db: {
+            url: process.env.DATABASE_URL,
+          },
+        }
+      : undefined,
   })
 }
 

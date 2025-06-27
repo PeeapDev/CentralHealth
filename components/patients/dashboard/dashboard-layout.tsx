@@ -51,7 +51,7 @@ interface DashboardLayoutProps {
 }
 
 const baseNavigation = [
-  { name: "Home", href: "/patient", icon: Home, current: true },
+  { name: "Dashboard", href: "/patient/dashboard", icon: Home, current: true },
   { name: "Appointments", href: "/patient/appointments", icon: CalendarDays, current: false },
   { name: "Medical Records", href: "/patient/medical-records", icon: FileText, current: false },
   { name: "Messages", href: "/patient/messages", icon: MessagesSquare, current: false },
