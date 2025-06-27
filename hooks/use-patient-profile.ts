@@ -7,6 +7,9 @@ import { redirect } from 'next/navigation';
 // Default hospital fallback
 const DEFAULT_HOSPITAL = 'CENTRAL';
 
+// Default avatar fallback
+const DEFAULT_AVATAR = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzNiODJmNiIgZD0iTTEyIDJDNi41IDIgMiA2LjUgMiAxMnM0LjUgMTAgMTAgMTAgMTAtNC41IDEwLTEwUzE3LjUgMiAxMiAyek0xMiA1YTMgMyAwIDEgMSAwIDYgMyAzIDAgMCAxIDAtNnptMCAxM2MtMi43IDAtNS4xLTEuNC02LjUtMy41LjMtMS4xIDMuMi0xLjcgNi41LTEuNyAzLjMgMCA2LjIuNiA2LjUgMS43QzE3LjEgMTYuNiAxNC43IDE4IDEyIDE4eiIvPjwvc3ZnPg==';
+
 /**
  * Patient profile interface
  * Comprehensive patient information model
@@ -83,6 +86,7 @@ export interface PatientProfile {
 interface UsePatientProfileResult {
   profile: PatientProfile | null;
   isLoading: boolean;
+  isLoaded: boolean;
   error: string;
   qrCodeValue: string;
   profilePhotoUrl: string;
@@ -357,11 +361,13 @@ export function usePatientProfile(
     forceRefresh?: boolean;
     skipCache?: boolean;
     loadProfilePhoto?: boolean;
+    persistSession?: boolean;
   } = {}
 ): UsePatientProfileResult {
   // State for patient profile data
   const [profile, setProfile] = useState<PatientProfile | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoaded, setIsLoaded] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [qrCodeValue, setQRCodeValue] = useState<string>('');
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string>('');
@@ -388,7 +394,11 @@ export function usePatientProfile(
       const mrn = safeLocalStorage('get', 'mrn') || safeLocalStorage('get', 'medicalNumber');
       
       if (!email && !patientId && !mrn) {
-        throw new Error('No patient identifiers available');
+        console.warn('No patient identifiers available - using fallback login flow');
+        setIsLoading(false);
+        setError('Authentication required');
+        // Instead of throwing an error, return early and let the UI handle this state
+        return;
       }
       
       // Generate cache key from available identifiers
@@ -454,6 +464,7 @@ export function usePatientProfile(
             setProfile(localStorageCacheEntry.profile);
             setQRCodeValue(generateQRCodeValue(localStorageCacheEntry.profile));
             setIsLoading(false);
+            setIsLoaded(true);
             
             // Return early but still update in background after a delay
             setTimeout(() => {
@@ -517,90 +528,133 @@ export function usePatientProfile(
   // Load profile photo from dedicated endpoint
   const loadProfilePhoto = useCallback(async (medicalId: string) => {
     if (!medicalId || isProfilePhotoLoading) return;
-    
     setIsProfilePhotoLoading(true);
-    
-    // Set default avatar immediately for better UX
-    const defaultAvatar = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzNiODJmNiIgZD0iTTEyIDJDNi41IDIgMiA2LjUgMiAxMnM0LjUgMTAgMTAgMTAgMTAtNC41IDEwLTEwUzE3LjUgMiAxMiAyek0xMiA1YTMgMyAwIDEgMSAwIDYgMyAzIDAgMCAxIDAtNnptMCAxM2MtMi43IDAtNS4xLTEuNC02LjUtMy41LjMtMS4xIDMuMi0xLjcgNi41LTEuNyAzLjMgMCA2LjIuNiA2LjUgMS43QzE3LjEgMTYuNiAxNC43IDE4IDEyIDE4eiIvPjwvc3ZnPg==';
-    setProfilePhotoUrl(defaultAvatar);
-    
-    // Check localStorage first for cached photo
+
+    // Important: Per CentralHealth System, we should use MRN (medical record number)
+    // as the consistent medical ID source for all API requests
+    // Fallback to internal UUID only if MRN is not available
+    const mrn = medicalId || profile?.mrn || profile?.medicalNumber;
+    const patientId = profile?.id;
+
+    // For debugging
+    console.log('Loading profile photo with:', { 
+      medicalId, 
+      mrn: profile?.mrn, 
+      patientId: profile?.id 
+    });
+
+    if (!mrn && !patientId) {
+      console.warn('No valid patient identifier available for profile photo');
+      if (!profilePhotoUrl) {
+        setProfilePhotoUrl(DEFAULT_AVATAR);
+      }
+      setIsProfilePhotoLoading(false);
+      return;
+    }
+
+    // Set default photo immediately for better UX
+    if (!profilePhotoUrl) {
+      setProfilePhotoUrl(DEFAULT_AVATAR);
+    }
+
+    // Use a composite cache key to cover both ID types
+    const cacheKey = `patient_photo_${mrn || ''}_${patientId || ''}`;
+
+    // Check for cached photo first
     try {
-      const cachedPhoto = safeLocalStorage('get', `patient_photo_${medicalId}`);
-      const cachedTimestamp = safeLocalStorage('get', `patient_photo_timestamp_${medicalId}`);
-      const now = Date.now();
-      const cacheMaxAge = 1000 * 60 * 30; // 30 minutes cache duration
-      
-      // Check if we have a valid cached timestamp and it's recent enough
-      const timestamp = cachedTimestamp ? parseInt(cachedTimestamp as string, 10) : 0;
-      const isCacheValid = now - timestamp < cacheMaxAge;
-      
-      if (cachedPhoto && typeof cachedPhoto === 'string' && isCacheValid) {
+      const cachedPhoto = safeLocalStorage('get', cacheKey);
+      const cachedTimestamp = safeLocalStorage('get', `${cacheKey}_timestamp`);
+      const isCacheValid = cachedTimestamp && (Date.now() - parseInt(cachedTimestamp, 10) < 3600000); // 1 hour cache
+
+      if (cachedPhoto && isCacheValid) {
+        console.log('Using valid cached profile photo.');
         if (cachedPhoto === 'NO_PHOTO_AVAILABLE') {
-          // We previously determined this patient has no photo
-          console.log('Using cached "no photo" status from localStorage');
-          // Already set default above, keep that
-          // Skip the API call entirely by returning early
           setIsProfilePhotoLoading(false);
           return;
-        } else {
-          // We have a valid cached photo
-          console.log('Using cached profile photo from localStorage');
-          setProfilePhotoUrl(cachedPhoto);
-          // Set loading false since we have a good cached value
-          setIsProfilePhotoLoading(false);
-          return; // Skip API call entirely
         }
-      } else if (cachedTimestamp && !isCacheValid) {
-        console.log('Cached photo expired, fetching fresh version');
+        setProfilePhotoUrl(cachedPhoto);
+        setIsProfilePhotoLoading(false);
+        return;
       }
     } catch (e) {
       console.warn('Error accessing cached profile photo:', e);
     }
-    
-    // Create an AbortController with a timeout to prevent hanging requests
+
     const controller = new AbortController();
-    const timeoutMs = 8000; // 8 second timeout
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
     try {
-      console.log(`Making API request for profile photo with ID: ${medicalId}`);
+      // Try both approaches - first with MRN if available (medical record number)
+      // This is the proper ID format per CentralHealth System standards
+      let endpoint = '';
+      let identifier = '';
       
-      // Make the fetch request with proper signal and headers
-      const response = await fetch(`/api/patients/${medicalId}/profile-picture`, {
-        signal: controller.signal,
-        headers: { 'Cache-Control': 'no-cache' }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Profile photo fetch failed: ${response.status}`);
+      if (mrn) {
+        // Use MRN as primary identifier (NHS-style 5-character alphanumeric format)
+        endpoint = `/api/patients/mrn/${mrn}/profile-picture`;
+        identifier = mrn;
+        console.log(`Fetching profile photo with MRN: ${mrn}`);
+      } else if (patientId) {
+        // Fall back to UUID only if MRN not available
+        endpoint = `/api/patients/${patientId}/profile-picture`;
+        identifier = patientId;
+        console.log(`Fetching profile photo with patientId: ${patientId}`);
+      } else {
+        throw new Error('No valid identifier available for profile photo fetch');
       }
       
+      const response = await fetch(endpoint, {
+        signal: controller.signal,
+        headers: { 
+          'Cache-Control': 'no-cache',
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Profile photo fetch failed: ${response.status} for ${identifier}`);
+      }
+
       const data = await response.json();
-      
-      if (data.imageUrl) {
+
+      if (data.imageUrl && !data.isDefault) {
         console.log('Successfully loaded profile photo from API');
         setProfilePhotoUrl(data.imageUrl);
-        // Cache successful photos in localStorage for faster subsequent loads
-        safeLocalStorage('set', `patient_photo_${medicalId}`, data.imageUrl);
-        // Store timestamp of when we last fetched this photo
-        safeLocalStorage('set', `patient_photo_timestamp_${medicalId}`, Date.now().toString());
+        
+        // Store in cache with composite key
+        safeLocalStorage('set', cacheKey, data.imageUrl);
+        safeLocalStorage('set', `${cacheKey}_timestamp`, Date.now().toString());
+        
+        // Also store as base64 data URL in localStorage for faster loading next time
+        if (typeof window !== 'undefined' && data.imageUrl.startsWith('data:')) {
+          localStorage.setItem('patientProfilePhoto', data.imageUrl);
+        }
       } else {
-        console.log('No profile image found, using default avatar');
-        // Also cache negative results to prevent repeated API calls
-        // Store a special value to indicate "no photo found"
-        safeLocalStorage('set', `patient_photo_${medicalId}`, 'NO_PHOTO_AVAILABLE');
-        safeLocalStorage('set', `patient_photo_timestamp_${medicalId}`, Date.now().toString());
+        console.log('No profile image found or default returned, using default avatar');
+        safeLocalStorage('set', cacheKey, 'NO_PHOTO_AVAILABLE');
+        safeLocalStorage('set', `${cacheKey}_timestamp`, Date.now().toString());
+        
+        // Use default SVG avatar
+        const defaultAvatar = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzNiODJmNiIgZD0iTTEyIDJDNi41IDIgMiA2LjUgMiAxMnM0LjUgMTAgMTAgMTAgMTAtNC41IDEwLTEwUzE3LjUgMiAxMiAyek0xMiA1YTMgMyAwIDEgMSAwIDYgMyAzIDAgMCAxIDAtNnptMCAxM2MtMi43IDAtNS4xLTEuNC02LjUtMy41LjMtMS4xIDMuMi0xLjcgNi41LTEuNyAzLjMgMCA2LjIuNiA2LjUgMS43QzE3LjEgMTYuNiAxNC43IDE4IDEyIDE4eiIvPjwvc3ZnPg==';
+        setProfilePhotoUrl(defaultAvatar);
       }
     } catch (err) {
-      // Handle errors gracefully
-      console.error('Error fetching profile photo:', err instanceof Error ? err.message : String(err));
-      // Keep using the default photo or cached one - already set above
+      // Don't log errors for aborted requests as they are expected when component unmounts
+      // DOMException with name 'AbortError' is thrown when the fetch is aborted
+      const isAbortError = err instanceof DOMException && err.name === 'AbortError';
+      
+      if (!isAbortError) {
+        console.error('Error fetching profile photo:', err instanceof Error ? err.message : String(err));
+        
+        // Always ensure we have a fallback avatar
+        const defaultAvatar = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzNiODJmNiIgZD0iTTEyIDJDNi41IDIgMiA2LjUgMiAxMnM0LjUgMTAgMTAgMTAgMTAtNC41IDEwLTEwUzE3LjUgMiAxMiAyek0xMiA1YTMgMyAwIDEgMSAwIDYgMyAzIDAgMCAxIDAtNnptMCAxM2MtMi43IDAtNS4xLTEuNC02LjUtMy41LjMtMS4xIDMuMi0xLjcgNi41LTEuNyAzLjMgMCA2LjIuNiA2LjUgMS43QzE3LjEgMTYuNiAxNC43IDE4IDEyIDE4eiIvPjwvc3ZnPg==';
+        setProfilePhotoUrl(defaultAvatar);
+      }
     } finally {
-      if (timeoutId) clearTimeout(timeoutId);
+      clearTimeout(timeoutId);
       setIsProfilePhotoLoading(false);
     }
-  }, [isProfilePhotoLoading]); // Remove profilePhotoUrl from deps to prevent loops
+  }, [profile, isProfilePhotoLoading]);
 
   // Effect to load profile photo when profile data is available - MUST BE FIRST useEffect
   // This effect should run only once per profile change and not block rendering
@@ -675,6 +729,7 @@ export function usePatientProfile(
   return {
     profile,
     isLoading,
+    isLoaded,
     error,
     qrCodeValue,
     profilePhotoUrl,

@@ -95,37 +95,8 @@ export default function PatientDashboardPage() {
   const [isSecondaryDataLoading, setIsSecondaryDataLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   
-  // Authentication verification ref
-  const isAuthVerified = useRef(false)
-  
   // Create an AbortController ref for API fetch requests
   const abortController = useRef(new AbortController())
-  
-  // SECURITY: Client-side authentication guard
-  useEffect(() => {
-    // Check for any valid authentication token per CentralHealth standards
-    const hasToken = !!localStorage.getItem('authToken');
-    const hasSession = !!localStorage.getItem('patient_session');
-    const hasMedicalNumber = !!localStorage.getItem('medicalNumber');
-    const hasPatientId = !!localStorage.getItem('patientId');
-    
-    // Security audit logging
-    console.log(`🔒 Authentication check: Token=${hasToken}, Session=${hasSession}, MRN=${hasMedicalNumber}, ID=${hasPatientId}`);
-    
-    // Verify authentication according to CentralHealth security standards
-    if (!hasToken && !hasSession && !hasMedicalNumber && !hasPatientId) {
-      console.log('⛔ SECURITY ALERT: Unauthorized dashboard access attempt');
-      
-      // Redirect to login page with return URL
-      const currentPath = window.location.pathname;
-      window.location.href = `/auth/patient-login?redirect=${encodeURIComponent(currentPath)}&error=auth_required`;
-      return;
-    }
-    
-    // Mark authentication as verified if any valid token exists
-    isAuthVerified.current = true;
-    console.log('✅ Dashboard authentication verified');
-  }, [])
   
   // Doctor-related states
   const [hospitalDoctors, setHospitalDoctors] = useState<Doctor[]>([])
@@ -133,40 +104,10 @@ export default function PatientDashboardPage() {
   const [isAppointmentPending, setIsAppointmentPending] = useState(false)
   
   // Fetch patient profile data with immediate error handling
-  // Set session persistence to true to maintain authentication across page loads
-  // Explicitly request profile photo loading
-  const { 
-    profile, 
-    error: profileError, 
-    isLoaded,
-    profilePhotoUrl, // Get the profile photo URL directly from the hook
-    isProfilePhotoLoading: hookProfilePhotoLoading
-  } = usePatientProfile({ 
-    persistSession: true,
-    loadProfilePhoto: true // Ensure profile photo is loaded
-  })
+  const { profile, error: profileError } = usePatientProfile()
   
   // Load patient data from profile and localStorage
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null)
-  
-  // Effect to sync profile photo URL from the hook to the dashboard state
-  useEffect(() => {
-    if (profilePhotoUrl) {
-      console.log('Received profile photo from hook:', profilePhotoUrl.substring(0, 30) + '...');
-      setProfilePhoto(profilePhotoUrl);
-      setIsProfilePhotoLoading(false);
-      // Also persist in localStorage for faster loading on future visits
-      localStorage.setItem('patientProfilePhoto', profilePhotoUrl);
-    } else if (!profilePhoto) {
-      // If no photo from hook and we don't have one set yet, try localStorage
-      const cachedPhoto = localStorage.getItem('patientProfilePhoto');
-      if (cachedPhoto) {
-        console.log('Using cached profile photo from localStorage');
-        setProfilePhoto(cachedPhoto);
-        setIsProfilePhotoLoading(false);
-      }
-    }
-  }, [profilePhotoUrl, profilePhoto])
   const [patientData, setPatientData] = useState<PatientData>({
     name: "Unknown",
     medicalNumber: "",
@@ -198,29 +139,8 @@ export default function PatientDashboardPage() {
     },
     allergies: [] as Array<{ name: string; severity: string }>,
     conditions: [] as string[],
-    medications: [] as Array<{ name: string; dosage: string; frequency: string }>,
-    appointments: [] // Add appointments array to match interface
+    medications: [] as Array<{ name: string; dosage: string; frequency: string }>
   })
-  
-  // Check if the user is logged in by checking localStorage
-  useEffect(() => {
-    const checkLoginStatus = () => {
-      // Check for login token in localStorage
-      const hasToken = localStorage.getItem('authToken') || 
-                      localStorage.getItem('medicalNumber') || 
-                      localStorage.getItem('patientId');
-      
-      // If we have a token or identifier, we can show the UI immediately
-      if (hasToken) {
-        setIsCriticalDataLoaded(true);
-        // Short timeout to allow for layout calculations
-        setTimeout(() => setIsLoading(false), 300);
-      }
-    };
-    
-    // Run login check immediately
-    checkLoginStatus();
-  }, []);
   
   // Performance tracking and progressive rendering
   useEffect(() => {
@@ -228,16 +148,19 @@ export default function PatientDashboardPage() {
       // Mark the start time when component mounts
       const startTime = performance.now();
       
-      // Always set critical data loaded after profile is loaded
-      if (profile) {
-        setIsCriticalDataLoaded(true);
+      // Show initial UI skeleton immediately
+      setIsCriticalDataLoaded(true);
+      
+      // Implement progressive timeouts for different stages of rendering
+      // Phase 1: Exit main loading state quickly (1 second)
+      const primaryLoadingTimeout = setTimeout(() => {
         setIsLoading(false);
         
-        // Track rendering performance for monitoring
+        // Phase 2: Track rendering performance for monitoring
         if (window.performance && window.performance.mark) {
           window.performance.mark('dashboard-first-render');
         }
-      }
+      }, 1000); // 1 second for initial render
       
       // Phase 3: Guaranteed loading exit - ensure dashboard NEVER stays in loading state too long
       const maxLoadingTime = 3000; // Reduced from 5s to 3s
@@ -369,186 +292,289 @@ export default function PatientDashboardPage() {
     return () => clearTimeout(guaranteedTimeout);
   }, [profile]);
   
-  // Helper function to process data from localStorage
-  const processLocalStorage = () => {
-    try {
-      const registrationData = localStorage.getItem('patientRegistrationData');
-      if (registrationData) {
-        try {
-          const parsedData = JSON.parse(registrationData);
-          const updates: Partial<PatientData> = {};
-          const currentPatientData = patientData;
-
-          if (currentPatientData.name === "Loading..." && parsedData.fullName) updates.name = parsedData.fullName;
-          if (!currentPatientData.medicalNumber && parsedData.medicalNumber) updates.medicalNumber = parsedData.medicalNumber;
-          if (currentPatientData.gender === "unknown" && parsedData.gender) updates.gender = parsedData.gender;
-          if (!currentPatientData.phone && parsedData.phone) updates.phone = parsedData.phone;
-          if (!currentPatientData.email && parsedData.email) updates.email = parsedData.email;
-          if (currentPatientData.address === "Loading..." && parsedData.address) updates.address = parsedData.address;
-          if (currentPatientData.bloodType === "--" && parsedData.bloodType) updates.bloodType = parsedData.bloodType;
-
-          if (!profilePhoto && parsedData.photo) {
-            setProfilePhoto(parsedData.photo);
-            localStorage.setItem('patientProfilePhoto', parsedData.photo);
-          }
-
-          if (Object.keys(updates).length > 0) {
-            setPatientData(prev => ({ ...prev, ...updates }));
-          }
-        } catch (parseError) {
-          console.error('Failed to parse registration data:', parseError);
-        }
-      }
-
-      const fallbackUpdates: Partial<PatientData> = {};
-      const currentData = patientData;
-
-      if (currentData.name === "Loading...") {
-        const storedName = localStorage.getItem('currentPatientName');
-        if (storedName) fallbackUpdates.name = storedName;
-      }
-      if (!currentData.medicalNumber || currentData.medicalNumber === "--") {
-        const storedMedicalNumber = localStorage.getItem('medicalNumber');
-        if (storedMedicalNumber) fallbackUpdates.medicalNumber = storedMedicalNumber;
-      }
-      if (!currentData.email) {
-        const storedEmail = localStorage.getItem('userEmail');
-        if (storedEmail) fallbackUpdates.email = storedEmail;
-      }
-
-      if (Object.keys(fallbackUpdates).length > 0) {
-        setPatientData(prev => ({ ...prev, ...fallbackUpdates }));
-      }
-    } catch (err) {
-      console.error('Error processing localStorage data:', err);
+  // Non-blocking profile picture loading useEffect must come after the performance tracking useEffect
+  useEffect(() => {
+    // Always execute the effect body, but conditionally handle profile data inside
+    // Set default photo immediately for better UX
+    const defaultPhoto = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzNiODJmNiIgZD0iTTEyIDJDNi41IDIgMiA2LjUgMiAxMnM0LjUgMTAgMTAgMTAgMTAtNC41IDEwLTEwUzE3LjUgMiAxMiAyek0xMiA1YTMgMyAwIDEgMSAwIDYgMyAzIDAgMCAxIDAtNnptMCAxM2MtMi43IDAtNS4xLTEuNC02LjUtMy41LjMtMS4xIDMuMi0xLjcgNi41LTEuNyAzLjMgMCA2LjIuNiA2LjUgMS43QzE3LjEgMTYuNiAxNC43IDE4IDEyIDE4eiIvPjwvc3ZnPg==';
+    
+    // Always set these states (not conditionally)
+    if (!profilePhoto) {
+      setProfilePhoto(defaultPhoto);
     }
-  };
-
-  // Helper function to process the core patient data from the profile
-  const processCorePatientData = (startTime: number) => {
-    const initialData: PatientData = {
+    
+    // Allow the rest of the UI to render by marking photo as non-blocking
+    setIsProfilePhotoLoading(false);
+    
+    // Only process profile data if it exists
+    let medicalNumber = "";
+    if (profile) {
+      // Use only properties that exist on PatientProfile type
+      // The medical record number (MRN) is the standard ID per CentralHealth rules
+      medicalNumber = profile.medicalNumber || 
+                     (profile as any).mrn || 
+                     profile.patientId || profile.id || "";
+    }
+        try {
+          // Try to get registration data
+          const registrationData = localStorage.getItem('patientRegistrationData');
+          if (registrationData) {
+            try {
+              // Use registration data from localStorage
+              const parsedData = JSON.parse(registrationData);
+              
+              // Create updates object for any fields we need to update
+              const updates: Record<string, any> = {};
+              
+              // Only use localStorage data if API didn't provide it
+              const currentPatientData = patientData; // Get current state
+              
+              if (currentPatientData.name === "Loading..." && parsedData.fullName) {
+                updates.name = parsedData.fullName;
+      // Initial data skeleton with placeholders
+      const initialData = {
         name: "Loading...",
-        medicalNumber: "",
+        medicalNumber: "--",
         gender: "unknown",
-        age: "",
+        age: "--", 
         dateOfBirth: "",
         phone: "",
         email: "",
-        address: "",
-        bloodType: "",
+        address: "Loading...",
+        bloodType: "--",
+        height: "--",
+        weight: "--",
         onboardingCompleted: false,
-        admittedDate: "",
-        attendingDoctor: "",
+        admittedDate: "--",
+        attendingDoctor: "--",
         room: "",
-        vitalSigns: {
-          temperature: "Not recorded",
-          bloodPressure: "Not recorded",
-          heartRate: "Not recorded",
-          respiratoryRate: "Not recorded",
-          height: "Not recorded",
-          weight: "Not recorded"
-        },
         insurance: {
-          provider: "Unknown",
+          provider: "--",
           policyNumber: "",
           group: "",
           expirationDate: ""
         },
-        allergies: [],
-        conditions: [],
-        medications: [],
-        appointments: []
+        allergies: [] as Array<{ name: string; severity: string }>,
+        conditions: [] as string[],
+        medications: [] as Array<{ name: string; dosage: string; frequency: string }>
       };
 
-    try {
-      setPatientData(initialData);
-      setIsCriticalDataLoaded(true);
-
-      if (profile) {
-        const coreData = { ...initialData };
-        coreData.name = profile.name || initialData.name;
-        coreData.medicalNumber = profile.displayMedicalNumber || profile.medicalNumber || (profile as any).mrn || profile.id || initialData.medicalNumber;
-        coreData.gender = profile.gender || initialData.gender;
-
-        if (profile.birthDate || profile.dateOfBirth) {
-          const dob = new Date(profile.birthDate || profile.dateOfBirth || '');
-          if (dob && !isNaN(dob.getTime())) {
-            const now = new Date();
-            coreData.age = String(now.getFullYear() - dob.getFullYear());
-            coreData.dateOfBirth = dob.toLocaleDateString();
-          }
-        }
-
-        coreData.phone = profile.phone || initialData.phone;
-        coreData.email = profile.email || initialData.email;
-        coreData.address = profile.address || initialData.address;
-        coreData.bloodType = profile.bloodType || initialData.bloodType;
-        coreData.onboardingCompleted = profile.onboardingCompleted || initialData.onboardingCompleted;
-        coreData.admittedDate = profile.admittedDate || initialData.admittedDate;
-        coreData.attendingDoctor = profile.attendingDoctor || initialData.attendingDoctor;
-        coreData.room = profile.room || initialData.room;
-
-        coreData.vitalSigns = {
-          ...initialData.vitalSigns,
-          temperature: (profile as any).temperature || initialData.vitalSigns.temperature,
-          bloodPressure: (profile as any).bloodPressure || initialData.vitalSigns.bloodPressure,
-          heartRate: (profile as any).heartRate || initialData.vitalSigns.heartRate,
-          respiratoryRate: (profile as any).respiratoryRate || initialData.vitalSigns.respiratoryRate,
-          height: (profile as any).height || initialData.vitalSigns.height,
-          weight: (profile as any).weight || initialData.vitalSigns.weight
-        };
-
-        setPatientData(coreData);
-
-        if (profile.insurance) {
-          setPatientData(prev => ({
-            ...prev,
-            insurance: {
-              provider: profile.insurance.provider || prev.insurance.provider,
-              policyNumber: profile.insurance.policyNumber || prev.insurance.policyNumber,
-              group: profile.insurance.group || prev.insurance.group,
-              expirationDate: profile.insurance.expirationDate || prev.insurance.expirationDate
+      
+      try {
+        // First: Set minimal UI immediately with a skeleton to eliminate white screen
+        setPatientData(initialData);
+        setIsCriticalDataLoaded(true);
+        
+        // Then: Populate real data in phases, starting with highest priority fields
+        if (profile) {
+          // Phase 1: Core patient identity info - for patient header
+          const coreData = { ...initialData };
+          
+          // Basic patient info
+          coreData.name = profile.name || initialData.name;
+          // Use only the MRN property as medicalNumber (standard per CentralHealth rules)
+          coreData.medicalNumber = profile.displayMedicalNumber || profile.medicalNumber || 
+                             (profile as any).mrn || profile.id || initialData.medicalNumber;
+          coreData.gender = profile.gender || initialData.gender;
+          
+          // Calculate age from date of birth if available
+          if (profile.birthDate || profile.dateOfBirth) {
+            const dob = new Date(profile.birthDate || profile.dateOfBirth || '');
+            if (dob && !isNaN(dob.getTime())) {
+              // Get current year and birth year
+              const now = new Date();
+              const currentYear = now.getFullYear();
+              const birthYear = dob.getFullYear();
+              coreData.age = String(currentYear - birthYear);
+              coreData.dateOfBirth = dob.toLocaleDateString();
             }
-          }));
-        }
-
-        setTimeout(() => {
-          setIsSecondaryDataLoading(true);
-          const secondaryUpdates: Partial<PatientData> = {};
-          if (profile.allergies?.length) secondaryUpdates.allergies = profile.allergies.map((name: string) => ({ name, severity: 'Unknown' }));
-          if (profile.conditions?.length) secondaryUpdates.conditions = profile.conditions;
-          if (profile.medications?.length) secondaryUpdates.medications = profile.medications.map((name: string) => ({ name, dosage: 'N/A', frequency: 'N/A' }));
-          if (Object.keys(secondaryUpdates).length > 0) {
-            setPatientData(prev => ({ ...prev, ...secondaryUpdates }));
           }
-          setIsSecondaryDataLoading(false);
-        }, 100);
+          
+          // Contact info
+          coreData.phone = profile.phone || initialData.phone;
+          coreData.email = profile.email || initialData.email;
+          coreData.address = profile.address || initialData.address;
+          
+          // Medical info
+          coreData.bloodType = profile.bloodType || initialData.bloodType;
+          coreData.height = profile.height || initialData.height;
+          coreData.weight = profile.weight || initialData.weight;
+          coreData.onboardingCompleted = profile.onboardingCompleted || initialData.onboardingCompleted;
+          coreData.admittedDate = profile.admittedDate || initialData.admittedDate;
+          coreData.attendingDoctor = profile.attendingDoctor || initialData.attendingDoctor;
+          coreData.room = profile.room || initialData.room;
+          
+          // Phase 1: Update UI immediately with critical data
+          setPatientData(coreData);
+          
+          // Phase 2: Process complex objects and additional fields
+          // Complex objects - only replace if they exist in profile
+          if (profile.insurance) {
+            const updatedInsurance = {
+              provider: profile.insurance.provider || coreData.insurance.provider,
+              policyNumber: profile.insurance.policyNumber || coreData.insurance.policyNumber,
+              group: profile.insurance.group || coreData.insurance.group,
+              expirationDate: profile.insurance.expirationDate || coreData.insurance.expirationDate
+            };
+            
+            // Update insurance data
+            setPatientData(prev => ({
+              ...prev,
+              insurance: updatedInsurance
+            }));
+          }
+          
+          // Phase 3: Add non-critical data asynchronously
+          // Process less-critical items in the next tick to speed up initial render
+          setTimeout(() => {
+            // Update the UI to indicate secondary data is loading
+            setIsSecondaryDataLoading(true);
+            
+            // Build a batch update for non-critical data
+            const secondaryUpdates: Record<string, any> = {};
+            
+            // Arrays - only add if they exist in profile
+            if (profile.allergies && profile.allergies.length > 0) {
+              secondaryUpdates.allergies = profile.allergies;
+            }
+            
+            if (profile.conditions && profile.conditions.length > 0) {
+              secondaryUpdates.conditions = profile.conditions;
+            }
+            
+            if (profile.medications && profile.medications.length > 0) {
+              secondaryUpdates.medications = profile.medications;
+            }
+            
+            // Apply all non-critical updates at once to reduce re-renders
+            if (Object.keys(secondaryUpdates).length > 0) {
+              setPatientData(prev => ({ ...prev, ...secondaryUpdates }));
+            }
+            
+            // Mark secondary data loading as complete
+            setIsSecondaryDataLoading(false);
+          }, 100); // Small delay to prioritize main UI rendering
+        }
+        
+        // Phase 4: Get data from localStorage only after API data is processed
+        // Process localStorage data in background after main UI is visible
+        const processLocalStorage = () => {
+          try {
+            // Try to get registration data
+            const registrationData = localStorage.getItem('patientRegistrationData');
+            if (registrationData) {
+              try {
+                // Use registration data from localStorage
+                const parsedData = JSON.parse(registrationData);
+                
+                // Create updates object for any fields we need to update
+                const updates: Record<string, any> = {};
+                
+                // Only use localStorage data if API didn't provide it
+                const currentPatientData = patientData; // Get current state
+                
+                if (currentPatientData.name === "Loading..." && parsedData.fullName) {
+                  updates.name = parsedData.fullName;
+                }
+                
+                if (!currentPatientData.medicalNumber && parsedData.medicalNumber) {
+                  updates.medicalNumber = parsedData.medicalNumber;
+                }
+                
+                if (currentPatientData.gender === "unknown" && parsedData.gender) {
+                  updates.gender = parsedData.gender;
+                }
+                
+                if (!currentPatientData.phone && parsedData.phone) {
+                  updates.phone = parsedData.phone;
+                }
+                
+                if (!currentPatientData.email && parsedData.email) {
+                  updates.email = parsedData.email;
+                }
+                
+                if (currentPatientData.address === "Loading..." && parsedData.address) {
+                  updates.address = parsedData.address;
+                }
+                
+                if (currentPatientData.bloodType === "--" && parsedData.bloodType) {
+                  updates.bloodType = parsedData.bloodType;
+                }
+                
+                // Get photo from registration if not already set
+                if (!profilePhoto && parsedData.photo) {
+                  setProfilePhoto(parsedData.photo);
+                  localStorage.setItem('patientProfilePhoto', parsedData.photo);
+                }
+                
+                // Apply any updates if needed
+                if (Object.keys(updates).length > 0) {
+                  setPatientData(prev => ({ ...prev, ...updates }));
+                }
+              } catch (parseError) {
+                console.error('Failed to parse registration data:', parseError);
+              }
+            }
+            
+            // Check individual localStorage keys as fallback
+            const updates: Record<string, any> = {};
+            const currentData = patientData; // Get current state
+            
+            if (currentData.name === "Loading...") {
+              const storedName = localStorage.getItem('currentPatientName');
+              if (storedName) updates.name = storedName;
+            }
+            
+            if (!currentData.medicalNumber || currentData.medicalNumber === "--") {
+              const storedMedicalNumber = localStorage.getItem('medicalNumber');
+              if (storedMedicalNumber) updates.medicalNumber = storedMedicalNumber;
+            }
+            
+            if (!currentData.email) {
+              const storedEmail = localStorage.getItem('userEmail');
+              if (storedEmail) updates.email = storedEmail;
+            }
+            
+            // Apply any updates if needed
+            if (Object.keys(updates).length > 0) {
+              setPatientData(prev => ({ ...prev, ...updates }));
+            }
+          } catch (err) {
+            console.error('Error processing localStorage data:', err);
+          }
+        }
+        
+        // Schedule localStorage processing for after the main render
+        setTimeout(processLocalStorage, 200); // Further delay localStorage processing
+        
+        // Profile photo is now loaded in a separate useEffect
+      } catch (err) {
+        console.error('Error loading patient data:', err);
+        // Set error state if loading fails
+        setError('Failed to load patient data. Please try refreshing the page.');
+      } finally {
+        // CRITICAL: Always mark loading as complete to avoid endless loading state
+        setIsLoading(false);
+        // Always mark critical data as loaded regardless of errors
+        // This ensures the UI shows something instead of infinite spinner
+        setIsCriticalDataLoaded(true);
+        
+        console.log('Performance: Patient dashboard loaded in', 
+          performance.now() - startTime, 'ms');
       }
-
-      setTimeout(processLocalStorage, 200);
-    } catch (err) {
-      console.error('Error loading patient data:', err);
-      setError('Failed to load patient data. Please try refreshing the page.');
-    } finally {
-      setIsLoading(false);
-      setIsCriticalDataLoaded(true);
-      console.log('Performance: Patient dashboard loaded in', performance.now() - startTime, 'ms');
-    }
-  };
-
-  useEffect(() => {
-    // Set default photo immediately for better UX
-    const defaultPhoto = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzNiODJmNiIgZD0iTTEyIDJDNi41IDIgMiA2LjUgMiAxMnM0LjUgMTAgMTAgMTAgMTAtNC41IDEwLTEwUzE3LjUgMiAxMiAyek0xMiA1YTMgMyAwIDEgMSAwIDYgMyAzIDAgMCAxIDAtNnptMCAxM2MtMi43IDAtNS4xLTEuNC02LjUtMy41LjMtMS4xIDMuMi0xLjcgNi41LTEuNyAzLjMgMCA2LjIuNiA2LjUgMS43QzE3LjEgMTYuNiAxNC43IDE4IDEyIDE4eiIvPjwvc3ZnPg==';
-    if (!profilePhoto) {
-      setProfilePhoto(defaultPhoto);
-    }
-    setIsProfilePhotoLoading(false);
-
+    };
+    
     // Start the data loading process
-    const startTime = performance.now();
+    const startTime = performance.now(); // For dashboard load time tracking
     console.log('Starting patient dashboard data loading...');
-    processCorePatientData(startTime);
-  }, [profile]); // Rerun when profile data changes
+    processCorePatientData();
+    
+    // Cleanup function for the useEffect
+    return () => {
+      clearTimeout(loadingTimeout);
+    }
+    
+  }, [profile, profilePhoto])
 
   // Handle navigation from sidebar
   const handleNavigation = (page: string) => {
@@ -624,65 +650,8 @@ export default function PatientDashboardPage() {
     )
   }
 
-  // To ensure proper rendering, display the full dashboard content if ANY of these conditions are met:
-  // 1. We have a valid profile object
-  // 2. We have valid medical ID in localStorage indicating prior authentication
-  // 3. We're still loading (show skeleton UI but still render full dashboard structure)
-  const medicalId = typeof window !== 'undefined' ? 
-    localStorage.getItem('medicalNumber') || localStorage.getItem('mrn') || localStorage.getItem('patientId') : null;
-
-  const hasValidAuthentication = !!profile || !!medicalId || isLoading;
-    
-  // Only show login screen as a last resort when we're sure the user is not authenticated
-  // This prevents the flash of login UI during normal loading
-  if (!hasValidAuthentication && error === 'Authentication required') {
-    return (
-      <DashboardLayout 
-        currentPage={currentPage} 
-        onNavigate={handleNavigation}
-        breadcrumbs={[{ label: "Dashboard" }]}
-      >
-        <div className="max-w-7xl mx-auto py-6">
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle>Authentication Required</CardTitle>
-              <CardDescription>
-                Please log in to view your patient dashboard
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <p>You need to authenticate to access your medical information.</p>
-                <Button 
-                  onClick={() => router.push('/login')}
-                  className="w-full sm:w-auto"
-                >
-                  Go to Login
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-          
-          {/* Show skeleton UI for doctor carousel */}
-          <div className="space-y-6">
-            <h2 className="text-2xl font-bold">Available Doctors</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[1, 2, 3].map((i) => (
-                <Card key={i} className="h-24 animate-pulse">
-                  <CardContent className="p-4 flex items-center space-x-4">
-                    <div className="w-16 h-16 rounded-full bg-gray-200"></div>
-                    <div className="space-y-2">
-                      <div className="h-4 w-32 bg-gray-200 rounded"></div>
-                      <div className="h-3 w-24 bg-gray-200 rounded"></div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        </div>
-      </DashboardLayout>
-    );
+  if (!profile) {
+    return null
   }
 
   // Get the exact medical ID shown in the dashboard
@@ -795,21 +764,32 @@ export default function PatientDashboardPage() {
 
 
         
-        {/* Available Doctors Section */}
+        {/* Health Alerts */}
         <div className="mb-8">
-          <h2 className="text-xl font-semibold mb-5">Available Doctors</h2>
-          
-          {/* Combined doctors in a single horizontal landscape line */}
-          <DoctorCarousel 
-            title=""
-            doctors={[
-              ...(specialistDoctors.cardiologists || []),
-              ...(specialistDoctors.pediatricians || []),
-              ...hospitalDoctors
-            ]}
-            onAppointmentRequest={handleAppointmentRequest}
-            singleLine={true}
-          />
+          <Card className="border-orange-200 bg-orange-50">
+            <CardHeader className="pb-3">
+              <div className="flex items-center space-x-2">
+                <AlertTriangle className="h-5 w-5 text-orange-600" />
+                <CardTitle className="text-orange-800">Health Alerts</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-orange-700">Blood pressure slightly elevated</span>
+                  <Badge variant="outline" className="text-orange-600 border-orange-300">
+                    Monitor
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-orange-700">Medication due in 30 minutes</span>
+                  <Badge variant="outline" className="text-orange-600 border-orange-300">
+                    Reminder
+                  </Badge>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -824,7 +804,7 @@ export default function PatientDashboardPage() {
                     <AlertTitle className="text-amber-800">Session already active</AlertTitle>
                     <AlertDescription className="text-amber-700">
                       <p className="mb-3">
-                        You attempted to register a new patient while already logged in. 
+                        You attempted to register a new patient while already logged in as {patientData.name} (Medical ID: {patientData.medicalNumber}). 
                         For security and data protection, you must sign out before creating a new patient account.
                       </p>
                       <div className="flex items-center gap-3 mt-3">
@@ -884,38 +864,6 @@ export default function PatientDashboardPage() {
                     <div className="text-xs text-gray-500">SpO2</div>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-
-            {/* Doctor Carousel Section - replaces Health Alerts */}
-            <Card className="overflow-hidden mb-6">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <Stethoscope className="mr-2 h-5 w-5 text-blue-500" />
-                    <CardTitle>Available Doctors</CardTitle>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={() => router.push('/patient/doctors')}>View All</Button>
-                </div>
-                <CardDescription>Doctors available for appointments and consultations</CardDescription>
-              </CardHeader>
-              <CardContent className="pb-2 px-2 md:px-6">
-                {/* Doctor Carousel with single line layout */}
-                {hospitalDoctors.length > 0 ? (
-                  <DoctorCarousel
-                    title=""
-                    doctors={hospitalDoctors}
-                    onAppointmentRequest={handleAppointmentRequest}
-                    singleLine={true}
-                  />
-                ) : (
-                  <div className="flex items-center justify-center p-6 bg-gray-50 rounded-lg">
-                    <div className="text-center">
-                      <Spinner className="w-8 h-8 mx-auto mb-2" />
-                      <p className="text-gray-500">Loading available doctors...</p>
-                    </div>
-                  </div>
-                )}
               </CardContent>
             </Card>
 
@@ -1148,7 +1096,36 @@ export default function PatientDashboardPage() {
               </CardContent>
             </Card>
             
-            {/* End of right column content */}
+            {/* Doctor Carousel */}
+            <div className="mt-6">
+              <h2 className="text-xl font-semibold mb-4">Available Doctors</h2>
+              
+              {/* Hospital Doctors */}
+              {hospitalDoctors.length > 0 && (
+                <DoctorCarousel 
+                  title={`${hospital || 'Central Health'} Doctors`}
+                  doctors={hospitalDoctors}
+                  onAppointmentRequest={handleAppointmentRequest}
+                />
+              )}
+              
+              {/* Specialists */}
+              {specialistDoctors.cardiologists?.length > 0 && (
+                <DoctorCarousel 
+                  title="Cardiologists"
+                  doctors={specialistDoctors.cardiologists}
+                  onAppointmentRequest={handleAppointmentRequest}
+                />
+              )}
+              
+              {specialistDoctors.pediatricians?.length > 0 && (
+                <DoctorCarousel 
+                  title="Pediatricians"
+                  doctors={specialistDoctors.pediatricians}
+                  onAppointmentRequest={handleAppointmentRequest}
+                />
+              )}
+            </div>
           </div>
         </div>
       </div>
