@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/database/prisma-client";
 import { getAuth } from "@/lib/auth";
-import { validateAdminAccess } from "@/lib/auth/admin-validation";
 import { writeFile } from 'fs/promises';
 import { join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
@@ -34,19 +33,28 @@ export async function GET(
   request: NextRequest,
   { params }: { params: { hospitalName: string } }
 ) {
-  console.log(`[Staff API] Processing GET request for hospital: ${params.hospitalName}`);
-  
   try {
-    // Authenticate request using our central validation helper
-    const authResult = await getAuth(request);
-    const validation = validateAdminAccess(authResult);
+    console.log(`[Staff API] Processing GET request for hospital: ${params.hospitalName}`);
     
-    if (!validation.isAuthorized) {
-      // The helper already logs the error and creates the appropriate response
-      return validation.response;
+    // Authenticate request
+    const authResult = await getAuth(request);
+    if (!authResult.authenticated || !authResult.user) {
+      console.log("[Staff API] Authentication failed: No valid auth token found");
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
     
-    // If we get here, the user is authenticated and has admin-level access
+    console.log(`[Staff API] Request from user: ${authResult.user.email}, role: ${authResult.user.role}`);
+
+    // Verify admin role for this hospital - handle case insensitivity for better compatibility
+    const userRole = typeof authResult.user.role === 'string' ? authResult.user.role.toUpperCase() : authResult.user.role;
+    const isAdmin = userRole === "ADMIN" || userRole === "MANAGER";
+    
+    if (!isAdmin) {
+      console.log(`[Staff API] Access denied for user ${authResult.user.email} with role ${authResult.user.role}`);
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    
+    // Audit log for staff management access
     console.log(`[Staff API] Staff management access granted to ${authResult.user.email} with role ${authResult.user.role}`);
 
     // Find hospital by name
@@ -75,8 +83,6 @@ export async function GET(
         specialties: true,
         isHospitalAdmin: true,
         photo: true, // This is the profile picture field in the schema
-        // We'll need to run a migration later to add these fields
-        // For now, we'll handle them through metadata in the app
       },
     });
 
@@ -134,17 +140,22 @@ export async function POST(
   { params }: { params: { hospitalName: string } }
 ) {
   try {
-    // Authenticate request using our central validation helper
+    // Authenticate request
     const authResult = await getAuth(request);
-    const validation = validateAdminAccess(authResult);
-    
-    if (!validation.isAuthorized) {
-      // The helper already logs the error and creates the appropriate response
-      return validation.response;
+    if (!authResult.authenticated || !authResult.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Verify admin role for this hospital
+    const userRole = typeof authResult.user.role === 'string' ? authResult.user.role.toUpperCase() : authResult.user.role;
+    const isAdmin = userRole === "ADMIN" || userRole === "MANAGER";
+
+    if (!isAdmin) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
     
-    // Log the action for audit purposes - complying with Hospital Staff Management Security Policy
-    console.log(`Staff creation initiated by: ${authResult.user.email} (${authResult.user.role}`);
+    // Log the action for audit purposes
+    console.log(`Staff creation initiated by: ${authResult.user.email} (${authResult.user.role})`);
 
     // Find hospital by name
     const hospital = await prisma.hospital.findFirst({
@@ -195,7 +206,6 @@ export async function POST(
         specialties: validatedData.specialties || [],
         hospitalId: hospital.id,
         // Explicitly set as NOT a hospital admin when creating via staff API
-        // This adheres to the Hospital Staff Management Security Policy
         isHospitalAdmin: false,
       },
       select: {
@@ -205,7 +215,7 @@ export async function POST(
         role: true,
         specialties: true,
         isHospitalAdmin: true,
-        photo: true, // Use photo field instead of ProfilePicture which doesn't exist
+        photo: true, // Use photo field instead of ProfilePicture
       },
     });
 

@@ -144,7 +144,7 @@ export async function POST(
     }
     
     // Log the action for audit purposes - complying with Hospital Staff Management Security Policy
-    console.log(`Staff creation initiated by: ${authResult.user.email} (${authResult.user.role}`);
+    console.log(`Staff creation initiated by: ${authResult.user.email} (${authResult.user.role})`);
 
     // Find hospital by name
     const hospital = await prisma.hospital.findFirst({

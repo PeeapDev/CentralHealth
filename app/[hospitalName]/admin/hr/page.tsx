@@ -1,44 +1,120 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { useToast } from "@/components/ui/use-toast";
-import { PlusCircle, Pencil, Trash2, UserCircle, Search } from "lucide-react";
-import AdminLayout from "../layout";
+import { useState, useEffect, useRef } from 'react';
+import { useParams } from 'next/navigation';
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
-import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useToast } from "@/components/ui/use-toast";
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Search } from "lucide-react";
 
-// Define staff form schema with Zod
+// Define the StaffMember interface to match the API response
+interface StaffMember {
+  id: string;
+  name: string;
+  email: string;
+  role: "DOCTOR" | "STAFF" | "MANAGER" | "ADMIN";
+  specialties?: string[];
+  isHospitalAdmin?: boolean;
+  profilePicture?: string;
+  salary?: number;
+  taxRate?: number;
+  address?: string;
+  phone?: string;
+  gender?: "MALE" | "FEMALE" | "OTHER";
+  shift?: "MORNING" | "AFTERNOON" | "NIGHT" | "FLEXIBLE";
+  walletBalance?: number;
+  telemedicineEnabled?: boolean;
+  onlineBookingEnabled?: boolean;
+}
+
+// List of recommended specialties based on hospital departments
+const recommendedSpecialties = [
+  "Cardiology",
+  "Neurology",
+  "Pediatrics",
+  "Orthopedics",
+  "Obstetrics",
+  "Gynecology",
+  "Oncology",
+  "Dermatology",
+  "Ophthalmology",
+  "ENT",
+  "Urology",
+  "Psychiatry",
+  "Radiology",
+  "Anesthesiology",
+  "Emergency Medicine",
+  "Family Medicine",
+  "Internal Medicine",
+  "General Surgery",
+  "Neonatal",
+  "Geriatrics",
+  "Infectious Disease",
+  "Gastroenterology",
+];
+
+// Define the schema for the staff form
 const staffFormSchema = z.object({
   name: z.string().min(1, { message: "Name is required" }),
   email: z.string().email({ message: "Invalid email address" }),
-  role: z.enum(["doctor", "nurse", "receptionist", "admin"], {
+  role: z.enum(["DOCTOR", "STAFF", "MANAGER", "ADMIN"], {
     required_error: "Please select a role",
   }),
-  department: z.enum(["Cardiology", "Neurology", "Orthopedics", "Pediatrics", "Emergency", "Administration"], {
-    required_error: "Please select a department",
-  }),
-  canChatWithPatients: z.boolean().default(false),
+  specialties: z.string().optional(),
+  salary: z.coerce.number().min(0, { message: "Salary must be a positive number" }),
+  taxRate: z.coerce.number().min(0).max(100, { message: "Tax rate must be between 0 and 100" }).default(0),
+  address: z.string().optional(),
+  phone: z.string().optional(),
+  gender: z.enum(["MALE", "FEMALE", "OTHER"], { required_error: "Please select a gender" }).optional(),
+  shift: z.enum(["MORNING", "AFTERNOON", "NIGHT", "FLEXIBLE"], { required_error: "Please select a shift" }).optional(),
+  profilePicture: z.instanceof(File).optional(),
+  // Adding telemedicine and online booking for doctors
+  telemedicineEnabled: z.boolean().optional(),
+  onlineBookingEnabled: z.boolean().optional(),
 });
 
 export default function HRPage() {
   const params = useParams<{ hospitalName: string }>();
-  const hospitalName = params.hospitalName as string;
+  const hospitalName = params?.hospitalName as string;
   const [loading, setLoading] = useState<boolean>(false);
-  const [staffList, setStaffList] = useState<any[]>([]);
+  const [staffList, setStaffList] = useState<StaffMember[]>([]);
   const [dialogOpen, setDialogOpen] = useState<boolean>(false);
-  const [editingStaff, setEditingStaff] = useState<any>(null);
+  const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showDoctorSettings, setShowDoctorSettings] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
   
   // Set up form with react-hook-form
@@ -47,11 +123,22 @@ export default function HRPage() {
     defaultValues: {
       name: "",
       email: "",
-      role: "doctor",
-      department: "Cardiology",
-      canChatWithPatients: false
+      role: "DOCTOR",
+      specialties: "",
+      salary: 0,
+      taxRate: 0,
+      address: "",
+      phone: "",
+      gender: undefined,
+      shift: undefined,
     }
   });
+
+  // Watch for role changes to show/hide doctor-specific settings
+  const watchRole = form.watch("role");
+  useEffect(() => {
+    setShowDoctorSettings(watchRole === "DOCTOR");
+  }, [watchRole]);
 
   // Fetch staff members on component mount
   useEffect(() => {
@@ -61,41 +148,53 @@ export default function HRPage() {
   const fetchStaffMembers = async () => {
     setLoading(true);
     try {
-      // This is a placeholder - we'll implement the actual API endpoint later
-      // const response = await fetch(`/api/hospitals/${hospitalName}/staff`);
-      // const data = await response.json();
-      // setStaffList(data.staff);
-      
-      // For now, use mock data
-      setStaffList([
-        {
-          id: '1',
-          name: 'Dr. John Smith',
-          email: 'john.smith@hospital.com',
-          role: 'doctor',
-          department: 'Cardiology',
-          photo: null,
-          canChatWithPatients: true
-        },
-        {
-          id: '2',
-          name: 'Nurse Emily Johnson',
-          email: 'emily.johnson@hospital.com',
-          role: 'nurse',
-          department: 'Emergency',
-          photo: null,
-          canChatWithPatients: true
-        },
-        {
-          id: '3',
-          name: 'Admin Sarah Wilson',
-          email: 'sarah.wilson@hospital.com',
-          role: 'admin',
-          department: 'Administration',
-          photo: null,
-          canChatWithPatients: false
+      // Fetch staff data
+      const response = await fetch(`/api/hospitals/${hospitalName}/staff`, {
+        headers: {
+          'Content-Type': 'application/json'
         }
-      ]);
+      });
+
+      if (!response.ok) {
+        // Handle error but keep UI responsive
+        console.error(`Error fetching staff: ${response.status} ${response.statusText}`);
+        toast({
+          title: "Error",
+          description: `Failed to fetch staff data: ${response.status}`,
+          variant: "destructive"
+        });
+        setStaffList([]);
+        return;
+      }
+      
+      const data = await response.json();
+      console.log('Staff data received:', data);
+      
+      if (data.staff && Array.isArray(data.staff)) {
+        // Map API response to StaffMember interface with safeguards
+        const formattedStaff: StaffMember[] = data.staff.map((member: any) => ({
+          id: member.id,
+          name: member.name,
+          email: member.email,
+          role: member.role,
+          specialties: member.specialties || [],
+          isHospitalAdmin: member.isHospitalAdmin || false,
+          profilePicture: member.profilePicture || undefined,
+          salary: member.salary || 0,
+          taxRate: member.taxRate || 0,
+          address: member.address || '',
+          phone: member.phone || '',
+          gender: member.gender || '',
+          shift: member.shift || '',
+          walletBalance: member.walletBalance || 0,
+          telemedicineEnabled: member.telemedicineEnabled || false,
+          onlineBookingEnabled: member.onlineBookingEnabled || false,
+        }));
+        
+        setStaffList(formattedStaff);
+      } else {
+        setStaffList([]);
+      }
     } catch (error) {
       console.error("Failed to fetch staff members:", error);
       toast({
@@ -103,218 +202,303 @@ export default function HRPage() {
         description: "Failed to load staff members",
         variant: "destructive"
       });
+      setStaffList([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAddStaff = () => {
-    setEditingStaff(null);
-    form.reset();
-    setDialogOpen(true);
-  };
-
-  const handleEditStaff = (staff: any) => {
+  const handleEditStaff = (staff: StaffMember) => {
     setEditingStaff(staff);
     form.reset({
       name: staff.name,
       email: staff.email,
-      role: staff.role as "doctor" | "nurse" | "receptionist" | "admin",
-      department: staff.department as "Cardiology" | "Neurology" | "Orthopedics" | "Pediatrics" | "Emergency" | "Administration",
-      canChatWithPatients: staff.canChatWithPatients
+      role: staff.role,
+      specialties: staff.specialties?.join(", ") || "",
+      salary: staff.salary || 0,
+      taxRate: staff.taxRate || 0,
+      address: staff.address || "",
+      phone: staff.phone || "",
+      gender: staff.gender,
+      shift: staff.shift,
+      // Note: profilePicture cannot be pre-filled as it's a File object
     });
     setDialogOpen(true);
   };
 
-  const handleDeleteStaff = async (staffId: string) => {
+  const handleDeleteStaff = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this staff member?")) {
+      return;
+    }
+    
     try {
-      // This would be implemented with an actual API call
-      // await fetch(`/api/hospitals/${hospitalName}/staff/${staffId}`, {
-      //   method: 'DELETE'
-      // });
+      const response = await fetch(`/api/hospitals/${hospitalName}/staff?id=${id}`, {
+        method: 'DELETE',
+      });
       
-      // For now, just update the UI
-      setStaffList(staffList.filter(staff => staff.id !== staffId));
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      }
+      
       toast({
         title: "Success",
-        description: "Staff member removed successfully"
+        description: "Staff member deleted successfully",
       });
+      
+      // Refresh the staff list
+      fetchStaffMembers();
     } catch (error) {
       console.error("Failed to delete staff member:", error);
       toast({
         title: "Error",
-        description: "Failed to remove staff member",
-        variant: "destructive"
+        description: "Failed to delete staff member",
+        variant: "destructive",
       });
     }
   };
+  
+  const handleAddNewStaff = () => {
+    setEditingStaff(null);
+    form.reset({
+      name: "",
+      email: "",
+      role: "DOCTOR",
+      specialties: "",
+      salary: 0,
+      taxRate: 0,
+      address: "",
+      phone: "",
+      gender: undefined,
+      shift: undefined,
+    });
+    setDialogOpen(true);
+  };
+  
+  // Function to convert specialties string to array
+  const formatSpecialtiesForSubmit = (specialties: string | undefined): string[] => {
+    if (!specialties) return [];
+    return specialties.split(',').map(s => s.trim()).filter(Boolean);
+  };
 
+  // Handle form submission
   const onSubmit = async (values: z.infer<typeof staffFormSchema>) => {
     try {
-      if (editingStaff) {
-        // Edit existing staff
-        // This would be implemented with an actual API call
-        // await fetch(`/api/hospitals/${hospitalName}/staff/${editingStaff.id}`, {
-        //   method: 'PUT',
-        //   headers: { 'Content-Type': 'application/json' },
-        //   body: JSON.stringify(values)
-        // });
-        
-        // For now, just update the UI
-        setStaffList(staffList.map(staff => 
-          staff.id === editingStaff.id ? { ...staff, ...values } : staff
-        ));
-        toast({
-          title: "Success",
-          description: "Staff member updated successfully"
-        });
-      } else {
-        // Add new staff
-        // This would be implemented with an actual API call
-        // const response = await fetch(`/api/hospitals/${hospitalName}/staff`, {
-        //   method: 'POST',
-        //   headers: { 'Content-Type': 'application/json' },
-        //   body: JSON.stringify(values)
-        // });
-        // const data = await response.json();
-        
-        // For now, just update the UI with mock data
-        const newStaff = {
-          id: String(Date.now()),
-          ...values,
-          photo: null
-        };
-        setStaffList([...staffList, newStaff]);
-        toast({
-          title: "Success",
-          description: "Staff member added successfully"
-        });
+      // Convert comma-separated specialties to array
+      const specialtiesArray = values.specialties
+        ? values.specialties.split(",").map(s => s.trim()).filter(s => s !== "")
+        : [];
+
+      // Create FormData for multipart/form-data to handle file uploads
+      const formData = new FormData();
+      
+      // Prepare data for submission
+      const jsonData: Record<string, any> = {
+        name: values.name,
+        email: values.email,
+        role: values.role,
+        specialties: specialtiesArray,
+        salary: values.salary,
+        taxRate: values.taxRate,
+        address: values.address,
+        phone: values.phone,
+        gender: values.gender,
+        shift: values.shift,
+      };
+      
+      // Add doctor-specific settings if applicable
+      if (values.role === "DOCTOR") {
+        jsonData.telemedicineEnabled = true;
+        jsonData.onlineBookingEnabled = true;
       }
+
+      // If editing, include the ID
+      if (editingStaff) {
+        jsonData.id = editingStaff.id;
+      }
+      
+      // Add data to formData
+      formData.append('data', JSON.stringify(jsonData));
+      
+      // Add profile picture if provided
+      if (values.profilePicture) {
+        formData.append('profilePicture', values.profilePicture);
+      }
+    
+      const method = editingStaff ? 'PUT' : 'POST';
+      const url = `/api/hospitals/${hospitalName}/staff${editingStaff ? `?id=${editingStaff.id}` : ''}`;
+      
+      const response = await fetch(url, {
+        method,
+        body: formData,
+        headers: values.profilePicture ? undefined : {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      toast({
+        title: "Success",
+        description: editingStaff 
+          ? "Staff member updated successfully" 
+          : "Staff member added successfully. A default password has been emailed to them.",
+      });
+      
       setDialogOpen(false);
+      fetchStaffMembers();
     } catch (error) {
       console.error("Failed to save staff member:", error);
       toast({
         title: "Error",
         description: "Failed to save staff member",
-        variant: "destructive"
+        variant: "destructive",
       });
     }
   };
 
-  const filteredStaff = staffList.filter(staff => 
-    staff.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    staff.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    staff.department.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    staff.role.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && files.length > 0) {
+      form.setValue('profilePicture', files[0]);
+    }
+  };
 
-  // We don't need columns definition for shadcn/ui Table
+  // Filter staff based on search query
+  const filteredStaff = staffList.filter(staff => {
+    const searchLower = searchQuery.toLowerCase();
+    return (
+      staff.name.toLowerCase().includes(searchLower) ||
+      staff.email.toLowerCase().includes(searchLower) ||
+      staff.role.toLowerCase().includes(searchLower)
+    );
+  });
+
+  // Function to get initials for avatar fallback
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .map(part => part[0])
+      .join('')
+      .toUpperCase();
+  };
 
   return (
-    <AdminLayout params={{ hospitalName }}>
-      <Card className="w-full">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Staff Management</CardTitle>
-          <Button 
-            onClick={handleAddStaff}
-            className="flex items-center gap-2"
-          >
-            <PlusCircle className="h-4 w-4" />
-            Add Staff
-          </Button>
-        </CardHeader>
-        <CardContent>
-        <div className="mb-4 flex items-center relative max-w-lg">
-          <Input
-            placeholder="Search staff by name, email, role, or department" 
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pr-10"
-          />
-          <Search className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold">Hospital Staff Directory</h1>
+        <Button onClick={handleAddNewStaff}>Add New Staff</Button>
+      </div>
+      
+      <div className="relative mb-6">
+        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Search staff..."
+          className="pl-8"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center my-12">
+          <p>Loading staff directory...</p>
         </div>
-        
-        {loading ? (
-          <div className="flex justify-center my-8">Loading staff data...</div>
-        ) : (
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Department</TableHead>
-                  <TableHead>Chat Access</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredStaff.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-4">No staff members found</TableCell>
-                  </TableRow>
-                ) : (
-                  filteredStaff.map((staff) => (
-                    <TableRow key={staff.id}>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Avatar>
-                            <AvatarImage src={staff.photo || undefined} />
-                            <AvatarFallback>{staff.name.charAt(0)}</AvatarFallback>
-                          </Avatar>
-                          {staff.name}
-                        </div>
-                      </TableCell>
-                      <TableCell>{staff.email}</TableCell>
-                      <TableCell>{staff.role.charAt(0).toUpperCase() + staff.role.slice(1)}</TableCell>
-                      <TableCell>{staff.department}</TableCell>
-                      <TableCell>
-                        <Badge variant={staff.canChatWithPatients ? "default" : "destructive"} className="font-medium">
-                          {staff.canChatWithPatients ? 'Enabled' : 'Disabled'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleEditStaff(staff)}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button 
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => handleDeleteStaff(staff.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-        </CardContent>
-      </Card>
+      ) : filteredStaff.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredStaff.map((staff) => (
+            <Card key={staff.id} className="overflow-hidden">
+              <CardHeader className="flex flex-row items-center gap-4 pb-2">
+                <Avatar className="h-12 w-12">
+                  {staff.profilePicture ? (
+                    <AvatarImage src={staff.profilePicture} alt={staff.name} />
+                  ) : (
+                    <AvatarFallback>{getInitials(staff.name)}</AvatarFallback>
+                  )}
+                </Avatar>
+                <div>
+                  <CardTitle className="text-lg">{staff.name}</CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    {staff.role.charAt(0) + staff.role.slice(1).toLowerCase()}
+                    {staff.isHospitalAdmin ? " (Hospital Admin)" : ""}
+                  </p>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="text-sm space-y-2">
+                  <div>
+                    <span className="font-medium">Email:</span> {staff.email}
+                  </div>
+                  <div>
+                    <span className="font-medium">Specialties:</span>{" "}
+                    {Array.isArray(staff.specialties) && staff.specialties.length > 0
+                      ? staff.specialties.join(', ')
+                      : "None"}
+                  </div>
+                  <div>
+                    <span className="font-medium">Salary:</span> ${staff.salary?.toLocaleString() || '0'}
+                  </div>
+                  {staff.role === "DOCTOR" && (
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">Telemedicine:</span>
+                        <span>{staff.telemedicineEnabled ? "Enabled" : "Disabled"}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">Online Booking:</span>
+                        <span>{staff.onlineBookingEnabled ? "Enabled" : "Disabled"}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-2 mt-4">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleEditStaff(staff)}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => handleDeleteStaff(staff.id)}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <div className="flex justify-center my-12">
+          <p>No staff members found. Add your first staff member using the button above.</p>
+        </div>
+      )}
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>{editingStaff ? "Edit Staff Member" : "Add New Staff Member"}</DialogTitle>
+            <DialogTitle>{editingStaff ? 'Edit Staff Member' : 'Add New Staff Member'}</DialogTitle>
+            <DialogDescription>
+              {editingStaff 
+                ? "Update the details for this staff member."
+                : "Enter the details of the new staff member. They'll receive an email with their login details."
+              }
+            </DialogDescription>
           </DialogHeader>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
               <FormField
                 control={form.control}
                 name="name"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Full Name</FormLabel>
+                    <FormLabel>Name</FormLabel>
                     <FormControl>
                       <Input placeholder="Enter full name" {...field} />
                     </FormControl>
@@ -343,22 +527,22 @@ export default function HRPage() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Role</FormLabel>
-                    <Select 
-                      onValueChange={field.onChange} 
-                      defaultValue={field.value}
-                    >
-                      <FormControl>
+                    <FormControl>
+                      <Select 
+                        onValueChange={field.onChange} 
+                        defaultValue={field.value}
+                      >
                         <SelectTrigger>
                           <SelectValue placeholder="Select role" />
                         </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="doctor">Doctor</SelectItem>
-                        <SelectItem value="nurse">Nurse</SelectItem>
-                        <SelectItem value="receptionist">Receptionist</SelectItem>
-                        <SelectItem value="admin">Administrator</SelectItem>
-                      </SelectContent>
-                    </Select>
+                        <SelectContent>
+                          <SelectItem value="DOCTOR">Doctor</SelectItem>
+                          <SelectItem value="STAFF">Staff</SelectItem>
+                          <SelectItem value="MANAGER">Manager</SelectItem>
+                          <SelectItem value="ADMIN">Administrator</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -366,70 +550,115 @@ export default function HRPage() {
           
               <FormField
                 control={form.control}
-                name="department"
+                name="specialties"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Department</FormLabel>
-                    <Select 
-                      onValueChange={field.onChange} 
-                      defaultValue={field.value}
-                    >
-                      <FormControl>
+                    <FormLabel>Specialties</FormLabel>
+                    <FormControl>
+                      <Select
+                        onValueChange={field.onChange}
+                        defaultValue={field.value || ''}
+                      >
                         <SelectTrigger>
-                          <SelectValue placeholder="Select department" />
+                          <SelectValue placeholder="Select a specialty" />
                         </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="Cardiology">Cardiology</SelectItem>
-                        <SelectItem value="Neurology">Neurology</SelectItem>
-                        <SelectItem value="Orthopedics">Orthopedics</SelectItem>
-                        <SelectItem value="Pediatrics">Pediatrics</SelectItem>
-                        <SelectItem value="Emergency">Emergency</SelectItem>
-                        <SelectItem value="Administration">Administration</SelectItem>
-                      </SelectContent>
-                    </Select>
+                        <SelectContent>
+                          {recommendedSpecialties.map((specialty) => (
+                            <SelectItem key={specialty} value={specialty}>
+                              {specialty}
+                            </SelectItem>
+                          ))}
+                          <SelectItem value="other">Other...</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </FormControl>
+                    {field.value === 'other' && (
+                      <Input 
+                        placeholder="Enter specialty" 
+                        className="mt-2" 
+                        onChange={(e) => field.onChange(e.target.value)} 
+                      />
+                    )}
+                    <FormDescription>
+                      Choose from recommended specialties or select "Other" to enter a custom one.
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-          
-              <FormField
-                control={form.control}
-                name="canChatWithPatients"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Chat Access</FormLabel>
-                    <Select 
-                      onValueChange={(value) => field.onChange(value === "true")} 
-                      defaultValue={field.value ? "true" : "false"}
-                    >
+  
+                <FormField
+                  control={form.control}
+                  name="salary"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Basic Salary</FormLabel>
                       <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select chat access" />
-                        </SelectTrigger>
+                        <Input 
+                          type="number" 
+                          placeholder="Enter basic salary" 
+                          {...field} 
+                          onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                        />
                       </FormControl>
-                      <SelectContent>
-                        <SelectItem value="true">Enabled</SelectItem>
-                        <SelectItem value="false">Disabled</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+  
+                <div className="space-y-2">
+                  <Label htmlFor="profilePicture">Profile Picture</Label>
+                  <Input
+                    id="profilePicture"
+                    type="file"
+                    accept="image/*"
+                    ref={fileInputRef}
+                    onChange={handleFileSelect}
+                    className="cursor-pointer"
+                  />
+                </div>
+  
+                {showDoctorSettings && (
+                  <div className="border p-4 rounded-md space-y-4">
+                    <h3 className="font-medium">Doctor-specific Settings</h3>
+                    <p className="text-sm text-muted-foreground">
+                      These settings can be configured later in the doctor's profile dashboard.
+                    </p>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label>Telemedicine</Label>
+                          <p className="text-sm text-muted-foreground">
+                            Allow this doctor to conduct virtual appointments
+                          </p>
+                        </div>
+                        <Switch disabled defaultChecked={false} />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <div className="space-y-0.5">
+                          <Label>Online Booking</Label>
+                          <p className="text-sm text-muted-foreground">
+                            Allow patients to book appointments online
+                          </p>
+                        </div>
+                        <Switch disabled defaultChecked={false} />
+                      </div>
+                    </div>
+                  </div>
                 )}
-              />
-          
-              <div className="flex justify-end space-x-2 pt-4">
-                <Button variant="outline" onClick={() => setDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit">
-                  {editingStaff ? 'Update' : 'Add'} Staff
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-    </AdminLayout>
-  );
-}
+  
+                <DialogFooter>
+                  <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="submit">
+                    {editingStaff ? 'Save Changes' : 'Add Staff Member'}
+                  </Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }

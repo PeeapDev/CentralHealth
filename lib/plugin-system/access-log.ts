@@ -6,7 +6,7 @@
  * proper tracking of data access across hospitals.
  */
 
-import { prisma } from '../prisma';
+import { prisma } from '../database/prisma-client';
 
 export interface AccessLogContext {
   [key: string]: any;

@@ -6,6 +6,7 @@ export interface AuthUser {
   email: string;
   role: string;
   hospitalId?: string;
+  isHospitalAdmin?: boolean;
 }
 
 export interface AuthResult {
@@ -42,6 +43,7 @@ export async function getAuth(request: NextRequest): Promise<AuthResult> {
       email: payload.email,
       role: payload.role,
       hospitalId: payload.hospitalId,
+      isHospitalAdmin: payload.isHospitalAdmin || false,
     };
     
     return { authenticated: true, user };

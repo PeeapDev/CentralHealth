@@ -10,7 +10,7 @@
  * - Patient data is stored consistently in centralized fields
  */
 
-import { prisma } from './prisma';
+import { prisma } from './database/prisma-client';
 import { parsePatientContact } from './patient-data-utils';
 
 /**

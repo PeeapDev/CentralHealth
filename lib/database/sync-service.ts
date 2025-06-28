@@ -5,7 +5,7 @@
  * with conflict resolution strategies and proper error handling.
  */
 
-import { prisma } from '../prisma'
+import { prisma } from './prisma-client'
 import { isOnline } from './network-status'
 import { EventEmitter } from 'events'
 import fs from 'fs'
@@ -316,9 +316,9 @@ export const downloadDataForOfflineUse = async (options: {
     let estimatedSize = '0MB'
     
     // Fetch actual patient data based on user role
-    const hasPatientAccess = userData.role === 'doctor' || userData.role === 'admin' || userData.role === 'nurse'
+    const hasPatientAccess = userData.role === 'DOCTOR' || userData.role === 'ADMIN' || userData.role === 'STAFF'
     
-    if (hasPatientAccess || options.userRole === 'doctor' || options.userRole === 'admin') {
+    if (hasPatientAccess || options.userRole === 'DOCTOR' || options.userRole === 'ADMIN') {
       // Get patients from database
       // Define query options based on download type
       let patientQueryOptions: any = {};
@@ -349,7 +349,7 @@ export const downloadDataForOfflineUse = async (options: {
           where: {
             patientId: { in: patients.map((p) => p.id) }
           },
-          orderBy: { effectiveDateTime: 'desc' }
+          orderBy: { date: 'desc' }
         })
         
         console.log(`Downloaded ${medicalRecords.length} medical records for offline use`)
@@ -367,9 +367,9 @@ export const downloadDataForOfflineUse = async (options: {
     }
 
     // Download appointments if user has permission based on role
-    const hasAppointmentAccess = userData.role === 'doctor' || userData.role === 'admin' || userData.role === 'nurse'
+    const hasAppointmentAccess = userData.role === 'DOCTOR' || userData.role === 'ADMIN' || userData.role === 'STAFF'
     
-    if (hasAppointmentAccess || options.userRole === 'doctor') {
+    if (hasAppointmentAccess || options.userRole === 'DOCTOR') {
       // Define appointment query options
       let appointmentQueryOptions: any = {};
       

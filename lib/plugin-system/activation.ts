@@ -4,7 +4,7 @@
  * This module handles activating and deactivating plugins for specific hospitals.
  */
 
-import { prisma } from '../prisma';
+import { prisma } from '../database/prisma-client';
 import { pluginRegistry } from './registry';
 import { logPatientAccess } from './access-log';
 

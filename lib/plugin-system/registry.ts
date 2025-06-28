@@ -4,7 +4,7 @@
  * This module handles the registration and management of plugins in the system.
  */
 
-import { prisma } from '../prisma';
+import { prisma } from '../database/prisma-client';
 import { Plugin } from '../generated/prisma';
 
 export interface PluginInfo {
