@@ -803,9 +803,39 @@ export default function PatientDashboardPage() {
           <DoctorCarousel 
             title=""
             doctors={[
-              ...(specialistDoctors.cardiologists || []),
-              ...(specialistDoctors.pediatricians || []),
-              ...hospitalDoctors
+              // Create a unique list of doctors with guaranteed unique IDs
+              // Start with a fresh, unique set of the original doctors
+              ...(specialistDoctors.cardiologists || []).map((doctor, index) => ({
+                ...doctor,
+                id: `cardio-${doctor.id}-${index}` // Ensure uniqueness with index and category prefix
+              })),
+              
+              ...(specialistDoctors.pediatricians || []).map((doctor, index) => ({
+                ...doctor,
+                id: `pedia-${doctor.id}-${index}` // Ensure uniqueness with index and category prefix
+              })),
+              
+              ...mockDoctors.map((doctor, index) => ({
+                ...doctor,
+                id: `all-${doctor.id}-${index}` // Ensure uniqueness with index and category prefix
+              })),
+              
+              ...hospitalDoctors.map((doctor, index) => ({
+                ...doctor,
+                id: `hosp-${doctor.id}-${index}` // Ensure uniqueness with index and category prefix
+              })),
+              
+              // Add more duplicated doctors for a truly long carousel
+              ...mockDoctors.map((doctor, index) => ({
+                ...doctor,
+                id: `extra-${doctor.id}-${index}` // Ensure uniqueness for duplicates
+              })),
+              
+              // One more set of duplicates for very long scrolling
+              ...mockDoctors.map((doctor, index) => ({
+                ...doctor,
+                id: `more-${doctor.id}-${index}` // Different prefix for second set of duplicates
+              }))
             ]}
             onAppointmentRequest={handleAppointmentRequest}
             singleLine={true}
