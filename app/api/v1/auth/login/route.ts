@@ -161,11 +161,22 @@ export async function POST(request: NextRequest): Promise<Response> {
       },
     }
 
-    return Response.json({
+    // Set auth_token as an HTTP-only cookie
+    const response = Response.json({
       success: true,
       data: authResponse,
       message: "Login successful",
-    } as ApiResponse<AuthResponse>)
+    } as ApiResponse<AuthResponse>);
+    
+    // Add the auth_token cookie that will be sent with subsequent requests
+    // Set secure to true in production
+    const isProduction = process.env.NODE_ENV === 'production';
+    response.headers.set('Set-Cookie', `auth_token=${token}; Path=/; HttpOnly; SameSite=Strict; ${isProduction ? 'Secure;' : ''}; Max-Age=86400`);
+    
+    // Log that we're setting the cookie
+    console.log('Setting auth_token cookie for successful login');
+    
+    return response
   } catch (error) {
     console.error("Login error:", error)
     

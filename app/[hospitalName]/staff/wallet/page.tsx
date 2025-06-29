@@ -51,27 +51,11 @@ export default function StaffWalletPage() {
     try {
       console.log(`Fetching wallet data for hospital: ${hospitalName}`);
       
-      // Force refresh the JWT token before making the request
-      try {
-        await fetch(`/api/auth/refresh`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        });
-        console.log('Auth token refreshed for wallet access');
-      } catch (e) {
-        console.log('Token refresh attempt failed, continuing with current token');
-      }
-      
       // Use real API endpoint to fetch wallet data with credentials to include cookies
       const response = await fetch(`/api/hospitals/${hospitalName}/staff/wallet`, {
         credentials: 'include', // This ensures cookies (including auth token) are sent
         headers: {
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'Staff-Wallet-Page', // Add custom header to help with debugging
-          'Authorization': `Bearer ${localStorage.getItem('authToken')}` // Try with localStorage token too as fallback
+          'Content-Type': 'application/json'
         }
       });
       
@@ -96,26 +80,23 @@ export default function StaffWalletPage() {
         
         console.error(`Staff Wallet Page - Data fetch error: ${errorMessage}`);
         
-        // If we got a 401 or 403, add helpful context about authentication
-        if (response.status === 401) {
-          toast({
-            title: "Authentication Required",
-            description: "Please log in again to access your wallet.",
-            variant: "destructive"
-          });
-          
-          // Attempt to redirect to login
-          window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
-          return;
-        } else if (response.status === 403) {
-          toast({
-            title: "Access Denied",
-            description: "Your account doesn't have permission to access this wallet data.",
-            variant: "destructive"
-          });
-        }
-        
-        throw new Error(errorMessage);
+        setLoading(false);
+        setError(errorMessage);
+        return;
+      }
+      
+      // Check if we received valid data structure
+      if (!response.headers.get("content-type")?.includes("application/json")) {
+        const errorMessage = "API did not return valid JSON data";
+        console.error(errorMessage);
+        toast({
+          title: "Data Error",
+          description: "Received invalid wallet data structure",
+          variant: "destructive"
+        })
+        setLoading(false);
+        setError(errorMessage);
+        return;
       }
       
       const data = await response.json()
@@ -131,12 +112,49 @@ export default function StaffWalletPage() {
           description: "Received invalid wallet data structure",
           variant: "destructive"
         })
-        setError("Invalid wallet data received. Please contact support.")
-            })
-            setError("Failed to load wallet data. Please try again later.")
-          }
-          
-          throw new Error(errorMessage);
+        setLoading(false);
+        setError("Invalid wallet data received. Please contact support.");
+        setError("Invalid wallet data received. Please contact support.");
+        return;
+      }
+      
+      const data = await response.json();
+      console.log('Wallet data received:', data);
+      
+      if (data.wallet) {
+        setWalletData({
+          balance: data.wallet.balance || 0,
+          currency: data.wallet.currency || 'USD',
+          pendingSalary: data.wallet.pendingSalary,
+          lastPayment: data.wallet.lastPayment,
+          nextPayment: data.wallet.nextPayment
+        });
+        
+        if (data.transactions && Array.isArray(data.transactions)) {
+          setTransactions(data.transactions);
+        }
+        
+        setError(null);
+      } else {
+        console.error('Invalid wallet data structure:', data);
+        toast({
+          title: "Data Structure Error",
+          description: "Received incomplete wallet data",
+          variant: "destructive"
+        });
+        setError("Invalid wallet data structure received.");
+      }
+    } catch (error) {
+      console.error('Error fetching wallet data:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load wallet data",
+        variant: "destructive"
+      });
+      setError("Failed to load wallet data. Please try again later.");
+    } finally {
+      setLoading(false);
+    }
         }
         
         const data = await response.json()

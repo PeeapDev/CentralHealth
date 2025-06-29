@@ -59,50 +59,80 @@ interface StaffMember {
   onlineBookingEnabled?: boolean;
 }
 
-// List of recommended specialties based on hospital departments
-const recommendedSpecialties = [
-  "Cardiology",
-  "Neurology",
-  "Pediatrics",
-  "Orthopedics",
-  "Obstetrics",
-  "Gynecology",
-  "Oncology",
-  "Dermatology",
-  "Ophthalmology",
-  "ENT",
-  "Urology",
-  "Psychiatry",
-  "Radiology",
-  "Anesthesiology",
-  "Emergency Medicine",
-  "Family Medicine",
-  "Internal Medicine",
-  "General Surgery",
-  "Neonatal",
-  "Geriatrics",
-  "Infectious Disease",
-  "Gastroenterology",
-];
+// List of recommended specialties based on hospital departments and roles
+const specialtiesByRole = {
+  DOCTOR: [
+    "Cardiology",
+    "Neurology",
+    "Oncology",
+    "Pediatrics",
+    "Radiology",
+    "Urology",
+    "Orthopedics",
+    "Dermatology",
+    "Ophthalmology",
+    "Gynaecology",
+    "General Practice",
+    "Family Medicine",
+    "Anesthesiology",
+    "Obstetrics",
+    "Endocrinology",
+    "Psychiatry",
+    "Dentistry",
+    "Surgery",
+    "Internal Medicine",
+  ],
+  STAFF: [
+    "Nursing",
+    "Pharmacy",
+    "Laboratory",
+    "Radiology",
+    "Physiotherapy",
+    "Midwifery",
+    "Emergency Care",
+    "Intensive Care",
+    "Geriatric Care",
+    "Palliative Care",
+    "Mental Health Nursing",
+    "Phlebotomy",
+    "Patient Support",
+  ],
+  MANAGER: [
+    "Hospital Administration",
+    "HR Management",
+    "Finance",
+    "Operations",
+    "Department Management",
+    "Quality Assurance",
+    "Compliance",
+    "Information Technology",
+    "Supply Chain",
+    "Facilities Management",
+  ],
+  ADMIN: [
+    "Hospital Administration",
+    "IT Administration",
+    "System Management",
+    "Security Administration",
+    "General Administration",
+  ]
+};
 
 // Define the schema for the staff form
 const staffFormSchema = z.object({
-  name: z.string().min(1, { message: "Name is required" }),
+  name: z.string().min(2, { message: "Name must be at least 2 characters" }),
   email: z.string().email({ message: "Invalid email address" }),
-  role: z.enum(["DOCTOR", "STAFF", "MANAGER", "ADMIN"], {
-    required_error: "Please select a role",
-  }),
+  role: z.enum(["DOCTOR", "STAFF", "MANAGER", "ADMIN"]),
   specialties: z.string().optional(),
-  salary: z.coerce.number().min(0, { message: "Salary must be a positive number" }),
-  taxRate: z.coerce.number().min(0).max(100, { message: "Tax rate must be between 0 and 100" }).default(0),
+  salary: z.number().optional().default(0),
+  taxRate: z.number().optional().default(0),
   address: z.string().optional(),
   phone: z.string().optional(),
-  gender: z.enum(["MALE", "FEMALE", "OTHER"], { required_error: "Please select a gender" }).optional(),
-  shift: z.enum(["MORNING", "AFTERNOON", "NIGHT", "FLEXIBLE"], { required_error: "Please select a shift" }).optional(),
+  gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
+  shift: z.enum(["MORNING", "AFTERNOON", "NIGHT", "FLEXIBLE"]).optional(),
   profilePicture: z.instanceof(File).optional(),
-  // Adding telemedicine and online booking for doctors
-  telemedicineEnabled: z.boolean().optional(),
-  onlineBookingEnabled: z.boolean().optional(),
+  telemedicineEnabled: z.boolean().optional().default(false),
+  onlineBookingEnabled: z.boolean().optional().default(false),
 });
 
 export default function HRPage() {
@@ -131,14 +161,22 @@ export default function HRPage() {
       phone: "",
       gender: undefined,
       shift: undefined,
+      telemedicineEnabled: false,
+      onlineBookingEnabled: false,
     }
   });
 
-  // Watch for role changes to show/hide doctor-specific settings
-  const watchRole = form.watch("role");
+  // Watch form changes to show/hide doctor settings and update specialties
   useEffect(() => {
-    setShowDoctorSettings(watchRole === "DOCTOR");
-  }, [watchRole]);
+    const subscription = form.watch((value, { name }) => {
+      if (name === "role") {
+        setShowDoctorSettings(value.role === "DOCTOR");
+        // Clear specialties when role changes to allow selecting from new list
+        form.setValue("specialties", "");
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [form]);
 
   // Fetch staff members on component mount
   useEffect(() => {
@@ -156,7 +194,14 @@ export default function HRPage() {
       });
 
       if (!response.ok) {
-        // Handle error but keep UI responsive
+        if (response.status === 404) {
+          // No staff found for this hospital yet – treat as empty list, no toast
+          console.warn(`No staff found for hospital '${hospitalName}'. Returning empty list.`);
+          setStaffList([]);
+          setLoading(false);
+          return;
+        }
+        // Handle other errors but keep UI responsive
         console.error(`Error fetching staff: ${response.status} ${response.statusText}`);
         toast({
           title: "Error",
@@ -270,14 +315,24 @@ export default function HRPage() {
       phone: "",
       gender: undefined,
       shift: undefined,
+      telemedicineEnabled: false,
+      onlineBookingEnabled: false,
     });
     setDialogOpen(true);
+    // Set doctor settings visibility based on role
+    setShowDoctorSettings(true);
   };
   
   // Function to convert specialties string to array
   const formatSpecialtiesForSubmit = (specialties: string | undefined): string[] => {
     if (!specialties) return [];
     return specialties.split(',').map(s => s.trim()).filter(Boolean);
+  };
+  
+  // Function to get available specialties based on selected role
+  const getSpecialtiesForRole = (role: string): string[] => {
+    const roleKey = role as keyof typeof specialtiesByRole;
+    return specialtiesByRole[roleKey] || specialtiesByRole.STAFF;
   };
 
   // Handle form submission
@@ -307,8 +362,8 @@ export default function HRPage() {
       
       // Add doctor-specific settings if applicable
       if (values.role === "DOCTOR") {
-        jsonData.telemedicineEnabled = true;
-        jsonData.onlineBookingEnabled = true;
+        jsonData.telemedicineEnabled = values.telemedicineEnabled || false;
+        jsonData.onlineBookingEnabled = values.onlineBookingEnabled || false;
       }
 
       // If editing, include the ID
@@ -330,9 +385,10 @@ export default function HRPage() {
       const response = await fetch(url, {
         method,
         body: formData,
-        headers: values.profilePicture ? undefined : {
-          'Content-Type': 'application/json',
-        },
+        credentials: 'include', // Include cookies for authentication
+        // Let the browser automatically set the correct multipart boundary
+        // Do not manually set the Content-Type header when using FormData
+        // headers intentionally omitted
       });
       
       if (!response.ok) {
@@ -563,7 +619,7 @@ export default function HRPage() {
                           <SelectValue placeholder="Select a specialty" />
                         </SelectTrigger>
                         <SelectContent>
-                          {recommendedSpecialties.map((specialty) => (
+                          {getSpecialtiesForRole(form.getValues().role).map((specialty) => (
                             <SelectItem key={specialty} value={specialty}>
                               {specialty}
                             </SelectItem>
@@ -580,7 +636,7 @@ export default function HRPage() {
                       />
                     )}
                     <FormDescription>
-                      Choose from recommended specialties or select "Other" to enter a custom one.
+                      Choose from role-appropriate specialties or select "Other" to enter a custom one.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
@@ -622,27 +678,49 @@ export default function HRPage() {
                   <div className="border p-4 rounded-md space-y-4">
                     <h3 className="font-medium">Doctor-specific Settings</h3>
                     <p className="text-sm text-muted-foreground">
-                      These settings can be configured later in the doctor's profile dashboard.
+                      Configure telemedicine and online booking settings for this doctor.
                     </p>
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Telemedicine</Label>
-                          <p className="text-sm text-muted-foreground">
-                            Allow this doctor to conduct virtual appointments
-                          </p>
-                        </div>
-                        <Switch disabled defaultChecked={false} />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                          <Label>Online Booking</Label>
-                          <p className="text-sm text-muted-foreground">
-                            Allow patients to book appointments online
-                          </p>
-                        </div>
-                        <Switch disabled defaultChecked={false} />
-                      </div>
+                      <FormField
+                        control={form.control}
+                        name="telemedicineEnabled"
+                        render={({ field }) => (
+                          <FormItem className="flex items-center justify-between space-y-0">
+                            <div className="space-y-0.5">
+                              <FormLabel>Telemedicine</FormLabel>
+                              <FormDescription className="text-sm text-muted-foreground">
+                                Allow this doctor to conduct virtual appointments
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Switch
+                                checked={field.value || false}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="onlineBookingEnabled"
+                        render={({ field }) => (
+                          <FormItem className="flex items-center justify-between space-y-0">
+                            <div className="space-y-0.5">
+                              <FormLabel>Online Booking</FormLabel>
+                              <FormDescription className="text-sm text-muted-foreground">
+                                Allow patients to book appointments online
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Switch
+                                checked={field.value || false}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
                     </div>
                   </div>
                 )}

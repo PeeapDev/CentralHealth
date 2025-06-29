@@ -34,13 +34,21 @@ export async function POST(request: NextRequest) {
         };
         console.log('Found verification in memory cache:', verification);
       } else {
-        // If not in memory, try the database
-        verification = await prisma.emailVerification.findUnique({
-          where: {
-            email: email
+        // There's no EmailVerification model in Prisma schema
+        // Just use the memory cache for now
+        console.log('No in-memory OTP cache found for email:', email);
+        // Log this verification attempt for security audit
+        await prisma.securityAuditLog.create({
+          data: {
+            action: 'OTP_VERIFICATION_ATTEMPT',
+            userId: 'system',
+            details: `OTP verification attempted for email: ${email}`,
+            success: false,
+            ipAddress: request.headers.get('x-forwarded-for') || 'unknown',
+            userAgent: request.headers.get('user-agent') || 'unknown',
+            requestPath: request.nextUrl.pathname,
           }
         });
-        console.log('Verification record from database:', verification);
       }
       
       // Check if verification exists
@@ -74,24 +82,31 @@ export async function POST(request: NextRequest) {
       if (verification.code !== otp) {
         console.log('Invalid verification code for email:', email, 'Expected:', verification.code, 'Received:', otp);
         
-        // Increment attempt counter
-        await prisma.emailVerification.update({
-          where: { email },
-          data: { 
-            attempts: { increment: 1 }
+        // Clear the OTP from memory cache
+        if ((global as any).otpCache && (global as any).otpCache[email]) {
+          delete (global as any).otpCache[email];
+        }
+        
+        // Log this verification attempt for security audit
+        await prisma.securityAuditLog.create({
+          data: {
+            action: 'OTP_VERIFICATION_ATTEMPT',
+            userId: 'system',
+            details: `OTP verification attempted for email: ${email}`,
+            success: false,
+            ipAddress: request.headers.get('x-forwarded-for') || 'unknown',
+            userAgent: request.headers.get('user-agent') || 'unknown',
+            requestPath: request.nextUrl.pathname,
           }
         });
         
         // If too many attempts (5+), invalidate the code
         if (verification.attempts >= 4) {
           console.log('Too many failed attempts for email:', email);
-          await prisma.emailVerification.update({
-            where: { email },
-            data: { 
-              expires: new Date() // Set expiry to now to invalidate
-            }
-          });
-          
+          // Clear the OTP from memory cache
+          if ((global as any).otpCache && (global as any).otpCache[email]) {
+            delete (global as any).otpCache[email];
+          }
           return NextResponse.json({ 
             success: false, 
             message: 'Too many failed attempts. Please request a new code.' 
@@ -110,12 +125,11 @@ export async function POST(request: NextRequest) {
         (global as any).otpCache[email].verified = true;
         console.log('Email verified successfully in memory cache:', email);
       } else {
-        // If using database, update the record there
-        await prisma.emailVerification.update({
-          where: { email },
-          data: { verified: true }
-        });
-        console.log('Email verified successfully in database:', email);
+        // If verification is in memory cache, update attempts count
+        if (verification && (global as any).otpCache && (global as any).otpCache[email]) {
+          (global as any).otpCache[email].attempts = ((global as any).otpCache[email].attempts || 0) + 1;
+          console.log('Email verified successfully in database:', email);
+        }
       }
       
       console.log('Email verified successfully:', email);

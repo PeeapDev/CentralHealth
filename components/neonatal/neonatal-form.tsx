@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { DateTimePicker } from "@/components/ui/date-time-picker";
+import { DateTimePicker } from "../ui/date-time-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -49,11 +49,11 @@ export function NeonatalForm({ patientId, initialData = {}, onSaved }: NeonatalF
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData((prev: Record<string, any>) => ({ ...prev, [name]: value }));
   };
 
   const handleNestedChange = (section: string, field: string, value: any) => {
-    setFormData(prev => ({
+    setFormData((prev: Record<string, any>) => ({
       ...prev,
       [section]: {
         ...prev[section],
@@ -63,15 +63,15 @@ export function NeonatalForm({ patientId, initialData = {}, onSaved }: NeonatalF
   };
 
   const handleDateTimeChange = (date: Date | undefined, field: string) => {
-    setFormData(prev => ({ ...prev, [field]: date }));
+    setFormData((prev: Record<string, any>) => ({ ...prev, [field]: date }));
   };
 
   const handleCheckboxChange = (field: string, value: boolean) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    setFormData((prev: Record<string, any>) => ({ ...prev, [field]: value }));
   };
 
   const handleImmunizationToggle = (immunization: string) => {
-    setFormData(prev => {
+    setFormData((prev: Record<string, any>) => {
       const currentImmunizations = prev.immunizations || [];
       
       if (currentImmunizations.includes(immunization)) {
@@ -145,14 +145,14 @@ export function NeonatalForm({ patientId, initialData = {}, onSaved }: NeonatalF
                 <Label htmlFor="birthDateTime">Birth Date & Time</Label>
                 <DateTimePicker
                   date={formData.birthDateTime}
-                  setDate={(date) => handleDateTimeChange(date, "birthDateTime")}
+                  setDate={(date: Date | undefined) => handleDateTimeChange(date, "birthDateTime")}
                 />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="deliveryType">Delivery Type</Label>
                 <Select
                   value={formData.deliveryType}
-                  onValueChange={(value) => setFormData(prev => ({ ...prev, deliveryType: value }))}
+                  onValueChange={(value) => setFormData((prev: typeof formData) => ({ ...prev, deliveryType: value }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select delivery type" />

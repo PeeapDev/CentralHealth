@@ -147,7 +147,7 @@ export default function StaffDashboardLayout({
 
   // Breadcrumbs logic
   const getBreadcrumbs = () => {
-    const paths = pathname.split('/').filter(Boolean);
+    const paths = pathname ? pathname.split('/').filter(Boolean) : [];
     const currentPage = paths[paths.length - 1];
     
     return (

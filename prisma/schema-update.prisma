@@ -1,0 +1,84 @@
+// Add this to your existing schema.prisma file
+
+model Staff {
+  id                   String            @id @default(uuid())
+  email                String            @unique
+  password             String
+  name                 String
+  role                 StaffRole         @default(STAFF)
+  hospitalId           String?           // null for superadmin
+  specialties          String[]
+  isHospitalAdmin      Boolean           @default(false)
+  isSuperAdmin         Boolean           @default(false)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  lastLogin            DateTime?
+  profilePicture       String?
+  gender               String?
+  shift                String?
+  department           String?
+  walletBalance        Float             @default(0)
+  walletTransactions   StaffTransaction[]
+  telemedicineEnabled  Boolean           @default(false)
+  onlineBookingEnabled Boolean           @default(false)
+  active               Boolean           @default(true)
+  taxRate              Float?
+  salary               Float?
+  hospital             Hospital?         @relation(fields: [hospitalId], references: [id])
+  staffSessions        StaffSession[]
+
+  @@index([email])
+  @@index([hospitalId])
+  @@index([role])
+  @@index([isHospitalAdmin])
+  @@index([isSuperAdmin])
+}
+
+model StaffSession {
+  id            String   @id @default(uuid())
+  staffId       String
+  token         String   @unique
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  lastActiveAt  DateTime @updatedAt
+  ipAddress     String?
+  userAgent     String?
+  staff         Staff    @relation(fields: [staffId], references: [id])
+
+  @@index([staffId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+model StaffTransaction {
+  id          String            @id @default(uuid())
+  staffId     String
+  amount      Float
+  type        TransactionType
+  status      TransactionStatus @default(COMPLETED)
+  description String?
+  reference   String?
+  metadata    Json?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  staff       Staff             @relation(fields: [staffId], references: [id])
+
+  @@index([staffId])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+}
+
+enum StaffRole {
+  DOCTOR
+  NURSE
+  ADMIN
+  RECEPTIONIST
+  PHARMACIST
+  LAB_TECHNICIAN
+  RADIOLOGIST
+  ACCOUNTANT
+  HR_MANAGER
+  STAFF // General staff role
+  SUPERADMIN
+}
