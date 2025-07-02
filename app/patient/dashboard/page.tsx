@@ -686,7 +686,9 @@ export default function PatientDashboardPage() {
   }
 
   // Get the exact medical ID shown in the dashboard
-  const dashboardMedicalID = profile?.patientId || profile?.medicalNumber || profile?.id || "";
+  // CRITICAL: Per CentralHealth policy, medical IDs must be stored consistently in the mrn field
+  // Use mrn as primary source, with fallbacks for backward compatibility
+  const dashboardMedicalID = profile?.mrn || profile?.medicalNumber || profile?.id || "";
   
   // Store this exact ID in localStorage for consistency across pages
   if (typeof window !== 'undefined' && dashboardMedicalID) {
