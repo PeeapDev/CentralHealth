@@ -823,17 +823,18 @@ export default function PatientDashboardPage() {
                 id: `hosp-${doctor.id}-${index}` // Ensure uniqueness with index and category prefix
               })),
               
-              // Add more duplicated doctors for a truly long carousel
-              ...mockDoctors.map((doctor, index) => ({
+              // Per CentralHealth policy: No mock data allowed
+              // Add duplicated real doctors if more carousel items needed
+              ...(hospitalDoctors.slice(0, 3).map((doctor: Doctor, index: number) => ({
                 ...doctor,
-                id: `extra-${doctor.id}-${index}` // Ensure uniqueness for duplicates
-              })),
+                id: `extra-hosp-${doctor.id}-${index}` // Ensure uniqueness for duplicates
+              }))),
               
-              // One more set of duplicates for very long scrolling
-              ...mockDoctors.map((doctor, index) => ({
+              // Add specialists for a truly diverse carousel - no mock data per CentralHealth policy
+              ...((specialistDoctors.pediatricians || []).slice(0, 2).map((doctor: Doctor, index: number) => ({
                 ...doctor,
-                id: `more-${doctor.id}-${index}` // Different prefix for second set of duplicates
-              }))
+                id: `more-ped-${doctor.id}-${index}` // Different prefix for second set of duplicates
+              })))
             ]}
             onAppointmentRequest={handleAppointmentRequest}
             singleLine={true}
