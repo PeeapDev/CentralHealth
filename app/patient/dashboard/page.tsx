@@ -38,7 +38,7 @@ import { getInitialsFromFhirName, formatFhirName } from "@/utils/fhir-helpers"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import QRCode from "react-qr-code"
 import { DoctorCarousel } from "@/components/patients/doctor-carousel"
-import { mockDoctors, getSpecialistDoctors, getDoctorsByHospital, Doctor } from "@/lib/doctor-data"
+import { getSpecialistDoctors, getDoctorsByHospital, Doctor } from "@/lib/doctor-data"
 import { useToast } from "@/components/ui/use-toast"
 
 // Define our patient data interface for consistency
@@ -77,6 +77,7 @@ interface PatientData {
 }
 
 export default function PatientDashboardPage() {
+  // Get route parameters and notifications
   const router = useRouter()
   const searchParams = useSearchParams()
   const notification = searchParams?.get('notification')
@@ -138,16 +139,16 @@ export default function PatientDashboardPage() {
   const { 
     profile, 
     error: profileError, 
-    isLoaded,
     profilePhotoUrl, // Get the profile photo URL directly from the hook
-    isProfilePhotoLoading: hookProfilePhotoLoading
+    isProfilePhotoLoading: hookProfilePhotoLoading,
+    refreshProfile
   } = usePatientProfile({ 
     persistSession: true,
     loadProfilePhoto: true // Ensure profile photo is loaded
   })
   
-  // Load patient data from profile and localStorage
-  const [profilePhoto, setProfilePhoto] = useState<string | null>(null)
+  // Patient photo state management with localStorage caching
+  const [profilePhoto, setProfilePhoto] = useState<string | null>('/images/default-avatar.png')
   
   // Effect to sync profile photo URL from the hook to the dashboard state
   useEffect(() => {
@@ -157,16 +158,20 @@ export default function PatientDashboardPage() {
       setIsProfilePhotoLoading(false);
       // Also persist in localStorage for faster loading on future visits
       localStorage.setItem('patientProfilePhoto', profilePhotoUrl);
-    } else if (!profilePhoto) {
-      // If no photo from hook and we don't have one set yet, try localStorage
+    } else if (profilePhoto === '/images/default-avatar.png') {
+      // If using default and no photo from hook yet, try localStorage
       const cachedPhoto = localStorage.getItem('patientProfilePhoto');
       if (cachedPhoto) {
         console.log('Using cached profile photo from localStorage');
         setProfilePhoto(cachedPhoto);
         setIsProfilePhotoLoading(false);
+      } else {
+        // Keep using the default avatar if nothing else is available
+        setIsProfilePhotoLoading(false);
       }
     }
   }, [profilePhotoUrl, profilePhoto])
+  
   const [patientData, setPatientData] = useState<PatientData>({
     name: "Unknown",
     medicalNumber: "",
@@ -201,6 +206,40 @@ export default function PatientDashboardPage() {
     medications: [] as Array<{ name: string; dosage: string; frequency: string }>,
     appointments: [] // Add appointments array to match interface
   })
+  
+  // Effect to immediately update patient name as soon as it's available
+  // This significantly improves perceived UI responsiveness
+  useEffect(() => {
+    if (profile) {
+      // Extract patient name from profile as soon as it's available using firstName and lastName
+      // This matches the CentralHealth policy of using actual patient data fields
+      const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
+      
+      // Try to use localStorage data for faster rendering if profile data isn't available yet
+      if (!fullName) {
+        const storedName = localStorage.getItem('currentPatientName');
+        if (storedName && patientData.name === "Unknown") {
+          setPatientData(prev => ({ ...prev, name: storedName }));
+        }
+        return;
+      }
+      
+      if (fullName && fullName !== patientData.name && fullName !== "Unknown") {
+        console.log('Immediately updating patient name:', fullName);
+        
+        // Update only the name field immediately for faster UI rendering
+        setPatientData(prev => ({
+          ...prev,
+          name: fullName,
+          // Also update medical number if available per CentralHealth policies
+          medicalNumber: profile.mrn || patientData.medicalNumber
+        }));
+        
+        // Cache the name for future visits
+        localStorage.setItem('currentPatientName', fullName);
+      }
+    }
+  }, [profile, patientData.name]) // Run when profile or current name changes
   
   // Check if the user is logged in by checking localStorage
   useEffect(() => {
@@ -278,7 +317,7 @@ export default function PatientDashboardPage() {
   
   // Extract the medical ID from the profile following CentralHealth policy
   // Medical IDs must follow NHS-style 5-character alphanumeric format and be stored as MRN
-  const medicalNumber = profile?.mrn || profile?.medicalNumber || profile?.id || "unknown";
+  const medicalNumber = profile?.mrn || "unknown";
 
   // Clean up all requests on unmount
   useEffect(() => {
@@ -466,90 +505,51 @@ export default function PatientDashboardPage() {
 
       if (profile) {
         const coreData = { ...initialData };
-        coreData.name = profile.name || initialData.name;
-        coreData.medicalNumber = profile.displayMedicalNumber || profile.medicalNumber || (profile as any).mrn || profile.id || initialData.medicalNumber;
+        // Use firstName and lastName according to PatientProfile type
+        coreData.name = `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || initialData.name;
+        // Use medicalNumber or mrn according to PatientProfile type
+        coreData.medicalNumber = profile.medicalNumber || (profile as any).mrn || profile.id || initialData.medicalNumber;
         coreData.gender = profile.gender || initialData.gender;
 
-        if (profile.birthDate || profile.dateOfBirth) {
-          const dob = new Date(profile.birthDate || profile.dateOfBirth || '');
+        if (profile.dateOfBirth) {
+          const dob = new Date(profile.dateOfBirth || '');
           if (dob && !isNaN(dob.getTime())) {
             const now = new Date();
             coreData.age = String(now.getFullYear() - dob.getFullYear());
             coreData.dateOfBirth = dob.toLocaleDateString();
           }
         }
-
-        coreData.phone = profile.phone || initialData.phone;
-        coreData.email = profile.email || initialData.email;
-        coreData.address = profile.address || initialData.address;
-        coreData.bloodType = profile.bloodType || initialData.bloodType;
-        coreData.onboardingCompleted = profile.onboardingCompleted || initialData.onboardingCompleted;
-        coreData.admittedDate = profile.admittedDate || initialData.admittedDate;
-        coreData.attendingDoctor = profile.attendingDoctor || initialData.attendingDoctor;
-        coreData.room = profile.room || initialData.room;
-
-        coreData.vitalSigns = {
-          ...initialData.vitalSigns,
-          temperature: (profile as any).temperature || initialData.vitalSigns.temperature,
-          bloodPressure: (profile as any).bloodPressure || initialData.vitalSigns.bloodPressure,
-          heartRate: (profile as any).heartRate || initialData.vitalSigns.heartRate,
-          respiratoryRate: (profile as any).respiratoryRate || initialData.vitalSigns.respiratoryRate,
-          height: (profile as any).height || initialData.vitalSigns.height,
-          weight: (profile as any).weight || initialData.vitalSigns.weight
-        };
-
-        setPatientData(coreData);
-
-        if (profile.insurance) {
-          setPatientData(prev => ({
-            ...prev,
-            insurance: {
-              provider: profile.insurance.provider || prev.insurance.provider,
-              policyNumber: profile.insurance.policyNumber || prev.insurance.policyNumber,
-              group: profile.insurance.group || prev.insurance.group,
-              expirationDate: profile.insurance.expirationDate || prev.insurance.expirationDate
-            }
-          }));
-        }
-
-        setTimeout(() => {
-          setIsSecondaryDataLoading(true);
-          const secondaryUpdates: Partial<PatientData> = {};
-          if (profile.allergies?.length) secondaryUpdates.allergies = profile.allergies.map((name: string) => ({ name, severity: 'Unknown' }));
-          if (profile.conditions?.length) secondaryUpdates.conditions = profile.conditions;
-          if (profile.medications?.length) secondaryUpdates.medications = profile.medications.map((name: string) => ({ name, dosage: 'N/A', frequency: 'N/A' }));
-          if (Object.keys(secondaryUpdates).length > 0) {
-            setPatientData(prev => ({ ...prev, ...secondaryUpdates }));
-          }
-          setIsSecondaryDataLoading(false);
-        }, 100);
+        
+        // Update patient data with core information
+        setPatientData(prev => ({ ...prev, ...coreData }));
       }
-
-      setTimeout(processLocalStorage, 200);
     } catch (err) {
       console.error('Error loading patient data:', err);
-      setError('Failed to load patient data. Please try refreshing the page.');
+      if (setError) {
+        setError('Failed to load patient data. Please try refreshing the page.');
+      }
     } finally {
-      setIsLoading(false);
+      if (setIsLoading) {
+        setIsLoading(false);
+      }
       setIsCriticalDataLoaded(true);
       console.log('Performance: Patient dashboard loaded in', performance.now() - startTime, 'ms');
     }
   };
-
+  
+  // Process core patient data on initial load and when profile changes
   useEffect(() => {
-    // Set default photo immediately for better UX
-    const defaultPhoto = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzNiODJmNiIgZD0iTTEyIDJDNi41IDIgMiA2LjUgMiAxMnM0LjUgMTAgMTAgMTAgMTAtNC41IDEwLTEwUzE3LjUgMiAxMiAyek0xMiA1YTMgMyAwIDEgMSAwIDYgMyAzIDAgMCAxIDAtNnptMCAxM2MtMi43IDAtNS4xLTEuNC02LjUtMy41LjMtMS4xIDMuMi0xLjcgNi41LTEuNyAzLjMgMCA2LjIuNiA2LjUgMS43QzE3LjEgMTYuNiAxNC43IDE4IDEyIDE4eiIvPjwvc3ZnPg==';
-    if (!profilePhoto) {
-      setProfilePhoto(defaultPhoto);
-    }
-    setIsProfilePhotoLoading(false);
-
-    // Start the data loading process
+    // Initialize loading process
     const startTime = performance.now();
     console.log('Starting patient dashboard data loading...');
-    processCorePatientData(startTime);
-  }, [profile]); // Rerun when profile data changes
-
+    
+    // Immediately load critical data for better UX
+    if (profile) {
+      setIsCriticalDataLoaded(true);
+      setTimeout(() => setIsLoading(false), 200); // Short delay for smoother transition
+    }
+  }, [profile]);
+  
   // Handle navigation from sidebar
   const handleNavigation = (page: string) => {
     // Set overview mode based on current page
@@ -695,14 +695,15 @@ export default function PatientDashboardPage() {
   
   // Prepare profile data to pass to sidebar using ONLY the dashboard medical ID
   const profileDataForSidebar = {
-    name: profile ? profile.name || "" : "", 
+    name: profile ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim() : "", 
     medicalNumber: dashboardMedicalID, // Use exactly the same ID as shown on dashboard
     profileImage: profilePhoto || undefined,
   };
   
   // Store the current patient name in localStorage to ensure consistency across pages
-  if (profile?.name) {
-    localStorage.setItem('currentPatientName', profile.name);
+  if (profile?.firstName || profile?.lastName) {
+    const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
+    localStorage.setItem('currentPatientName', fullName);
   }
   
   // Make sure profile photo is always stored in localStorage
@@ -805,22 +806,19 @@ export default function PatientDashboardPage() {
             doctors={[
               // Create a unique list of doctors with guaranteed unique IDs
               // Start with a fresh, unique set of the original doctors
-              ...(specialistDoctors.cardiologists || []).map((doctor, index) => ({
+              ...(specialistDoctors.cardiologists || []).map((doctor: Doctor, index: number) => ({
                 ...doctor,
                 id: `cardio-${doctor.id}-${index}` // Ensure uniqueness with index and category prefix
               })),
               
-              ...(specialistDoctors.pediatricians || []).map((doctor, index) => ({
+              ...(specialistDoctors.pediatricians || []).map((doctor: Doctor, index: number) => ({
                 ...doctor,
                 id: `pedia-${doctor.id}-${index}` // Ensure uniqueness with index and category prefix
               })),
               
-              ...mockDoctors.map((doctor, index) => ({
-                ...doctor,
-                id: `all-${doctor.id}-${index}` // Ensure uniqueness with index and category prefix
-              })),
+              // No mock doctors per CentralHealth policy - only actual hospital staff
               
-              ...hospitalDoctors.map((doctor, index) => ({
+              ...hospitalDoctors.map((doctor: Doctor, index: number) => ({
                 ...doctor,
                 id: `hosp-${doctor.id}-${index}` // Ensure uniqueness with index and category prefix
               })),

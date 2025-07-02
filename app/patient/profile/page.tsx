@@ -20,7 +20,11 @@ import {
   Printer,
   Download,
   Share2,
-  Calendar
+  Calendar,
+  ChevronLeft,
+  Camera,
+  Upload,
+  X
 } from "lucide-react"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -30,9 +34,16 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Spinner } from "@/components/ui/spinner"
 import { DashboardLayout } from "@/components/patients/dashboard/dashboard-layout"
-import { usePatientProfile } from "@/hooks/use-patient-profile"
-import { useHospitalContext } from "@/hooks/use-hospital-context"
-import { DEFAULT_HOSPITAL } from "@/lib/hospital-context"
+import { usePatientProfile } from "@/hooks/use-patient-profile";
+import { useHospitalContext } from "@/hooks/use-hospital-context";
+import { DEFAULT_HOSPITAL } from "@/lib/hospital-context";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Skeleton } from "@/components/ui/skeleton";
+import { validatePatientExists, clearPatientCache } from "@/hooks/use-patient-profile-validator";
+import { toast } from "@/components/ui/use-toast";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Separator } from "@/components/ui/separator";
 
 // Define proper TypeScript interfaces for patient medical data
 interface Allergy {
@@ -59,7 +70,8 @@ interface PatientProfile {
   email?: string
   phone?: string
   address?: string
-  mrn?: string // Standard medical record number per CentralHealth
+  mrn?: string // Original medical record number field
+  medicalRecordNumber?: string // Standardized medical record number per CentralHealth
   medicalNumber?: string // Legacy field
   displayMedicalNumber?: string // Legacy field
   emergencyContact?: string
@@ -73,23 +85,256 @@ interface PatientProfile {
 }
 
 export default function PatientProfile() {
-  const router = useRouter()
-  const [currentPage, setCurrentPage] = useState("profile")
-  const [activeTab, setActiveTab] = useState("profile")
-  const [profileImage, setProfileImage] = useState<string>("")
-  const qrCodeRef = useRef<HTMLDivElement>(null)
+  const router = useRouter();
+
+  // CentralHealth policy compliance: use proper medical record number as the source of truth
+  // Using 'mrn' as the localStorage key for consistency with existing code and CentralHealth standards
+  const [medicalRecordNumber, setMedicalRecordNumber] = useState<string>(
+    typeof window !== 'undefined' ? localStorage.getItem('mrn') || localStorage.getItem('medicalNumber') || "" : ""
+  );
+  
+  // UI state
+  const [currentPage, setCurrentPage] = useState("profile");
+  const [activeTab, setActiveTab] = useState("profile");
+  const [profileImage, setProfileImage] = useState<string>("");
+  const [showPrintPreview, setShowPrintPreview] = useState<boolean>(false);
+  const [isEditPhotoOpen, setIsEditPhotoOpen] = useState<boolean>(false);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [photoPreview, setPhotoPreview] = useState<string>("");
+  const qrCodeRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Check if user is authenticated before loading profile
+  useEffect(() => {
+    // Check for authentication data
+    const userEmail = localStorage.getItem('userEmail');
+    const patientId = localStorage.getItem('patientId');
+    const mrn = localStorage.getItem('mrn') || localStorage.getItem('medicalNumber');
+    
+    if (!userEmail && !patientId && !mrn) {
+      // No authentication data found - redirect to login
+      console.log('No authentication data found, redirecting to login');
+      // Store intended destination
+      localStorage.setItem('redirectAfterLogin', '/patient/profile');
+      router.push('/login');
+    } else {
+      // Ensure these are set in localStorage for the usePatientProfile hook
+      if (userEmail) localStorage.setItem('userEmail', userEmail);
+      if (patientId) localStorage.setItem('patientId', patientId);
+      if (mrn) {
+        localStorage.setItem('mrn', mrn);
+        localStorage.setItem('medicalNumber', mrn);  // Set both for compatibility
+      }
+    }
+  }, [router]);
+  
+  // Only one call to usePatientProfile to avoid React hook rules violation
+  // Call usePatientProfile with proper options and handle all potential field formats
+  // to comply with CentralHealth's strict policy on medical record numbers
+  const { 
+    profile, 
+    isLoading, 
+    error, 
+    qrCodeValue, 
+    profilePhotoUrl,
+    refreshProfile 
+  } = usePatientProfile({
+    loadProfilePhoto: true,
+    forceRefresh: true // Force refresh to ensure we get the latest profile photo
+  });
+  
+  // Dedicated effect to update profile image when profilePhotoUrl changes
+  useEffect(() => {
+    // Only update if we have a valid photo URL and we're not loading
+    if (profilePhotoUrl && !isLoading) {
+      console.log('Updating profile image with photo URL:', profilePhotoUrl.substring(0, 30) + '...');
+      setProfileImage(profilePhotoUrl);
+      
+      // Also cache it for faster loads next time
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('patientProfilePhoto', profilePhotoUrl);
+        } catch (e) {
+          console.warn('Failed to cache profile photo:', e);
+        }
+      }
+    }
+  }, [profilePhotoUrl, isLoading]);
+  
+  // Handle file selection for photo upload
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast({
+        title: "Invalid file type",
+        description: "Please select an image file (JPEG, PNG, etc.)",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "Please select an image smaller than 5MB",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Create preview
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      if (e.target?.result) {
+        setPhotoPreview(e.target.result as string);
+      }
+    };
+    reader.readAsDataURL(file);
+    
+    setPhotoFile(file);
+  };
+  
+  // Handle photo upload
+  const handlePhotoUpload = async () => {
+    if (!photoFile || !profile?.mrn) {
+      toast({
+        title: "Error",
+        description: "No photo selected or patient information missing",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Per CentralHealth standards: use MRN as the consistent medical ID
+    const patientId = profile.mrn || profile.id;
+    if (!patientId) {
+      toast({
+        title: "Error",
+        description: "Patient identifier not found",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    setIsUploading(true);
+    setUploadProgress(0);
+    
+    // Create form data for upload
+    const formData = new FormData();
+    formData.append('photo', photoFile);
+    
+    try {
+      // Use a timer to simulate progress (replace with real progress tracking if API supports it)
+      const progressTimer = setInterval(() => {
+        setUploadProgress(prev => Math.min(prev + 10, 90));
+      }, 300);
+      
+      // Upload the photo to the API
+      const response = await fetch(`/api/patients/${patientId}/profile-picture/upload`, {
+        method: 'POST',
+        body: formData,
+        // No Content-Type header - browser will set it with boundary for FormData
+      });
+      
+      clearInterval(progressTimer);
+      setUploadProgress(100);
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to upload photo');
+      }
+      
+      const data = await response.json();
+      
+      // Update the profile photo with the new one
+      if (data.imageUrl) {
+        setProfileImage(data.imageUrl);
+        // Force refresh profile to get the updated photo
+        await refreshProfile();
+        
+        toast({
+          title: "Success",
+          description: "Profile photo updated successfully",
+        });
+        
+        setIsEditPhotoOpen(false);
+        setPhotoFile(null);
+        setPhotoPreview('');
+      }
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      toast({
+        title: "Upload failed",
+        description: error instanceof Error ? error.message : "An error occurred while uploading the photo",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+  
+  // Open file browser
+  const triggerFileInput = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+  
+  // Effect for clearing stale cache data on error
+  useEffect(() => {
+    if (error) {
+      // Check if we have localStorage access
+      if (typeof window !== 'undefined') {
+        // Clear only non-essential cache, preserving authentication and medical ID
+        // per CentralHealth policy: "Medical IDs must NEVER be regenerated for existing patients"
+        const keysToPreserve = ['authToken', 'patient_session', 'mrn', 'medicalNumber'];
+        const preservedValues: {[key: string]: string | null} = {};
+        
+        // Save values we need to keep
+        keysToPreserve.forEach(key => {
+          preservedValues[key] = localStorage.getItem(key);
+        });
+        
+        // Clear specific profile-related keys only
+        const profileKeys = ['profile', 'patientProfile', 'profileCache', 'patient_photo_'];
+        Object.keys(localStorage).forEach(key => {
+          if (profileKeys.some(prefix => key.startsWith(prefix)) && !keysToPreserve.includes(key)) {
+            localStorage.removeItem(key);
+          }
+        });
+        
+        // Restore preserved values
+        Object.entries(preservedValues).forEach(([key, value]) => {
+          if (value) localStorage.setItem(key, value);
+        });
+        
+        console.log('Cleared stale profile cache while preserving authentication and medical ID');
+      }
+    }
+  }, [error]);
 
   // Default fallback photo - higher quality SVG with better contrast
   const defaultPhoto = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100' viewBox='0 0 24 24' fill='%23f0f0f0' stroke='%23666666' stroke-width='1' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='9' r='6' fill='%23e0e0e0' stroke='%23999999'%3E%3C/circle%3E%3Cpath d='M20 21v-2a8 8 0 0 0-16 0v2' fill='%23e0e0e0' stroke='%23999999'%3E%3C/path%3E%3C/svg%3E"
 
   // Immediately load any cached profile image to improve perceived performance
   useEffect(() => {
-    // Only access localStorage in the browser environment
     if (typeof window !== 'undefined') {
-      const cachedImage = localStorage.getItem('patientProfilePhoto') || localStorage.getItem('photo')
-      if (cachedImage) {
-        setProfileImage(cachedImage)
-      } else {
+      try {
+        const cachedImage = localStorage.getItem('patientProfilePhoto') || localStorage.getItem('photo')
+        if (cachedImage) {
+          setProfileImage(cachedImage)
+        } else {
+          setProfileImage(defaultPhoto) // Set default immediately instead of waiting
+        }
+      } catch (error) {
+        console.error('Error accessing localStorage:', error)
+        setProfileImage(defaultPhoto) // Set default on error
         setProfileImage(defaultPhoto) // Set default immediately instead of waiting
       }
     } else {
@@ -97,14 +342,10 @@ export default function PatientProfile() {
     }
   }, [])
 
-  // Fetch patient data with safety checks for proper loading
-  const { profile, isLoading, error, qrCodeValue, profilePhotoUrl } = usePatientProfile()
+  // Hospital code derived from profile or default
   const hospitalCode = profile?.hospitalCode || DEFAULT_HOSPITAL.id
   
-  // Safe localStorage access with SSR check - use mrn as the standardized field name per CentralHealth standards
-  const [mrn, setMRN] = useState(
-    typeof window !== 'undefined' ? localStorage.getItem('mrn') || localStorage.getItem('medicalNumber') || "" : ""
-  )
+  // Medical ID is already declared as medicalRecordNumber above
   
   // Add guaranteed loading timeout to prevent infinite loading
   useEffect(() => {
@@ -117,6 +358,8 @@ export default function PatientProfile() {
         // If we have a cached profile photo, use it immediately
         if (profilePhotoUrl) {
           setProfileImage(profilePhotoUrl);
+        } else {
+          setProfileImage(defaultPhoto); // Set default photo on timeout
         }
       }, 5000);
     }
@@ -124,7 +367,7 @@ export default function PatientProfile() {
     return () => {
       if (loadingTimeout) clearTimeout(loadingTimeout);
     };
-  }, [isLoading, profilePhotoUrl])
+  }, [isLoading, profilePhotoUrl, defaultPhoto]);
 
   // Load profile data with better performance
   useEffect(() => {
@@ -136,14 +379,18 @@ export default function PatientProfile() {
       }
 
       try {
-        // Set medical ID from profile with standardized mrn field per CentralHealth standards
-        // Priority approach: mrn > medicalNumber > displayMedicalNumber
-        const patientMrn = profile?.mrn || profile?.medicalNumber || profile?.displayMedicalNumber || ""
+        // Set medical ID from profile with standardized fields per CentralHealth standards
+        // Type assertion to access the medicalRecordNumber property we added to the interface
+        const patientProfile = profile as any; // Temporary type assertion to access all potential MRN fields
+        const patientMrn = patientProfile?.medicalRecordNumber || patientProfile?.medicalNumber || patientProfile?.displayMedicalNumber || patientProfile?.mrn || ""
         if (patientMrn) {
-          setMRN(patientMrn)
-          // Safe localStorage operations - consistently use mrn as the key
+          setMedicalRecordNumber(patientMrn)
+          // Safe localStorage operations - consistently use 'mrn' as the key per existing system conventions
+          // While also maintaining backward compatibility with 'medicalNumber'
           try {
             localStorage.setItem('mrn', patientMrn)
+            // Also set medicalNumber for backward compatibility
+            localStorage.setItem('medicalNumber', patientMrn)
           } catch (e) {
             console.warn('Unable to save medical record number to localStorage:', e)
           }
@@ -246,10 +493,10 @@ export default function PatientProfile() {
     }
   };
 
-  // Prepare profile data for sidebar - use standardized mrn field per CentralHealth standards
+  // Prepare profile data for sidebar - use standardized medicalRecordNumber field per CentralHealth standards
   const profileDataForSidebar = {
     name: profile?.name || "",
-    medicalNumber: mrn || "", // Using proper medical record number
+    medicalNumber: medicalRecordNumber || "", // Using proper medical record number
     profileImage: profileImage || undefined,
   }
 
@@ -283,6 +530,8 @@ export default function PatientProfile() {
       )
     }
 
+
+    
     if (error) {
       return (
         <div className="p-6 rounded-lg border border-red-200 bg-red-50">
@@ -290,7 +539,26 @@ export default function PatientProfile() {
           <p className="text-red-600">Failed to load profile data in a reasonable time. Please try again.</p>
           <div className="flex gap-3 mt-4">
             <Button 
-              onClick={() => window.location.reload()}
+              onClick={() => {
+                // Clear cache but preserve authentication
+                if (typeof window !== 'undefined') {
+                  const authToken = localStorage.getItem('authToken');
+                  const patientSession = localStorage.getItem('patient_session');
+                  const medicalNumber = localStorage.getItem('mrn') || localStorage.getItem('medicalNumber');
+                  
+                  // Keep the MRN/Medical ID as required by CentralHealth policy
+                  // "Medical IDs must NEVER be regenerated for existing patients"
+                  localStorage.clear();
+                  
+                  if (authToken) localStorage.setItem('authToken', authToken);
+                  if (patientSession) localStorage.setItem('patient_session', patientSession);
+                  if (medicalNumber) {
+                    localStorage.setItem('mrn', medicalNumber);
+                    localStorage.setItem('medicalNumber', medicalNumber);
+                  }
+                }
+                window.location.reload();
+              }}
               className="bg-blue-600 hover:bg-blue-700"
             >
               Try Again
@@ -342,7 +610,7 @@ export default function PatientProfile() {
                   ) : (
                     <div ref={qrCodeRef}>
                       <QRCode 
-                        value={qrCodeValue || `CentralHealth:${mrn}`} 
+                        value={qrCodeValue || `CentralHealth:${medicalRecordNumber}`} 
                         size={130} 
                         style={{ height: "auto", maxWidth: "100%", width: "100%" }}
                         viewBox={`0 0 256 256`}
@@ -352,18 +620,28 @@ export default function PatientProfile() {
                 </div>
                 <div className="flex-grow space-y-4">
                   <div className="flex items-center gap-4">
-                    <Avatar className="h-20 w-20 ring-4 ring-blue-50 shadow-md border border-blue-100">
-                      <AvatarImage 
-                        src={profileImage || profile.photo || defaultPhoto} 
-                        alt={profile.name || "Patient"}
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = defaultPhoto
-                        }}
-                      />
-                      <AvatarFallback className="bg-blue-600 text-white text-lg">
-                        {profile.name?.substring(0, 2).toUpperCase() || "P"}
-                      </AvatarFallback>
-                    </Avatar>
+                    <div className="relative group">
+                      <Avatar className="h-20 w-20 ring-4 ring-blue-50 shadow-md border border-blue-100">
+                        <AvatarImage 
+                          src={profilePhotoUrl || profileImage || profile?.photo || defaultPhoto} 
+                          alt={profile.name || "Patient"}
+                          onError={(e) => {
+                            console.log('Error loading profile image, falling back to default');
+                            (e.target as HTMLImageElement).src = defaultPhoto;
+                          }}
+                        />
+                        <AvatarFallback className="bg-blue-600 text-white text-lg">
+                          {profile.name?.substring(0, 2).toUpperCase() || "P"}
+                        </AvatarFallback>
+                      </Avatar>
+                      <button 
+                        onClick={() => setIsEditPhotoOpen(true)}
+                        className="absolute bottom-0 right-0 bg-blue-500 hover:bg-blue-600 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+                        title="Edit photo"
+                      >
+                        <Camera className="w-4 h-4" />
+                      </button>
+                    </div>
                     <div>
                       <h3 className="text-xl font-bold text-gray-900">{profile.name}</h3>
                       <div className="flex items-center space-x-4 mt-2 text-sm text-gray-500">
@@ -382,7 +660,7 @@ export default function PatientProfile() {
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="relative flex items-center space-x-2">
                       <p className="text-sm text-gray-500">Medical ID:</p>
-                      <p className="font-medium">{mrn}</p>
+                      <p className="font-medium">{medicalRecordNumber}</p>
                     </div>
                     <div className="bg-white p-3 rounded-lg border">
                       <p className="text-sm text-gray-500">Date of Birth</p>
@@ -613,9 +891,8 @@ export default function PatientProfile() {
                   <CardContent>
                     <div className="space-y-2">
                       {profile.conditions && profile.conditions.length > 0 ? (
-                        profile.conditions.map((condition, index) => {
+                        profile.conditions.map((condition: any, index: number) => {
                           // Explicitly type check and cast to prevent TypeScript errors
-                          const condObj = condition as any;
                           const conditionName = typeof condition === 'string' ? condition : (condObj?.name || 'Unknown Condition');
                           const conditionStatus = typeof condition === 'string' ? null : condObj?.status;
                           
@@ -648,9 +925,8 @@ export default function PatientProfile() {
                   <CardContent>
                     <div className="space-y-4">
                       {profile.medications && profile.medications.length > 0 ? (
-                        profile.medications.map((med, index) => {
+                        profile.medications.map((med: any, index: number) => {
                           // Handle both string and object formats with proper type checking
-                          const medObj = med as any;
                           const medName = typeof med === 'string' ? med : (medObj?.name || 'Unknown Medication');
                           const medDosage = typeof med === 'string' ? '' : (medObj?.dosage || '');
                           const medFrequency = typeof med === 'string' ? '' : (medObj?.frequency || '');
@@ -758,19 +1034,114 @@ export default function PatientProfile() {
         </div>
       </div>
     );
-  }, [isLoading, error, profile, mrn, profileImage, qrCodeValue, activeTab, defaultPhoto, handlePrint]);
+  }, [isLoading, error, profile, medicalRecordNumber, profileImage, qrCodeValue, activeTab, defaultPhoto, handlePrint]);
 
   return (
-    <DashboardLayout 
-      currentPage={currentPage}
-      onNavigate={handleNavigation}
-      breadcrumbs={[{ label: "Profile" }]}
-      hideProfileHeader={false}
-      profileData={profileDataForSidebar}
-    >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {content}
-      </div>
-    </DashboardLayout>
+    <>
+      <DashboardLayout 
+        currentPage={currentPage}
+        onNavigate={handleNavigation}
+        breadcrumbs={[{ label: "Profile" }]}
+        hideProfileHeader={false}
+        profileData={profileDataForSidebar}
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {content}
+        </div>
+      </DashboardLayout>
+      
+      {/* Hidden file input for photo upload */}
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        className="hidden" 
+        accept="image/*" 
+        onChange={handleFileChange} 
+      />
+      
+      {/* Edit Photo Dialog */}
+      <Dialog open={isEditPhotoOpen} onOpenChange={setIsEditPhotoOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Update Profile Photo</DialogTitle>
+            <DialogDescription>
+              Upload a new profile photo. This photo will be displayed on your patient profile.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid gap-6 py-4">
+            {photoPreview ? (
+              <div className="relative w-32 h-32 mx-auto">
+                <img 
+                  src={photoPreview} 
+                  alt="Preview" 
+                  className="w-full h-full object-cover rounded-full ring-4 ring-blue-50 shadow-md border border-blue-100" 
+                />
+                <button
+                  onClick={() => {
+                    setPhotoPreview('');
+                    setPhotoFile(null);
+                  }}
+                  className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white p-1 rounded-full"
+                  title="Remove photo"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <div 
+                onClick={triggerFileInput}
+                className="w-32 h-32 mx-auto bg-gray-100 border-2 border-dashed border-gray-300 rounded-full flex flex-col items-center justify-center cursor-pointer hover:bg-gray-50 transition-colors"
+              >
+                <Upload className="h-10 w-10 text-gray-400" />
+                <p className="text-xs text-center text-gray-500 mt-2">
+                  Click to upload
+                </p>
+              </div>
+            )}
+            
+            {isUploading && (
+              <div className="mx-auto w-full max-w-xs">
+                <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-blue-500 transition-all duration-300" 
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+                <p className="text-center text-sm text-gray-500 mt-1">{uploadProgress}% complete</p>
+              </div>
+            )}
+          </div>
+          
+          <DialogFooter className="flex justify-between">
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setIsEditPhotoOpen(false);
+                setPhotoFile(null);
+                setPhotoPreview('');
+              }}
+              disabled={isUploading}
+            >
+              Cancel
+            </Button>
+            
+            {!photoPreview ? (
+              <Button onClick={triggerFileInput} disabled={isUploading}>
+                Select Photo
+              </Button>
+            ) : (
+              <Button 
+                onClick={handlePhotoUpload} 
+                disabled={!photoFile || isUploading}
+                className={isUploading ? 'opacity-50 cursor-not-allowed' : ''}
+              >
+                {isUploading ? 'Uploading...' : 'Save Photo'}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
