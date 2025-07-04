@@ -99,18 +99,21 @@ export default function BookingVisitForm({ patientData, initialData, onSave }: B
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Booking Visit</CardTitle>
+        <CardTitle>Antenatal Booking Visit</CardTitle>
         <CardDescription>
-          Record initial pregnancy information and calculate Expected Due Date
+          Record initial pregnancy details and establish baseline information for antenatal care
         </CardDescription>
       </CardHeader>
       <form onSubmit={handleSubmit}>
         <CardContent className="space-y-6">
+          <div className="bg-blue-50 p-4 rounded-md mb-4">
+            <h3 className="text-sm font-medium text-blue-800">Patient Identification</h3>
+            <p className="text-sm text-blue-700 mt-1">Booking visit information for {patientData.name}</p>
+          </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Last Menstrual Period */}
             <div className="space-y-2">
               <Label htmlFor="lmp">Last Menstrual Period (LMP)</Label>
-              {/* Remove id prop as it's not in DatePickerProps interface */}
               <DatePicker 
                 date={formData.lmp ? new Date(formData.lmp) : undefined}
                 setDate={handleLMPChange}
@@ -124,7 +127,6 @@ export default function BookingVisitForm({ patientData, initialData, onSave }: B
             {/* Expected Due Date (EDD) */}
             <div className="space-y-2">
               <Label htmlFor="edd">Expected Due Date (EDD)</Label>
-              {/* Remove id prop as it's not in DatePickerProps interface */}
               <DatePicker 
                 date={formData.edd ? new Date(formData.edd) : undefined}
                 setDate={(date) => date && setFormData({...formData, edd: date.toISOString()})}
@@ -166,9 +168,71 @@ export default function BookingVisitForm({ patientData, initialData, onSave }: B
               {errors.para && <p className="text-sm text-red-500">{errors.para}</p>}
             </div>
           </div>
+          
+          {/* Additional Information */}
+          <div className="mt-6 space-y-4">
+            <h3 className="text-lg font-medium">Pregnancy Information</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="trimester">Current Trimester</Label>
+                <select 
+                  id="trimester"
+                  className="w-full border rounded-lg p-2"
+                  defaultValue={"first"}
+                >
+                  <option value="first">First Trimester (1-12 weeks)</option>
+                  <option value="second">Second Trimester (13-26 weeks)</option>
+                  <option value="third">Third Trimester (27-40 weeks)</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="gestationalAge">Gestational Age at Booking</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="gestationalAge"
+                    type="number"
+                    min="1"
+                    max="42"
+                    placeholder="Weeks"
+                    className="w-1/2"
+                  />
+                  <span className="text-gray-500">weeks</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          {/* Care timeline information */}
+          <div className="rounded-md border p-4 mt-6">
+            <h3 className="font-medium mb-2">Antenatal Care Timeline</h3>
+            <p className="text-sm text-gray-600">Based on the estimated due date, the following schedule is recommended:</p>
+            
+            <div className="flex flex-col gap-2 mt-3">
+              <div className="flex items-center">
+                <div className="w-3 h-3 rounded-full bg-blue-500 mr-2"></div>
+                <span className="text-sm">First visit (Booking): Today</span>
+              </div>
+              {formData.edd && (
+                <>
+                  <div className="flex items-center">
+                    <div className="w-3 h-3 rounded-full bg-gray-300 mr-2"></div>
+                    <span className="text-sm">Second visit: 4 weeks from today</span>
+                  </div>
+                  <div className="flex items-center">
+                    <div className="w-3 h-3 rounded-full bg-gray-300 mr-2"></div>
+                    <span className="text-sm">Third visit: 8 weeks from today</span>
+                  </div>
+                </>
+              )}
+            </div>
+            
+            <p className="text-xs text-gray-500 mt-2">* A detailed visit schedule will be created after completing all sections</p>
+          </div>
         </CardContent>
         <CardFooter className="flex justify-between">
-          <p className="text-sm text-gray-500">All fields are required to proceed</p>
+          <div>
+            <p className="text-sm text-gray-500">Complete this section to establish pregnancy timeline</p>
+          </div>
           <Button type="submit">Save & Continue</Button>
         </CardFooter>
       </form>

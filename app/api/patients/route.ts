@@ -311,6 +311,21 @@ export async function GET(request: NextRequest) {
           where: { primary: true },
           take: 1,
           select: { phone: true, verified: true }
+        },
+        // Include User relation for better name resolution
+        User: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            photo: true  // Use photo field instead of image
+          }
+        },
+        // Include ProfilePicture for avatar display
+        ProfilePicture: {
+          select: {
+            imageUrl: true
+          }
         }
       }
     }).catch(err => {
@@ -337,8 +352,15 @@ export async function GET(request: NextRequest) {
         // Extract name with minimal processing
         let displayName = 'Unknown Patient';
         
-        // Try to get name from patient name field
-        if (patient.name) {
+        // Prioritize different name sources in order of preference:
+        // 1. fullName from the patient record
+        // 2. name from User relation
+        // 3. Structured name from patient.name
+        if (patient.fullName && typeof patient.fullName === 'string') {
+          displayName = patient.fullName;
+        } else if (patient.User && patient.User.name) {
+          displayName = patient.User.name;
+        } else if (patient.name) {
           if (typeof patient.name === 'string') {
             // Check if it looks like a plain string rather than JSON
             if (!/^\s*[{\[]/.test(patient.name)) {
@@ -404,20 +426,37 @@ export async function GET(request: NextRequest) {
           }
         }
         
+        // Get profile picture URL if available
+        let profilePictureUrl = null;
+        if (patient.ProfilePicture && patient.ProfilePicture.imageUrl) {
+          profilePictureUrl = patient.ProfilePicture.imageUrl;
+        } else if (patient.User && patient.User.image) {
+          profilePictureUrl = patient.User.image;
+        }
+        
         // Return a consistent patient record object
         return {
           id: patient.id,
           medicalId: displayMedicalNumber,
+          medicalNumber: patient.mrn || '',  // Added for compatibility
+          displayMedicalNumber: displayMedicalNumber, // Added for compatibility
           name: displayName,
           email: email,
           phone: phone,
           dob: dobResult.formattedDate,
+          birthDate: patient.dateOfBirth,  // Keep original date for calculations
           age: dobResult.age || 'Unknown',
           gender: gender,
           createdAt: patient.createdAt,
           onboardingStatus: patient.onboardingCompleted ? 'Completed' : 'Pending',
           status: 'Active',
-          avatarUrl: null // We'll handle profile image loading on the front end
+          active: true, // Default to active for compatibility
+          // Add all the additional fields needed for the UI
+          avatarUrl: profilePictureUrl,
+          fullName: patient.fullName || displayName,
+          displayName: displayName,
+          User: patient.User || null,
+          profilePicture: patient.ProfilePicture || null
         };
       } catch (err) {
         // If processing an individual patient fails, return a simplified record

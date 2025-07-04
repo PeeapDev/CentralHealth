@@ -84,6 +84,15 @@ function formatFhirName(nameObj: any): string {
   try {
     if (!nameObj) return "Unknown";
     
+    // If user has a fullName or User.name property, prioritize those
+    if (nameObj.fullName && typeof nameObj.fullName === 'string') {
+      return nameObj.fullName.trim();
+    }
+    
+    if (nameObj.User && nameObj.User.name) {
+      return nameObj.User.name.trim();
+    }
+    
     // If it's already a plain string and doesn't look like JSON, return it directly
     if (typeof nameObj === 'string') {
       // Check if it looks like a plain name rather than JSON
@@ -647,22 +656,25 @@ export default function PatientManagementPage() {
                     <TableBody>
                       {/* Apply pagination to filtered patients */}
                       {currentPatients.map((patient) => {
-                        const patientName = formatFhirName(patient.name);
+                        // Prioritize different name sources in order of preference
+                        const patientName = patient.fullName || patient.displayName || (patient.User?.name) || formatFhirName(patient.name);
                         const patientInitials = getInitialsFromFhirName(patient.name);
+                        
                         // Get patient age with prioritized sources and fallbacks
                         let patientAge = '--';
-                        if (patient.age !== undefined) {
+                        if (patient.age !== undefined && patient.age !== null && patient.age !== 'Unknown') {
                           // First priority: Use age from API if it exists
-                          patientAge = patient.age.toString();
-                        } else if (patient.birthDate) {
+                          patientAge = typeof patient.age === 'number' ? patient.age.toString() : patient.age;
+                        } else if (patient.birthDate || patient.dob) {
                           // Second priority: Calculate from birthDate
-                          patientAge = calculateAge(patient.birthDate).toString();
+                          const birthDateStr = patient.birthDate || patient.dob;
+                          patientAge = calculateAge(birthDateStr).toString();
                         } else if (patient.displayAge) {
                           // Third priority: Use displayAge field if available
                           patientAge = patient.displayAge;
                         } else {
-                          // Default fallback
-                          patientAge = '24';
+                          // Keep as unknown
+                          patientAge = '--';
                         }
                         
                         // Extract phone number from telecom
@@ -696,9 +708,9 @@ export default function PatientManagementPage() {
                               <div className="flex items-center gap-4">
                                 <Avatar className="h-10 w-10 ring-2 ring-blue-50 border border-slate-200">
                                   <AvatarImage 
-                                    src={patient.photo || 
+                                    src={patient.avatarUrl || 
+                                         patient.profilePicture?.imageUrl || 
                                          patient.User?.photo || 
-                                         patient.user?.photo || 
                                          `/api/patients/${patient.id}/photo` || 
                                          ''} 
                                     alt={patient.fullName || patient.displayName || formatFhirName(patient.name)}
@@ -712,7 +724,7 @@ export default function PatientManagementPage() {
                                       // Get patient initials from name
                                       const name = patient.fullName || patient.displayName || formatFhirName(patient.name);
                                       if (!name || name === "Unknown") {
-                                        return patient.medicalNumber?.substring(0, 2).toUpperCase() || "P";
+                                        return patient.medicalNumber?.substring(0, 2).toUpperCase() || patient.medicalId?.substring(0, 2).toUpperCase() || "P";
                                       }
                                       // Extract initials from full name
                                       const nameParts = name.split(' ');
@@ -725,7 +737,7 @@ export default function PatientManagementPage() {
                                   </AvatarFallback>
                                 </Avatar>
                                 <div>
-                                  <div className="font-semibold">{patient.fullName || patient.displayName || formatFhirName(patient.name)}</div>
+                                  <div className="font-semibold">{patient.fullName || patient.displayName || (patient.User?.name) || formatFhirName(patient.name)}</div>
                                   <div className="text-xs text-gray-500">Registered: {registrationDate}</div>
                                 </div>
                               </div>
@@ -737,11 +749,7 @@ export default function PatientManagementPage() {
                                     2. Individual consistent medical ID from registration
                                     3. mrn as last resort
                                  */}
-                                {console.log('Medical ID for patient', patient.id, ':', { 
-                                   displayMedicalNumber: patient.displayMedicalNumber, 
-                                   medicalNumber: patient.medicalNumber 
-                                })}
-                                {patient.displayMedicalNumber || patient.medicalNumber || patient.mrn || 'Not Assigned'}
+                                {patient.displayMedicalNumber || patient.medicalNumber || patient.medicalId || patient.mrn || 'Not Assigned'}
                               </div>
                             </TableCell>
                             <TableCell>
