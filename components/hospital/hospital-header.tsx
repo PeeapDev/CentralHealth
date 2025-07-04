@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Bell, MessageSquare, Settings, LogOut, User, FileText, Activity, Mail, Calendar, Pill, Syringe, FileSpreadsheet, CircleUser } from "lucide-react"
+import { Bell, MessageSquare, Settings, LogOut, User, FileText, Activity, Mail, Calendar, Pill, Syringe, FileSpreadsheet, CircleUser, Building2, Stethoscope, FolderOutput, FlaskConical, ClipboardList, Baby, Shield, Clipboard, UserCheck } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { useEffect, useState, useRef } from "react"
@@ -18,16 +18,30 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import { NewReferralDialog } from "@/components/new-referral-dialog"
 import { format } from "date-fns"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { PatientSearchWidget } from "@/components/patient-search-widget"
+import ConnectedPatientSearch from "@/components/widgets/ConnectedPatientSearch"
 
 interface HospitalHeaderProps {
   hospitalName: string
+}
+
+// Helper function to calculate age from birthdate
+function calculateAge(birthDate: Date): number {
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const monthDiff = today.getMonth() - birthDate.getMonth();
+  
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+    age--;
+  }
+  
+  return age;
 }
 
 // FHIR Patient interface (simplified for search)
@@ -48,8 +62,9 @@ interface FHIRPatient {
   gender?: string;
   birthDate?: string;
   email?: string;
-  hospitalId?: string;
+  modules?: string[];
   photo?: string;
+  hospitalId?: string;
 }
 
 // Helper function to get initials from name
@@ -65,10 +80,9 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
   const [userData, setUserData] = useState<{ id?: string; name?: string; email?: string }>({}) 
   const [unreadMessages, setUnreadMessages] = useState<number>(0)
   const [recentMessages, setRecentMessages] = useState<any[]>([])
-  const refreshInterval = useRef<NodeJS.Timeout | null>(null)
-  
-  // Patient search state
   const [selectedPatient, setSelectedPatient] = useState<FHIRPatient | null>(null);
+  const [referralDialogOpen, setReferralDialogOpen] = useState(false)
+  const refreshInterval = useRef<NodeJS.Timeout | null>(null)
   
   // Fetch recent messages and unread count
   const fetchMessages = async () => {
@@ -176,7 +190,7 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           {selectedPatient && (
             <>
-              <DialogHeader>
+              <DialogHeader className="flex justify-between items-start">
                 <DialogTitle className="flex items-center gap-3">
                   <Avatar className="h-10 w-10">
                     {selectedPatient.photo ? (
@@ -194,6 +208,16 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
                     </Badge>
                   </div>
                 </DialogTitle>
+                
+                {/* View Complete Profile button moved to top right */}
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  className="shrink-0"
+                  onClick={() => router.push(`/${hospitalName}/admin/patients/${selectedPatient.id}`)}
+                >
+                  View Complete Profile
+                </Button>
                 <DialogDescription className="flex flex-wrap gap-3 mt-2">
                   <span className="flex items-center text-sm">
                     <FileText className="h-4 w-4 mr-1" />
@@ -236,6 +260,7 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
                       <CardDescription>Key patient information and recent activity</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
+                      {/* Patient Summary Information */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <h4 className="text-sm font-medium flex items-center gap-1">
@@ -274,21 +299,99 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
                         </div>
                       </div>
                     </CardContent>
-                    <CardFooter className="flex justify-between">
+                    <CardFooter className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 p-4">
+                      {/* Main Action Buttons */}
+                      {/* IMPORTANT: These are the buttons that appear in the QR scan patient dialog */}
                       <Button 
-                        variant="outline" 
+                        variant="default" 
                         size="sm"
-                        onClick={() => router.push(`/${hospitalName}/admin/patients/${selectedPatient.id}`)}
+                        className="w-full flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white"
+                        onClick={() => router.push(`/${hospitalName}/admin/patients/${selectedPatient.id}/admission/new`)}
                       >
-                        View Complete Profile
+                        <Building2 className="h-3.5 w-3.5 mr-1" /> Admit Patient
                       </Button>
                       <Button 
                         variant="default" 
                         size="sm"
-                        onClick={() => router.push(`/${hospitalName}/admin/patients/${selectedPatient.id}/edit`)}
+                        className="w-full flex items-center justify-center bg-green-600 hover:bg-green-700 text-white"
+                        onClick={() => router.push(`/${hospitalName}/admin/patients/${selectedPatient.id}/consultation/new`)}
                       >
-                        Edit Patient
+                        <Stethoscope className="h-3.5 w-3.5 mr-1" /> Start Consultation
                       </Button>
+                      <Button 
+                        variant="default" 
+                        size="sm"
+                        className="w-full flex items-center justify-center bg-purple-600 hover:bg-purple-700 text-white"
+                        onClick={() => router.push(`/${hospitalName}/admin/appointments/new?patientId=${selectedPatient.id}`)}
+                      >
+                        <Calendar className="h-3.5 w-3.5 mr-1" /> Schedule Appointment
+                      </Button>
+                      <Button 
+                        variant="default" 
+                        size="sm"
+                        className="w-full flex items-center justify-center bg-amber-600 hover:bg-amber-700 text-white"
+                        onClick={() => setReferralDialogOpen(true)}
+                      >
+                        <FolderOutput className="h-3.5 w-3.5 mr-1" /> Refer Patient
+                      </Button>
+                      <Button 
+                        variant="default" 
+                        size="sm"
+                        className="w-full flex items-center justify-center bg-cyan-600 hover:bg-cyan-700 text-white"
+                        onClick={() => router.push(`/${hospitalName}/admin/patients/${selectedPatient.id}/vaccinations/new`)}
+                      >
+                        <Syringe className="h-3.5 w-3.5 mr-1" /> Record Vaccination
+                      </Button>
+                      <Button 
+                        variant="default" 
+                        size="sm"
+                        className="w-full flex items-center justify-center bg-violet-600 hover:bg-violet-700 text-white"
+                        onClick={() => router.push(`/${hospitalName}/admin/patients/${selectedPatient.id}/lab-tests/new`)}
+                      >
+                        <FlaskConical className="h-3.5 w-3.5 mr-1" /> Order Lab Test
+                      </Button>
+                      <Button 
+                        variant="default" 
+                        size="sm"
+                        className="w-full flex items-center justify-center bg-rose-600 hover:bg-rose-700 text-white"
+                        onClick={() => router.push(`/${hospitalName}/admin/patients/${selectedPatient.id}/notes/new`)}
+                      >
+                        <ClipboardList className="h-3.5 w-3.5 mr-1" /> Add Clinical Note
+                      </Button>
+                      
+                      {/* Conditional buttons based on patient context */}
+                      {selectedPatient.modules?.includes('antenatal') && (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          className="w-full flex items-center justify-center bg-pink-600 hover:bg-pink-700 text-white"
+                          onClick={() => router.push(`/${hospitalName}/admin/antenatal/patients/${selectedPatient.id}/visit/new`)}
+                        >
+                          <Baby className="h-3.5 w-3.5 mr-1" /> ANC Visit
+                        </Button>
+                      )}
+                      
+                      {selectedPatient.birthDate && calculateAge(new Date(selectedPatient.birthDate)) < 5 && (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          className="w-full flex items-center justify-center bg-emerald-600 hover:bg-emerald-700 text-white"
+                          onClick={() => router.push(`/${hospitalName}/admin/patients/${selectedPatient.id}/immunizations/new`)}
+                        >
+                          <Shield className="h-3.5 w-3.5 mr-1" /> Immunization
+                        </Button>
+                      )}
+                      
+                      {!selectedPatient.active && (
+                        <Button
+                          variant="default"
+                          size="sm"
+                          className="w-full flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white"
+                          onClick={() => router.push(`/${hospitalName}/admin/patients/${selectedPatient.id}/reactivate`)}
+                        >
+                          <UserCheck className="h-3.5 w-3.5 mr-1" /> Reactivate Patient
+                        </Button>
+                      )}
                     </CardFooter>
                   </Card>
                 </TabsContent>
@@ -408,13 +511,12 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
         </div>
 
         <div className="flex items-center space-x-4">
-          {/* Search with PatientSearchWidget */}
+          {/* Patient Search Component */}
           <div className="w-64">
-            <PatientSearchWidget
-              onSelect={handlePatientSelection}
-              showCameraButton={true}
-              placeholder="Search patients..."
-              hospitalId={hospitalName}
+            <ConnectedPatientSearch 
+              onPatientSelect={handlePatientSelection}
+              showQrScanner={true}
+              searchPlaceholder="Search patients..."
               className="w-full"
             />
           </div>
@@ -545,6 +647,22 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
           </DropdownMenu>
         </div>
       </div>
+      
+      {/* Referral Dialog */}
+      {selectedPatient && (
+        <NewReferralDialog 
+          open={referralDialogOpen} 
+          setOpen={setReferralDialogOpen}
+          initialPatient={{
+            id: selectedPatient.id,
+            name: typeof selectedPatient.name === 'string' ? selectedPatient.name : 
+                  (selectedPatient.name?.[0]?.text || 
+                   [selectedPatient.name?.[0]?.family, ...(selectedPatient.name?.[0]?.given || [])].filter(Boolean).join(' ')),
+            medicalNumber: selectedPatient.medicalNumber,
+            photo: ""
+          }}
+        />
+      )}
     </header>
   )
 }

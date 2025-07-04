@@ -34,7 +34,7 @@ import { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm, Controller } from "react-hook-form"
 import { usePathname } from "next/navigation"
-import { PatientSearchWidget } from "@/components/patient-search-widget"
+import ConnectedPatientSearch from "@/components/widgets/ConnectedPatientSearch"
 
 const referralFormSchema = z.object({
   patient: z.object({
@@ -67,8 +67,23 @@ type Patient = {
   medicalNumber?: string;
 }
 
-export function NewReferralDialog() {
-  const [open, setOpen] = useState(false)
+interface NewReferralDialogProps {
+  open?: boolean;
+  setOpen?: (open: boolean) => void;
+  initialPatient?: {
+    id: string;
+    name: string;
+    medicalNumber?: string;
+    photo?: string;
+  };
+}
+
+export function NewReferralDialog({ open: externalOpen, setOpen: externalSetOpen, initialPatient }: NewReferralDialogProps = {}) {
+  const [internalOpen, setInternalOpen] = useState(false)
+  
+  // Use either external or internal state management
+  const open = externalOpen !== undefined ? externalOpen : internalOpen;
+  const setOpen = externalSetOpen || setInternalOpen;
   const pathname = usePathname()
   const hospitalName = pathname ? pathname.split('/')[1] : ''
   const [isPending, startTransition] = useTransition()
@@ -125,7 +140,12 @@ export function NewReferralDialog() {
   const form = useForm<ReferralFormValues>({
     resolver: zodResolver(referralFormSchema),
     defaultValues: {
-      patient: {
+      patient: initialPatient ? {
+        id: initialPatient.id,
+        name: initialPatient.name,
+        medicalNumber: initialPatient.medicalNumber || "",
+        photo: initialPatient.photo || ""
+      } : {
         id: "",
         name: "",
         medicalNumber: "",
@@ -213,9 +233,13 @@ export function NewReferralDialog() {
       </DialogTrigger>
       <DialogContent className="sm:max-w-[525px]">
         <DialogHeader>
-          <DialogTitle>Create New Referral</DialogTitle>
+          <DialogTitle>
+            {initialPatient ? `Refer Patient: ${initialPatient.name}` : 'Create New Referral'}
+          </DialogTitle>
           <DialogDescription>
-            Fill in the details to create a new patient referral.
+            {initialPatient 
+              ? `Complete the referral details for this patient.` 
+              : 'Fill in the details to create a new patient referral.'}
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -225,38 +249,55 @@ export function NewReferralDialog() {
               name="patient"
               render={({ field }) => (
                 <FormItem className="flex flex-col space-y-2">
-                  <FormLabel>Patient</FormLabel>
-                  <FormControl>
-                    <Controller
-                      control={form.control}
-                      name="patient"
-                      render={({ field: controllerField }) => (
-                        <PatientSearchWidget
-                          placeholder="Search by name, medical ID, or scan QR code"
-                          onSelect={(patient) => {
-                            console.log('Selected patient:', patient)
-                            controllerField.onChange({
-                              id: patient.id,
-                              name: patient.name,
-                              medicalNumber: patient.medicalNumber,
-                              photo: patient.photo
-                            })
-                          }}
-                          showCameraButton={true}
-                          hospitalId={currentHospital?.id}
-                          className="w-full"
-                        />
-                      )}
-                    />
-                  </FormControl>
+                  <FormLabel>Patient Information</FormLabel>
                   
-                  {/* Show selected patient details if available */}
-                  {field.value?.id && (
+                  {initialPatient ? (
+                    /* If patient is pre-selected from profile, show prominently with fixed styling */
+                    <div className="px-4 py-3 rounded-md bg-blue-50 border border-blue-200">
+                      <div className="font-medium text-blue-900 text-base">{initialPatient.name}</div>
+                      {initialPatient.medicalNumber && (
+                        <div className="text-sm text-blue-700 font-mono">
+                          Medical ID: <span className="font-semibold">{initialPatient.medicalNumber}</span>
+                          <span className="ml-1 text-xs">• permanent</span>
+                        </div>
+                      )}
+                      <div className="text-xs text-blue-600 mt-2">Patient selected from profile</div>
+                    </div>
+                  ) : (
+                    /* If no pre-selected patient, show search field */
+                    <FormControl>
+                      <Controller
+                        control={form.control}
+                        name="patient"
+                        render={({ field: controllerField }) => (
+                          <ConnectedPatientSearch
+                            searchPlaceholder="Search by name, medical ID, or scan QR code"
+                            onPatientSelect={(patient) => {
+                              console.log('Selected patient:', patient)
+                              controllerField.onChange({
+                                id: patient.id,
+                                name: `${patient.firstName} ${patient.lastName}`.trim(),
+                                medicalNumber: patient.mrn,
+                                photo: patient.photo
+                              })
+                            }}
+                            showQrScanner={true}
+                            className="w-full"
+                          />
+                        )}
+                      />
+                    </FormControl>
+                  )}
+                  
+                  {/* Show selected patient details when available and NOT from pre-selection */}
+                  {!initialPatient && field.value?.id && (
                     <div className="px-3 py-2 rounded-md bg-muted flex items-center">
                       <div className="flex-1">
                         <div className="font-medium">{field.value.name}</div>
                         {field.value.medicalNumber && (
-                          <div className="text-xs text-muted-foreground">Medical ID: {field.value.medicalNumber}</div>
+                          <div className="text-xs text-muted-foreground font-mono">
+                            Medical ID: <span className="font-semibold">{field.value.medicalNumber}</span>
+                          </div>
                         )}
                       </div>
                       <Button 
@@ -409,7 +450,7 @@ export function NewReferralDialog() {
             />
             <DialogFooter>
               <Button type="submit" disabled={isPending}>
-                {isPending ? "Creating..." : "Create Referral"}
+                {isPending ? "Creating..." : initialPatient ? "Complete Referral" : "Create Referral"}
               </Button>
             </DialogFooter>
           </form>

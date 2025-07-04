@@ -258,19 +258,20 @@ export async function POST(req: NextRequest) {
           branding: branding,
           updatedAt: new Date(),
           // Create the admin user for this hospital
-          User: {
+          Users: {
             create: [{
               email: body.admin_email,
               password: await bcryptjs.hash(adminPassword, 10),
               name: body.admin_name || 'Hospital Admin',
-              role: 'admin',
+              role: 'ADMIN',
+              isHospitalAdmin: true,
               updatedAt: new Date()
             }]
           }
         },
         // Include the created user in the response
         include: {
-          User: {
+          Users: {
             select: {
               id: true,
               email: true,
@@ -312,8 +313,8 @@ export async function POST(req: NextRequest) {
       created_at: newHospital.createdAt.toISOString(),
       updated_at: newHospital.updatedAt.toISOString(),
       logo: branding.logo,
-      // Access User relationship (may be undefined if relation not included)
-      admin_user: newHospital.User && newHospital.User.length > 0 ? newHospital.User[0] : null
+      // Access Users relationship (may be undefined if relation not included)
+      admin_user: newHospital.Users && newHospital.Users.length > 0 ? newHospital.Users[0] : null
     };
     
     console.log(`Hospital created: ${body.name} with subdomain ${body.subdomain} and UUID ${newHospital.id}`);
