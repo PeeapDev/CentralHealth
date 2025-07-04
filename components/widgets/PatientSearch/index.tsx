@@ -5,6 +5,7 @@ import { Dialog, DialogContent } from '@/components/ui/dialog';
 import StableQRScanner from '@/components/qr-scanner/stable-scanner';
 import { PatientData } from '@/services/patientService';
 import { Patient, PatientSearchProps } from './types';
+import { format, parseISO, isValid } from 'date-fns';
 import styles from './styles.module.css';
 
 /**
@@ -13,6 +14,83 @@ import styles from './styles.module.css';
  * A comprehensive patient search component with QR scanning capabilities
  * that follows the CentralHealth data handling guidelines.
  */
+// Helper functions for patient display
+const getPatientInitials = (patient: Patient): string => {
+  // Try to get initials from firstName and lastName
+  if (patient.firstName && patient.lastName) {
+    return `${patient.firstName.charAt(0)}${patient.lastName.charAt(0)}`;
+  }
+  
+  // Try from fullName or other name properties
+  const fullName = patient.fullName || patient._original?.fullName || 
+                  patient._original?.User?.name || 
+                  patient._original?.name;
+  
+  if (typeof fullName === 'string' && fullName) {
+    return fullName
+      .split(' ')
+      .map(n => n.charAt(0))
+      .join('')
+      .toUpperCase()
+      .substring(0, 2);
+  }
+  
+  // Last resort, use first letter of ID or a default
+  return patient.id.substring(0, 2).toUpperCase() || 'PT';
+};
+
+const getPatientDisplayName = (patient: Patient): string => {
+  // First try well-formed name fields
+  if (patient.firstName && patient.lastName) {
+    return `${patient.firstName} ${patient.lastName}`;
+  }
+  
+  // Then try various name properties in order of preference
+  if (patient.fullName) return patient.fullName;
+  if (patient._original?.fullName) return patient._original.fullName;
+  if (patient._original?.User?.name) return patient._original.User.name;
+  
+  // Handle FHIR name objects if present
+  const fhirName = patient._original?.name;
+  if (Array.isArray(fhirName) && fhirName[0]) {
+    if (fhirName[0].text) return fhirName[0].text;
+    
+    const parts = [];
+    if (fhirName[0].family) parts.push(fhirName[0].family);
+    if (Array.isArray(fhirName[0].given)) parts.push(...fhirName[0].given);
+    
+    if (parts.length > 0) {
+      return parts.join(' ');
+    }
+  } else if (typeof fhirName === 'string') {
+    return fhirName;
+  }
+  
+  // Last resort
+  return patient._original?.mrn || patient.mrn || 'Unknown Patient';
+};
+
+const getPatientMrn = (patient: Patient): string => {
+  // Try all possible MRN fields in order of preference
+  return patient.mrn || 
+         patient._original?.mrn || 
+         patient._original?.medicalNumber || 
+         patient.id || 
+         '';
+};
+
+const formatDateOfBirth = (dateString: string): string => {
+  try {
+    const date = parseISO(dateString);
+    if (isValid(date)) {
+      return format(date, 'dd MMM yyyy');
+    }
+  } catch (e) {
+    console.error('Error formatting date:', e);
+  }
+  return dateString;
+};
+
 export default function PatientSearch({
   onPatientSelect,
   fetchPatients,
@@ -351,12 +429,25 @@ export default function PatientSearch({
                 onClick={() => handlePatientSelect(patient)}
                 className={styles.resultButton}
               >
+                <div className={styles.patientAvatar}>
+                  {patient.photo || patient._original?.profilePicture?.imageUrl || patient._original?.User?.photo ? (
+                    <img 
+                      src={patient.photo || patient._original?.profilePicture?.imageUrl || patient._original?.User?.photo || ''} 
+                      alt="Patient"
+                      className={styles.avatarImage}
+                    />
+                  ) : (
+                    <div className={styles.avatarFallback}>
+                      {getPatientInitials(patient)}
+                    </div>
+                  )}
+                </div>
                 <div className={styles.patientInfo}>
                   <span className={styles.patientName}>
-                    {patient.firstName} {patient.lastName}
+                    {getPatientDisplayName(patient)}
                   </span>
                   <span className={styles.patientDetails}>
-                    {patient.mrn} &middot; {patient.sex} &middot; {patient.dateOfBirth}
+                    {getPatientMrn(patient)} {patient.sex ? `• ${patient.sex}` : ''} {patient.dateOfBirth ? `• ${formatDateOfBirth(patient.dateOfBirth)}` : ''}
                   </span>
                 </div>
               </button>

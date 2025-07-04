@@ -136,15 +136,51 @@
   border: none;
   cursor: pointer;
   transition: background-color 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .resultButton:hover {
   background-color: #f9fafb;
 }
 
+.patientAvatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #e5e7eb;
+  color: #4b5563;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.avatarImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatarFallback {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #3b82f6;
+  color: white;
+  font-weight: 500;
+}
+
 .patientInfo {
   display: flex;
   flex-direction: column;
+  flex: 1;
 }
 
 .patientName {

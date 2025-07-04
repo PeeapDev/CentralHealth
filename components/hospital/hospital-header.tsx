@@ -19,6 +19,8 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
 import { NewReferralDialog } from "@/components/new-referral-dialog"
+import { NewNeonatalDialog } from "@/components/new-neonatal-dialog"
+import { NewAntenatalDialog } from "@/components/new-antenatal-dialog"
 import { format } from "date-fns"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
@@ -128,6 +130,8 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
   const [recentMessages, setRecentMessages] = useState<any[]>([])
   const [selectedPatient, setSelectedPatient] = useState<FHIRPatient | null>(null);
   const [referralDialogOpen, setReferralDialogOpen] = useState(false)
+  const [neonatalDialogOpen, setNeonatalDialogOpen] = useState(false)
+  const [antenatalDialogOpen, setAntenatalDialogOpen] = useState(false)
   const refreshInterval = useRef<NodeJS.Timeout | null>(null)
   
   // Fetch recent messages and unread count
@@ -424,7 +428,15 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
                             No active medications
                           </p>
                         </div>
-                        
+                        <Button 
+                        variant="outline" 
+                        disabled={!selectedPatient}
+                        className="flex items-center bg-green-50 hover:bg-green-100 border-green-200"
+                        onClick={() => setAntenatalDialogOpen(true)}
+                      >
+                        <FileSpreadsheet className="h-4 w-4 mr-2" />
+                        Antenatal
+                      </Button>
                         <div className="space-y-2">
                           <h4 className="text-sm font-medium flex items-center gap-1">
                             <FileSpreadsheet className="h-4 w-4" /> Recent Lab Results
@@ -458,22 +470,6 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
                         variant="default" 
                         size="sm"
                         className="w-full flex items-center justify-center bg-purple-600 hover:bg-purple-700 text-white"
-                        onClick={() => router.push(`/${hospitalName}/admin/appointments/new?patientId=${selectedPatient.id}`)}
-                      >
-                        <Calendar className="h-3.5 w-3.5 mr-1" /> Schedule Appointment
-                      </Button>
-                      <Button 
-                        variant="default" 
-                        size="sm"
-                        className="w-full flex items-center justify-center bg-amber-600 hover:bg-amber-700 text-white"
-                        onClick={() => setReferralDialogOpen(true)}
-                      >
-                        <FolderOutput className="h-3.5 w-3.5 mr-1" /> Refer Patient
-                      </Button>
-                      <Button 
-                        variant="default" 
-                        size="sm"
-                        className="w-full flex items-center justify-center bg-cyan-600 hover:bg-cyan-700 text-white"
                         onClick={() => router.push(`/${hospitalName}/admin/patients/${selectedPatient.id}/vaccinations/new`)}
                       >
                         <Syringe className="h-3.5 w-3.5 mr-1" /> Record Vaccination
@@ -788,9 +784,41 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
           setOpen={setReferralDialogOpen}
           initialPatient={{
             id: selectedPatient.id,
-            name: typeof selectedPatient.name === 'string' ? selectedPatient.name : 
-                  (selectedPatient.name?.[0]?.text || 
-                   [selectedPatient.name?.[0]?.family, ...(selectedPatient.name?.[0]?.given || [])].filter(Boolean).join(' ')),
+            name: selectedPatient && typeof selectedPatient.name === 'string' ? selectedPatient.name : 
+                  (selectedPatient?.name?.[0]?.text || 
+                   [selectedPatient?.name?.[0]?.family, ...(selectedPatient?.name?.[0]?.given || [])].filter(Boolean).join(' ')),
+            medicalNumber: selectedPatient.medicalNumber,
+            photo: ""
+          }}
+        />
+      )}
+      
+      {/* Neonatal Dialog */}
+      {selectedPatient && (
+        <NewNeonatalDialog 
+          open={neonatalDialogOpen} 
+          setOpen={setNeonatalDialogOpen}
+          initialPatient={{
+            id: selectedPatient.id,
+            name: selectedPatient && typeof selectedPatient.name === 'string' ? selectedPatient.name : 
+                  (selectedPatient?.name?.[0]?.text || 
+                   [selectedPatient?.name?.[0]?.family, ...(selectedPatient?.name?.[0]?.given || [])].filter(Boolean).join(' ')),
+            medicalNumber: selectedPatient.medicalNumber,
+            photo: ""
+          }}
+        />
+      )}
+
+      {/* Antenatal Dialog */}
+      {selectedPatient && (
+        <NewAntenatalDialog 
+          open={antenatalDialogOpen} 
+          setOpen={setAntenatalDialogOpen}
+          initialPatient={{
+            id: selectedPatient.id,
+            name: selectedPatient && typeof selectedPatient.name === 'string' ? selectedPatient.name : 
+                  (selectedPatient?.name?.[0]?.text || 
+                   [selectedPatient?.name?.[0]?.family, ...(selectedPatient?.name?.[0]?.given || [])].filter(Boolean).join(' ')),
             medicalNumber: selectedPatient.medicalNumber,
             photo: ""
           }}
