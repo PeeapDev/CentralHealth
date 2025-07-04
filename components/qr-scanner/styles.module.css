@@ -1,0 +1,217 @@
+/* QR Scanner Styles */
+
+.wrapper {
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.container {
+  position: relative;
+  margin: 0 auto;
+  width: 100%;
+  height: 300px;
+  background: #f0f0f0;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Visible dashed border for the scanner */
+.withBorder {
+  border: 3px dashed #dc2626;
+}
+
+/* Styles for the scanner element that gets populated by html5-qrcode */
+.scannerElement {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative; /* Ensure relative positioning */
+}
+
+/* Override scanner styles to ensure our border is visible */
+.scannerElement video {
+  border-radius: 4px;
+  object-fit: cover;
+  width: 100% !important;
+  height: 100% !important;
+  position: absolute !important; /* Force absolute positioning */
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+}
+
+/* Override html5-qrcode styles to make scanner fill container */
+.container :global(div[class*="html5-qrcode-element"]),
+.container :global(#html5-qrcode-button-camera-permission),
+.container :global(#html5-qrcode-button-camera-start),
+.container :global(#html5-qrcode-button-camera-stop) {
+  width: 100% !important;
+  height: 100% !important;
+  position: relative !important;
+  margin: 0 !important;
+  top: auto !important;
+  left: auto !important;
+}
+
+.container :global(div[class*="html5-qrcode-scanner-region"]) {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
+  position: relative !important;
+}
+
+/* Force qrcode region to be contained */
+.container :global(#reader__scan_region) {
+  position: relative !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  top: 0 !important;
+  left: 0 !important;
+}
+
+/* Hide default library controls that could be floating outside container */
+.container :global(#reader__header_message),
+.container :global(#reader__dashboard_section_swaplink),
+.container :global(#reader__camera_selection) {
+  display: none !important;
+}
+
+/* Loading overlay with spinner */
+.overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.7);
+  z-index: 10;
+  border-radius: 8px;
+}
+
+/* Loading spinner */
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top: 4px solid #ffffff;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Status text */
+.statusText {
+  margin-top: 16px;
+  color: #ffffff;
+  font-size: 16px;
+  text-align: center;
+  padding: 0 20px;
+  max-width: 80%;
+}
+
+/* Error icon */
+.errorIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background-color: #dc2626;
+  color: #ffffff;
+  font-size: 24px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+/* Retry button */
+.retryButton {
+  margin-top: 16px;
+  padding: 8px 16px;
+  background-color: #ffffff;
+  color: #000000;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.retryButton:hover {
+  background-color: #f0f0f0;
+}
+
+/* Close button */
+.closeButton {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background-color: rgba(0, 0, 0, 0.5);
+  color: #ffffff;
+  border: none;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+  transition: background-color 0.2s;
+}
+
+.closeButton:hover {
+  background-color: rgba(0, 0, 0, 0.8);
+}
+
+/* Camera toggle button */
+.cameraToggle {
+  margin-top: 16px;
+  padding: 8px 16px;
+  background-color: #2563eb;
+  color: #ffffff;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.cameraToggle:hover {
+  background-color: #1d4ed8;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+  .container {
+    height: 250px;
+  }
+  
+  .statusText {
+    font-size: 14px;
+  }
+  
+  .closeButton {
+    width: 24px;
+    height: 24px;
+    font-size: 14px;
+  }
+}

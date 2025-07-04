@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getUserEmail, getPatientId } from '../utils/session-utils';
-import { redirect } from 'next/navigation';
+import { MedicalIDGenerator, MedicalIDFormatter, MedicalIDValidator } from '../utils/medical-id';
 
 // Constants
 const CACHE_TTL = 30 * 60 * 1000; // 30 minutes cache TTL
@@ -58,8 +58,7 @@ export function clearPatientData(): void {
       localStorage.removeItem('refreshToken');
       localStorage.removeItem('PROFILE_CACHE');
       localStorage.removeItem('AUTH_EXPIRY');
-      localStorage.removeItem('mrn');
-      localStorage.removeItem('medicalNumber');
+      // No longer storing medical IDs in localStorage per CentralHealth policy
       
       // Also clear any cached profile photos
       const keys = Object.keys(localStorage);
@@ -158,12 +157,21 @@ async function fetchPatientProfile(
     const queryString = queryParams.toString();
     
     // Use proper fetch error handling
-    const response = await fetch(`/api/patients/profile?${queryString}`);
+    const response = await fetch(`/api/patients/profile?${queryString}`, {
+      // Add cache control to prevent stale responses
+      cache: 'no-store',
+      headers: {
+        'Cache-Control': 'no-cache',
+      }
+    });
     
     if (!response.ok) {
       if (response.status === 401 || response.status === 403) {
         clearPatientData();
-        redirect('/login');
+        // Handle authentication failure without redirect in the API function
+        // Return null instead of redirecting, let the component handle navigation
+        console.log('Authentication failed, cleared patient data');
+        return null;
       }
       throw new Error(`API error: ${response.status} ${response.statusText}`);
     }
@@ -216,10 +224,17 @@ async function fetchPatientProfile(
       }
     }
     
-    // Store permanent medical IDs in localStorage
+    // Validate medical ID format (but never regenerate for existing patients)
     if (data.mrn) {
-      safeLocalStorage('set', 'mrn', data.mrn);
-      safeLocalStorage('set', 'medicalNumber', data.mrn);
+      const isValidFormat = MedicalIDValidator.validate(data.mrn);
+      if (!isValidFormat) {
+        console.warn(`[MEDICAL ID WARNING] Patient has non-compliant medical ID format: ${maskIdentifier(data.mrn)}`);
+        // Log detailed validation issues for troubleshooting
+        const validationDetails = MedicalIDValidator.validateWithDetails(data.mrn);
+        if (validationDetails.reasons) {
+          console.warn(`[MEDICAL ID VALIDATION] Reasons for non-compliance:`, validationDetails.reasons);
+        }
+      }
     }
     
     // Log full profile data for debugging
@@ -306,6 +321,7 @@ export function usePatientProfile(options: {
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string>(DEFAULT_AVATAR);
   const [isProfilePhotoLoading, setIsProfilePhotoLoading] = useState(false);
   const [qrCodeValue, setQRCodeValue] = useState<string>('');
+  const [authFailed, setAuthFailed] = useState<boolean>(false);
   
   // Refs to prevent re-entry and duplicate fetches
   const isRefreshingRef = useRef<boolean>(false);
@@ -317,39 +333,43 @@ export function usePatientProfile(options: {
     isRefreshingRef.current = true;
     setIsLoading(true);
     setError('');
+    setAuthFailed(false);
 
     try {
-      const email = getUserEmail();
-      const patientId = getPatientId();
-      const mrn = safeLocalStorage('get', 'mrn') || safeLocalStorage('get', 'medicalNumber');
-      const cacheKey = getCacheKey(mrn, patientId, email);
-
-      // Cache check (in-memory and localStorage)
-      if (!isForced && !skipCache) {
-        const inMemoryCache = globalProfileCache[cacheKey];
-        if (inMemoryCache && (Date.now() - inMemoryCache.timestamp < CACHE_TTL)) {
-          setProfile(inMemoryCache.profile);
-          setIsLoading(false);
-          setIsLoaded(true);
-          isRefreshingRef.current = false;
-          return;
-        }
+      let cachedProfile: PatientProfile | null = null;
+      
+      // Check memory cache if we should be using cached data
+      if (!skipCache && !forceRefresh) {
+        const patientId = getPatientId();
+        const email = getUserEmail();
         
-        const localStorageCacheData = safeLocalStorage('get', PROFILE_CACHE_KEY);
-        const localStorageCache = safeJsonParse<Record<string, ProfileCacheEntry>>(localStorageCacheData, {});
-        const localStorageEntry = localStorageCache[cacheKey];
-        if (localStorageEntry && (Date.now() - localStorageEntry.timestamp < CACHE_TTL)) {
-          setProfile(localStorageEntry.profile);
-          globalProfileCache[cacheKey] = localStorageEntry; // Promote to memory cache
-          setIsLoading(false);
-          setIsLoaded(true);
-          isRefreshingRef.current = false;
-          return;
+        if (patientId || email) {
+          const cacheKey = getCacheKey(null, patientId, email);
+          
+          // Try memory cache
+          const memoryCacheEntry = globalProfileCache[cacheKey];
+          if (memoryCacheEntry && (Date.now() - memoryCacheEntry.timestamp < CACHE_TTL)) {
+            setProfile(memoryCacheEntry.profile);
+            setIsLoaded(true);
+            isRefreshingRef.current = false;
+            return;
+          }
         }
       }
 
       // API Fetch
+      const email = getUserEmail();
+      const patientId = getPatientId();
+      const mrn = null; // Removed localStorage reference
       const fetchedProfile = await fetchPatientProfile(email, patientId, mrn);
+      
+      if (fetchedProfile === null) {
+        // Authentication failed and user data was cleared
+        setAuthFailed(true);
+        setError('Authentication failed. Please log in again.');
+        return;
+      }
+      
       if (fetchedProfile) {
         // Ensure both MRN fields are consistent (required by CentralHealth policy)
         if (fetchedProfile.mrn) {
@@ -384,16 +404,23 @@ export function usePatientProfile(options: {
     console.log('Manual profile refresh requested');
     // Clear in-memory cache to force fresh fetch
     globalProfileCache = {};
-    // Clear localStorage cache to ensure we get fresh data
-    safeLocalStorage('remove', PROFILE_CACHE_KEY);
-    
-    // Clear photo cache
+    // Clear any cached profile data but never remove the actual medical ID
+    // The ID stays in the database and profile object only
     if (profile?.mrn) {
       safeLocalStorage('remove', `${PHOTO_CACHE_PREFIX}${profile.mrn}`);
     }
     
     await loadPatientProfile(true);
   }, [loadPatientProfile, profile]);
+
+  // Effect to handle authentication failures by redirecting to login
+  useEffect(() => {
+    if (authFailed) {
+      console.log('Authentication failed, redirecting to login page...');
+      // Use window.location for a clean redirect without header issues
+      window.location.href = '/login';
+    }
+  }, [authFailed]);
 
   // Effect to load the main profile on mount or when forced
   useEffect(() => {

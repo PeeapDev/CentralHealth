@@ -1,0 +1,450 @@
+"use client";
+
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Html5Qrcode } from 'html5-qrcode';
+import { QrScannerProps, QrScannerStatus } from './types';
+import styles from './styles.module.css';
+
+// Global state management for scanner instances to prevent conflicts
+declare global {
+  interface Window {
+    _qrScannerState?: {
+      activeId: string | null;
+      status: 'idle' | 'active' | 'error';
+      timestamp: number;
+    };
+  }
+}
+
+/**
+ * QR Scanner Component
+ * 
+ * A comprehensive QR scanner implementation with robust error handling,
+ * camera lifecycle management, and visual feedback.
+ */
+export default function QrScanner({
+  onScanSuccess,
+  onScanError,
+  onMount,
+  width = '100%',
+  height = '300px',
+  showBorder = true,
+  preferredCamera = 'environment',
+  scanConfig = {
+    fps: 10,
+    qrbox: { width: 250, height: 250 },
+    disableFlash: false
+  }
+}: QrScannerProps) {
+  // Unique instance ID to prevent conflicts between multiple scanner instances
+  const instanceId = useRef(`qr-scanner-${Math.random().toString(36).substring(2, 11)}`);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const mountedRef = useRef(false);
+  const cameraIdRef = useRef<string | null>(null);
+  
+  // Scanner state
+  const [status, setStatus] = useState<QrScannerStatus>('idle');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [availableCameras, setAvailableCameras] = useState<Array<{id: string, label: string}>>([]);
+  
+  // Clean up all video elements and media tracks
+  const cleanupVideoElements = useCallback(async () => {
+    console.log('[QR] Cleaning up video elements...');
+    try {
+      const videos = document.querySelectorAll('video');
+      for (const video of videos) {
+        if (video.srcObject) {
+          const mediaStream = video.srcObject as MediaStream;
+          const tracks = mediaStream.getTracks();
+          
+          tracks.forEach(track => {
+            console.log(`[QR] Stopping track: ${track.kind}/${track.label}`);
+            track.stop();
+          });
+          
+          // Clean up the video element
+          video.srcObject = null;
+          video.remove();
+        }
+      }
+    } catch (err) {
+      console.warn('[QR] Error during video cleanup:', err);
+    }
+  }, []);
+  
+  // Stop the scanner and release resources
+  const stopScanner = useCallback(async (): Promise<void> => {
+    if (status === 'idle') {
+      console.log('[QR] Scanner already idle, nothing to stop');
+      return Promise.resolve();
+    }
+    
+    try {
+      console.log('[QR] Stopping scanner...');
+      setStatus('idle');
+      
+      if (scannerRef.current) {
+        // Set a timeout in case the stop operation hangs
+        const stopPromise = scannerRef.current.stop();
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Stop timeout')), 3000);
+        });
+        
+        await Promise.race([stopPromise, timeoutPromise])
+          .catch(err => console.warn('[QR] Stop operation timed out or failed:', err));
+        
+        // Small delay to ensure everything is cleaned up properly
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      // Clean up video elements regardless of whether the scanner stop succeeded
+      await cleanupVideoElements();
+      
+      // Clear global state if this is the active scanner
+      if (window._qrScannerState?.activeId === instanceId.current) {
+        window._qrScannerState = {
+          activeId: null,
+          status: 'idle',
+          timestamp: Date.now()
+        };
+      }
+      
+      console.log('[QR] Scanner stopped successfully');
+      return Promise.resolve();
+    } catch (err) {
+      console.error('[QR] Error in stopScanner:', err);
+      return Promise.resolve();
+    }
+  }, [status, cleanupVideoElements]);
+  
+  // Detect available cameras
+  const detectCameras = useCallback(async () => {
+    try {
+      console.log('[QR] Detecting available cameras...');
+      const devices = await Html5Qrcode.getCameras();
+      console.log('[QR] Available cameras:', devices);
+      setAvailableCameras(devices);
+      
+      if (devices.length > 0) {
+        let selectedCamera = devices[0].id; // Default to first camera
+        
+        // Try to find the preferred camera type
+        if (devices.length > 1) {
+          const frontCamera = devices.find(d => 
+            d.label.toLowerCase().includes('front') || 
+            d.label.toLowerCase().includes('user')
+          );
+          
+          const backCamera = devices.find(d => 
+            d.label.toLowerCase().includes('back') || 
+            d.label.toLowerCase().includes('environment')
+          );
+          
+          if (preferredCamera === 'user' && frontCamera) {
+            selectedCamera = frontCamera.id;
+          } else if (preferredCamera === 'environment' && backCamera) {
+            selectedCamera = backCamera.id;
+          }
+        }
+        
+        cameraIdRef.current = selectedCamera;
+        return selectedCamera;
+      }
+      
+      throw new Error('No cameras detected');
+    } catch (err) {
+      console.error('[QR] Error detecting cameras:', err);
+      if (onScanError) onScanError('Camera detection failed');
+      setErrorMessage('Failed to detect cameras');
+      setStatus('error');
+      return null;
+    }
+  }, [preferredCamera, onScanError]);
+  
+  // Initialize and start the scanner
+  const startScanner = useCallback(async () => {
+    // Make sure we're not already starting or active
+    if (!mountedRef.current || status === 'active' || status === 'initializing') {
+      console.log(`[QR] Cannot start scanner, state: ${status}, mounted: ${mountedRef.current}`);
+      return;
+    }
+    
+    // Force cleanup any lingering video elements before starting
+    await cleanupVideoElements();
+    
+    // Check if another scanner is active
+    if (
+      window._qrScannerState?.activeId && 
+      window._qrScannerState.activeId !== instanceId.current && 
+      Date.now() - window._qrScannerState.timestamp < 5000
+    ) {
+      console.warn('[QR] Another scanner is already active');
+      setErrorMessage('Another scanner is already active');
+      setStatus('error');
+      return;
+    }
+    
+    try {
+      setStatus('initializing');
+      setErrorMessage(null);
+      
+      // Register as the active scanner
+      window._qrScannerState = {
+        activeId: instanceId.current,
+        status: 'active',
+        timestamp: Date.now()
+      };
+      
+      // Ensure the container element exists
+      if (!containerRef.current) {
+        throw new Error('Scanner container not found');
+      }
+      
+      // Create scanner element if needed
+      let scannerElement = document.getElementById(instanceId.current);
+      if (!scannerElement) {
+        console.log('[QR] Creating scanner element');
+        scannerElement = document.createElement('div');
+        scannerElement.id = instanceId.current;
+        scannerElement.className = styles.scannerElement;
+        containerRef.current.appendChild(scannerElement);
+      }
+      
+      // Clean up any existing scanner instance first
+      if (scannerRef.current) {
+        try {
+          await scannerRef.current.stop();
+        } catch (err) {
+          console.warn('[QR] Error stopping existing scanner:', err);
+        }
+      }
+      
+      // Create scanner instance
+      const scanner = new Html5Qrcode(instanceId.current, { verbose: false });
+      scannerRef.current = scanner;
+      
+      // Get camera ID (detect if not already set)
+      const cameraId = cameraIdRef.current || await detectCameras();
+      if (!cameraId) {
+        throw new Error('No camera available');
+      }
+      
+      // Configure scanner
+      const config = {
+        fps: scanConfig.fps || 10,
+        qrbox: scanConfig.qrbox || { width: 250, height: 250 },
+        disableFlash: scanConfig.disableFlash || false
+      };
+      
+      // Start scanner with timeout protection
+      console.log(`[QR] Starting camera with ID: ${cameraId}`);
+      const startPromise = scanner.start(
+        cameraId, 
+        config,
+        (decodedText) => {
+          console.log('[QR] QR code detected:', decodedText);
+          setStatus('success');
+          onScanSuccess(decodedText);
+        },
+        (errorMessage) => {
+          // Filter out normal scanning messages
+          if (!errorMessage.includes('QR code not found') && 
+              !errorMessage.includes('No QR code found')) {
+            console.warn('[QR] Scanning error:', errorMessage);
+            if (onScanError) onScanError(errorMessage);
+          }
+        }
+      );
+      
+      // Set timeout for camera start
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Camera start timeout')), 10000);
+      });
+      
+      // Race the start operation against timeout
+      await Promise.race([startPromise, timeoutPromise]);
+      
+      // Add a small delay to allow camera to stabilize
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      console.log('[QR] Camera started successfully');
+      setStatus('active');
+    } catch (err) {
+      console.error('[QR] Error starting scanner:', err);
+      
+      setStatus('error');
+      setErrorMessage(
+        err instanceof Error 
+          ? err.message === 'Camera start timeout'
+            ? 'Camera start timed out. Please check permissions and try again.'
+            : `Failed to start camera: ${err.message}`
+          : 'Unknown error starting scanner'
+      );
+      
+      if (onScanError) {
+        onScanError(err instanceof Error ? err.message : 'Unknown error');
+      }
+      
+      // Clean up after error
+      await cleanupVideoElements();
+      
+      if (window._qrScannerState?.activeId === instanceId.current) {
+        window._qrScannerState = {
+          activeId: null,
+          status: 'error',
+          timestamp: Date.now()
+        };
+      }
+    }
+  }, [
+    status, 
+    detectCameras, 
+    onScanSuccess, 
+    onScanError, 
+    scanConfig, 
+    cleanupVideoElements
+  ]);
+  
+  // Toggle between front and back camera
+  const toggleCamera = useCallback(async () => {
+    if (status === 'initializing' || availableCameras.length < 2) {
+      return;
+    }
+    
+    try {
+      await stopScanner();
+      
+      const currentCameraId = cameraIdRef.current;
+      if (!currentCameraId) return;
+      
+      // Find current camera
+      const currentCamera = availableCameras.find(cam => cam.id === currentCameraId);
+      if (!currentCamera) return;
+      
+      // Check if current camera is front or back
+      const isFrontCamera = 
+        currentCamera.label.toLowerCase().includes('front') || 
+        currentCamera.label.toLowerCase().includes('user');
+      
+      // Find the opposite camera type
+      const newCamera = availableCameras.find(cam => {
+        const isCamFront = 
+          cam.label.toLowerCase().includes('front') || 
+          cam.label.toLowerCase().includes('user');
+        return isCamFront !== isFrontCamera;
+      });
+      
+      if (newCamera) {
+        console.log(`[QR] Switching camera: ${currentCamera.label} → ${newCamera.label}`);
+        cameraIdRef.current = newCamera.id;
+      }
+      
+      // Delay to ensure clean transition between cameras
+      setTimeout(startScanner, 500);
+    } catch (err) {
+      console.error('[QR] Error toggling camera:', err);
+      setErrorMessage('Failed to switch camera');
+    }
+  }, [status, availableCameras, stopScanner, startScanner]);
+  
+  // Initialize scanner on component mount
+  useEffect(() => {
+    mountedRef.current = true;
+    
+    // Register stop function through onMount callback
+    if (onMount) {
+      onMount(stopScanner);
+    }
+    
+    // Delay scanner initialization slightly to ensure DOM is ready
+    const initTimer = setTimeout(() => {
+      if (mountedRef.current) {
+      
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+      
+  return () => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+  };
+}, [status, startScanner, stopScanner]);
+        element.remove();
+      }
+    };
+  }, [startScanner, stopScanner, onMount]);
+  
+  // Handle page visibility changes
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      // Skip if component is no longer mounted
+      if (!mountedRef.current) return;
+      
+      if (document.visibilityState === 'hidden' && status === 'active') {
+        console.log('[QR] Page hidden, pausing scanner');
+        stopScanner();
+      } else if (document.visibilityState === 'visible' && status === 'idle') {
+        console.log('[QR] Page visible, resuming scanner');
+        // Slight delay to ensure clean restart
+        setTimeout(startScanner, 500);
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [status, startScanner, stopScanner]);
+  
+  return (
+    <div 
+      className={styles.wrapper}
+      data-testid="qr-scanner"
+      data-scanner-status={status}
+    >
+      <div 
+        ref={containerRef}
+        className={`${styles.container} ${showBorder ? styles.withBorder : ''}`}
+        style={{ width, height }}
+      >
+        {/* Scanner element will be rendered here */}
+        
+        {/* Loading indicator */}
+        {status === 'initializing' && (
+          <div className={styles.overlay}>
+            <div className={styles.spinner}></div>
+            <p className={styles.statusText}>Starting camera...</p>
+          </div>
+        )}
+        
+        {/* Error message */}
+        {status === 'error' && (
+          <div className={styles.overlay}>
+            <div className={styles.errorBox}>
+              <p className={styles.errorMessage}>{errorMessage || 'Scanner error'}</p>
+              <button 
+                className={styles.actionButton}
+                onClick={() => startScanner()}
+              >
+                Retry
+              </button>
+            </div>
+          </div>
+        )}
+        
+        {/* Camera toggle button (only shown when multiple cameras available) */}
+        {status === 'active' && availableCameras.length > 1 && (
+          <button 
+            className={styles.toggleButton}
+            onClick={toggleCamera}
+            aria-label="Toggle camera"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+              <circle cx="12" cy="13" r="4"></circle>
+            </svg>
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}

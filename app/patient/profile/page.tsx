@@ -1,7 +1,8 @@
 "use client"
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter, useSearchParams } from "next/navigation"
+import { MedicalIDGenerator, MedicalIDFormatter } from "@/utils/medical-id"
 import { ChevronRight, Heart, User, FileText, Phone, Mail, MapPin, Calendar, AlertCircle, Activity, Clock } from "lucide-react"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -23,8 +24,13 @@ export default function PatientProfilePage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const notification = searchParams?.get('notification')
-  const [currentPage, setCurrentPage] = useState("profile")
-  const [isOverview, setIsOverview] = useState(false) 
+  const currentPage = searchParams?.get('section') || 'profile';
+  const isOverview = currentPage === 'overview';
+  
+  // Function to handle navigation between different profile sections
+  const handleNavigation = useCallback((page: string) => {
+    router.push(`/patient/profile?section=${page}`)
+  }, [router])
   const [showSessionWarning, setShowSessionWarning] = useState(notification === 'session_warning')
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null)
   
@@ -105,14 +111,13 @@ export default function PatientProfilePage() {
     // Check for any valid authentication token per CentralHealth standards
     const hasToken = !!localStorage.getItem('authToken');
     const hasSession = !!localStorage.getItem('patient_session');
-    const hasMedicalNumber = !!localStorage.getItem('medicalNumber');
     const hasPatientId = !!localStorage.getItem('patientId');
     
     // Security audit logging
-    console.log(`🔒 Authentication check: Token=${hasToken}, Session=${hasSession}, MRN=${hasMedicalNumber}, ID=${hasPatientId}`);
+    console.log(`🔒 Authentication check: Token=${hasToken}, Session=${hasSession}, ID=${hasPatientId}`);
     
     // Verify authentication according to CentralHealth security standards
-    if (!hasToken && !hasSession && !hasMedicalNumber && !hasPatientId) {
+    if (!hasToken && !hasSession && !hasPatientId) {
       console.log('⛔ SECURITY ALERT: Unauthorized profile access attempt');
       
       // Redirect to login page with return URL

@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { isValidMedicalID } from './utils/medical-id';
+import { MedicalIDValidator } from './utils/medical-id';
 
 // SECURITY ENFORCEMENT - Per CentralHealth System Requirements
 const ENFORCE_STRICT_AUTH = true; // This must ALWAYS be true in production
@@ -100,8 +100,8 @@ export async function middleware(request: NextRequest) {
         
         // Ensure we have a valid medical ID according to CentralHealth standards
         // Either medicalId or mrn must be present and valid
-        const hasMedicalId = session.medicalId && isValidMedicalID(session.medicalId);
-        const hasMRN = session.mrn && isValidMedicalID(session.mrn);
+        const hasMedicalId = session.medicalId && MedicalIDValidator.validate(session.medicalId);
+        const hasMRN = session.mrn && MedicalIDValidator.validate(session.mrn);
         
         if (!hasMedicalId && !hasMRN) {
           console.log('⚠️ SECURITY VIOLATION: Invalid medical ID in session');

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { usePatientProfile } from "@/hooks/use-patient-profile"
+import { MedicalIDFormatter } from "@/utils/medical-id"
 
 interface ProfileInfoProps {
   profileData?: {
@@ -31,7 +32,7 @@ export function ProfileInfo({ profileData }: ProfileInfoProps) {
     // Clear any stale data from localStorage first to fix caching issues
     const clearStaleCache = () => {
       // Keep a list of current valid medical IDs to prevent showing deleted patients
-      const currentMedicalId = profile?.medicalNumber || profileData?.medicalNumber || localStorage.getItem('medicalNumber');
+      const currentMedicalId = profile?.medicalNumber || profileData?.medicalNumber;
       
       // Only clear if we have a current medical ID to prevent data loss
       if (currentMedicalId) {
@@ -50,11 +51,15 @@ export function ProfileInfo({ profileData }: ProfileInfoProps) {
     
     // PRIORITY 1: Use fresh API data if available
     if (profile) {
-      // Set patient name from API
-      if (profile.name) {
-        setPatientName(profile.name);
-        setInitials(getInitials(profile.name));
-        localStorage.setItem('currentPatientName', profile.name);
+      // Set patient name from API - combine first and last name
+      const fullName = profile.firstName && profile.lastName ? 
+        `${profile.firstName} ${profile.lastName}` : 
+        profile.firstName || profile.lastName || '';
+        
+      if (fullName) {
+        setPatientName(fullName);
+        setInitials(getInitials(fullName));
+        localStorage.setItem('currentPatientName', fullName);
       }
       
       // Set medical number from API
@@ -63,17 +68,16 @@ export function ProfileInfo({ profileData }: ProfileInfoProps) {
         localStorage.setItem('medicalNumber', profile.medicalNumber);
       }
       
-      // Set profile image from API
-      if (profile.photo) {
-        setProfileImage(profile.photo);
-        // Update localStorage for consistency
-        localStorage.setItem('patientProfilePhoto', profile.photo);
-        localStorage.setItem('photo', profile.photo);
-        localStorage.setItem('userPhoto', profile.photo);
-      } else if (profile.qrCode) {
-        // If there's no photo but we have a QR code, the patient is verified
-        // We should check for a photo in props or localStorage
-        handleBackupPhotoSources();
+      // PatientProfile doesn't have photo field - check API response or load default
+      // Attempt to load photo using fetchProfilePhotoUrl in the parent component
+      if (profile.medicalNumber) {
+        // Try to use profile image from localStorage as fallback
+        const storedPhoto = localStorage.getItem('patientProfilePhoto');
+        if (storedPhoto) {
+          setProfileImage(storedPhoto);
+        } else {
+          handleBackupPhotoSources();
+        }
       }
       
       return; // Skip other sources if API data is available
@@ -170,10 +174,7 @@ export function ProfileInfo({ profileData }: ProfileInfoProps) {
       }
       
       // Medical ID
-      const storedMedicalNumber = localStorage.getItem('medicalNumber');
-      if (storedMedicalNumber) {
-        setMedicalNumber(storedMedicalNumber);
-      }
+      const patientMedicalId = profile?.medicalNumber;
       
       // Patient ID
       const storedPatientId = localStorage.getItem('patientId');

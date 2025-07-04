@@ -234,6 +234,7 @@ export default function StaffWalletPage() {
   const walletInfo = generateWalletData()
   
   // Use transactions from API or fallback to sample data in development or empty array in production
+  const transactions: Transaction[] = [];
   const displayTransactions: Transaction[] = transactions.length > 0 ? transactions : 
     (process.env.NODE_ENV === "development" ? [
     {

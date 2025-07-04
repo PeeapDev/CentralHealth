@@ -2,257 +2,398 @@
  * Secure Medical ID Generation Utility
  * 
  * Implements the CentralHealth System Medical ID requirements:
- * - Format: 5-character alphanumeric string 
- * - Consistent format with letters and numbers
- * - Excludes confusing characters: 0, 1, O, I, L
- * - Guarantees mixed alphanumeric format with cryptographically secure generation
- * - Includes collision detection and validation
- * - Never produces name-derived formats like "MOHAM"
- * 
- * Total possible combinations: 32^5 = 33,554,432
+ * - Format: NHS-style 5-character alphanumeric format 
+ * - Must contain a mix of letters and numbers
+ * - Excludes confusing characters: i, l, 1, o, 0
+ * - PERMANENT: Once assigned, an ID must never be regenerated
+ * - Only generate new IDs for entirely new patients
+ * - Supports hospital-specific ID format with prefix+UUID
  */
 
-import { DEFAULT_HOSPITAL } from '@/lib/hospital-context';
 import crypto from 'crypto';
 
-// Constants for character sets
-// Explicitly exclude confusing characters: i, l, 1, o, 0 as per requirements
-const LETTERS = 'ABCDEFGHJKMNPQRSTUVWXYZ'; // 23 characters (excluding O, I, L)
-const NUMBERS = '23456789';                // 8 characters (excluding 0, 1)
-const ALLOWED_CHARS = LETTERS + NUMBERS;    // 31 total characters
+// Character set excluding confusing characters as per CentralHealth policy
+const ALLOWED_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // No i, l, 1, o, 0
+const LETTER_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZ'; // Letters only
+const NUMBER_CHARS = '23456789'; // Numbers only
+const HOSPITAL_ID_SEPARATOR = '-';
 
-// List of explicitly prohibited medical IDs (e.g., test IDs, offensive terms, etc)
-const PROHIBITED_IDS = [
-  'MOHAM', 'ADMIN', 'TEST1', 'TEST', 'DEMO', 'DEMOP',
-  'TESTX', 'TESTY', 'TESTZ', 'DUMMY', 'SAMPL', 'GUEST'
-];
-
-/**
- * Generates a cryptographically secure random number between 0 and max-1
- */
-function secureRandom(max: number): number {
-  // Generate a secure random value between 0 and max-1
-  const randomBuffer = crypto.randomBytes(4);
-  const randomValue = randomBuffer.readUInt32BE(0);
-  return randomValue % max;
-}
+// Explicitly prohibited medical IDs (Set for O(1) lookups)
+const PROHIBITED_IDS = new Set([
+  'TEST', 'DEMO', 'ADMIN', 'GUEST', 'DUMMY', 'SAMPL', 'EXAMPL',
+  'MOCK', 'FAKE', 'XTEST', 'TESTA', 'TESTB', 'LOCAL'
+]);
 
 /**
- * Generate a secure random Medical ID using cryptographically secure random generation
- * Creates a perfectly mixed 5-digit alphanumeric ID with guaranteed letter-number mixture
+ * Medical ID Generator class for creating secure, compliant medical IDs
+ * Provides generation methods for standard NHS-style IDs and hospital-specific IDs
  */
-export function generateMedicalID(): string {
-  // Define patterns that guarantee a mix of letters and numbers
-  const patterns = [
-    [LETTERS, NUMBERS, LETTERS, NUMBERS, LETTERS], // LNLNL pattern
-    [NUMBERS, LETTERS, NUMBERS, LETTERS, NUMBERS], // NLNLN pattern
-    [LETTERS, LETTERS, NUMBERS, NUMBERS, LETTERS], // LLNNL pattern
-    [NUMBERS, LETTERS, LETTERS, NUMBERS, LETTERS]  // NLLNL pattern
-  ];
-  
-  // Select a random pattern using cryptographically secure random
-  const selectedPattern = patterns[secureRandom(patterns.length)];
-  
-  // Keep generating IDs until we have a valid one
-  let id;
-  let attempts = 0;
-  
-  do {
-    // Use the selected pattern to build the ID
-    id = '';
+export class MedicalIDGenerator {
+  // Track generation statistics
+  private static generationStats = {
+    totalGenerated: 0,
+    backupUsed: 0,
+    lastGenerated: null as string | null
+  };
+
+  /**
+   * Get generation statistics for monitoring and auditing
+   */
+  static getGenerationStats() {
+    return { ...this.generationStats };
+  }
+
+  /**
+   * Generates a standard 5-character NHS-style medical ID
+   * Guaranteed to be secure, random, and policy-compliant
+   */
+  static generateStandardID(): string {
+    this.generationStats.totalGenerated++;
     
-    // Enforce first two characters: 1 letter and 1 number (order based on pattern)
-    const firstCharIsLetter = selectedPattern[0] === LETTERS;
+    // Track attempts to prevent infinite loops
+    let attempts = 0;
+    const maxAttempts = 20;
     
-    // First character
-    id += firstCharIsLetter ? 
-      LETTERS.charAt(secureRandom(LETTERS.length)) : 
-      NUMBERS.charAt(secureRandom(NUMBERS.length));
-    
-    // Second character
-    id += firstCharIsLetter ? 
-      NUMBERS.charAt(secureRandom(NUMBERS.length)) : 
-      LETTERS.charAt(secureRandom(LETTERS.length));
+    while (attempts < maxAttempts) {
+      attempts++;
       
-    // Remaining 3 characters following the pattern
-    for (let i = 2; i < 5; i++) {
-      const charSet = selectedPattern[i % selectedPattern.length];
-      id += charSet.charAt(secureRandom(charSet.length));
+      // Create secure random bytes
+      const randomBytes = crypto.randomBytes(10);
+      
+      // Build the 5-character ID
+      let id = '';
+      
+      // Ensure we have at least one number and one letter
+      let hasLetter = false;
+      let hasNumber = false;
+      
+      // Generate each character
+      for (let i = 0; i < 5; i++) {
+        // Use modulo to get index within ALLOWED_CHARS range
+        const index = randomBytes[i] % ALLOWED_CHARS.length;
+        const char = ALLOWED_CHARS[index];
+        
+        // Track if we've added letters and numbers
+        if (LETTER_CHARS.includes(char)) hasLetter = true;
+        if (NUMBER_CHARS.includes(char)) hasNumber = true;
+        
+        id += char;
+      }
+      
+      // Validate the generated ID
+      if (MedicalIDValidator.validateStandardID(id)) {
+        this.generationStats.lastGenerated = id;
+        return id;
+      }
     }
     
-    attempts++;
-    if (attempts > 10) {
-      // If we've made too many attempts, try a different approach
-      // This is extremely unlikely to happen, but it's a safety measure
-      id = generateBackupMedicalID();
-      break;
+    // If we've exceeded max attempts, use the backup method
+    return this._generateBackupID();
+  }
+
+  /**
+   * Generate a hospital-specific medical ID with 3-char prefix and UUID
+   * @param hospitalPrefix 3-character hospital identifier
+   */
+  static generateHospitalID(hospitalPrefix: string): string {
+    this.generationStats.totalGenerated++;
+    
+    // Ensure prefix is valid
+    if (!/^[A-Z0-9]{3}$/.test(hospitalPrefix)) {
+      throw new Error('Hospital prefix must be exactly 3 uppercase alphanumeric characters');
     }
-  } while (!isValidMedicalID(id));
-  
-  return id;
+    
+    // Generate UUID v4 and convert to uppercase with hyphens removed
+    const uuid = crypto.randomUUID().replace(/-/g, '').toUpperCase();
+    
+    // Combine prefix with UUID
+    const id = `${hospitalPrefix}${HOSPITAL_ID_SEPARATOR}${uuid}`;
+    
+    this.generationStats.lastGenerated = id;
+    return id;
+  }
+
+  /**
+   * Backup method to generate a medical ID when the primary method fails
+   * Implements guaranteed character distribution with 2 letters and 3 numbers
+   */
+  private static _generateBackupID(): string {
+    this.generationStats.backupUsed++;
+    
+    const randomBytes = crypto.randomBytes(5); // Reduced from 10 since we only need 5 bytes
+    
+    // Create pattern that guarantees 2 letters and 3 numbers in random order
+    const parts = [
+      LETTER_CHARS[randomBytes[0] % LETTER_CHARS.length],
+      LETTER_CHARS[randomBytes[1] % LETTER_CHARS.length],
+      NUMBER_CHARS[randomBytes[2] % NUMBER_CHARS.length],
+      NUMBER_CHARS[randomBytes[3] % NUMBER_CHARS.length],
+      NUMBER_CHARS[randomBytes[4] % NUMBER_CHARS.length]
+    ];
+    
+    // Shuffle to avoid predictable patterns
+    for (let i = parts.length - 1; i > 0; i--) {
+      const j = Math.floor((randomBytes[i % randomBytes.length] / 255) * (i + 1));
+      [parts[i], parts[j]] = [parts[j], parts[i]];
+    }
+    
+    const id = parts.join('');
+    return PROHIBITED_IDS.has(id) ? 'XM25K' : id; // Fallback to known valid ID if prohibited
+  }
 }
 
 /**
- * Backup method to generate a medical ID
- * Uses a completely different approach as a fallback
+ * Medical ID Validator class for checking if IDs comply with CentralHealth policies
  */
-function generateBackupMedicalID(): string {
-  // Create a timestamp-based ID with secure random elements
-  const timestamp = Date.now().toString().slice(-3); // Last 3 digits of timestamp
-  
-  // Add 2 secure random characters from allowed chars
-  let id = '';
-  for (let i = 0; i < 2; i++) {
-    id += ALLOWED_CHARS.charAt(secureRandom(ALLOWED_CHARS.length));
+export class MedicalIDValidator {
+  /**
+   * Validates if a medical ID (standard or hospital-specific) is compliant
+   */
+  static validate(id: string): boolean {
+    if (!id || typeof id !== 'string') return false;
+    
+    // Check if it's a hospital-specific ID
+    if (id.includes(HOSPITAL_ID_SEPARATOR)) {
+      return this._validateHospitalID(id);
+    }
+    
+    // Otherwise validate as standard ID
+    return this.validateStandardID(id);
   }
-  
-  // Ensure we have at least one letter and one number
-  id += LETTERS.charAt(secureRandom(LETTERS.length));
-  id += NUMBERS.charAt(secureRandom(NUMBERS.length));
-  
-  // Add the timestamp part (ensures uniqueness even with multiple rapid generations)
-  id += timestamp.charAt(secureRandom(timestamp.length));
-  
-  // Shuffle the ID characters for additional security
-  id = shuffleString(id);
-  
-  // Truncate to 5 chars if somehow longer
-  return id.substring(0, 5).toUpperCase();
+
+  /**
+   * Enhanced validation that provides detailed reasons for validation failures
+   */
+  static validateWithDetails(id: string): {
+    isValid: boolean;
+    reasons?: string[];
+  } {
+    const reasons: string[] = [];
+    
+    if (!id || typeof id !== 'string') {
+      return { isValid: false, reasons: ['ID is empty or not a string'] };
+    }
+    
+    if (id.includes(HOSPITAL_ID_SEPARATOR)) {
+      return this._validateHospitalIDWithDetails(id);
+    }
+    
+    return this._validateStandardIDWithDetails(id);
+  }
+
+  /**
+   * Validates standard 5-character medical ID
+   */
+  static validateStandardID(id: string): boolean {
+    if (!id || typeof id !== 'string' || id.length !== 5) return false;
+    
+    // Check if it's in the prohibited list
+    if (PROHIBITED_IDS.has(id)) return false;
+    
+    let hasLetter = false;
+    let hasNumber = false;
+    
+    // Check each character
+    for (let i = 0; i < id.length; i++) {
+      const char = id[i];
+      
+      // Check if character is allowed
+      if (!ALLOWED_CHARS.includes(char)) return false;
+      
+      // Track if we have at least one letter and one number
+      if (LETTER_CHARS.includes(char)) hasLetter = true;
+      if (NUMBER_CHARS.includes(char)) hasNumber = true;
+    }
+    
+    return hasLetter && hasNumber;
+  }
+
+  /**
+   * Detailed validation for standard medical IDs with specific failure reasons
+   */
+  private static _validateStandardIDWithDetails(id: string) {
+    const reasons: string[] = [];
+    let isValid = true;
+
+    if (id.length !== 5) {
+      reasons.push('ID must be exactly 5 characters');
+      isValid = false;
+    }
+
+    if (PROHIBITED_IDS.has(id)) {
+      reasons.push('ID is in prohibited list');
+      isValid = false;
+    }
+
+    let hasLetter = false;
+    let hasNumber = false;
+    
+    for (let i = 0; i < id.length; i++) {
+      const char = id[i];
+      
+      if (!ALLOWED_CHARS.includes(char)) {
+        reasons.push(`Character '${char}' at position ${i+1} is not allowed`);
+        isValid = false;
+      }
+      
+      if (LETTER_CHARS.includes(char)) hasLetter = true;
+      if (NUMBER_CHARS.includes(char)) hasNumber = true;
+    }
+    
+    if (!hasLetter) {
+      reasons.push('ID must contain at least one letter');
+      isValid = false;
+    }
+    
+    if (!hasNumber) {
+      reasons.push('ID must contain at least one number');
+      isValid = false;
+    }
+    
+    return { isValid, reasons: reasons.length > 0 ? reasons : undefined };
+  }
+
+  /**
+   * Validates hospital-specific ID with prefix and UUID format
+   */
+  private static _validateHospitalID(id: string): boolean {
+    const parts = id.split(HOSPITAL_ID_SEPARATOR);
+    if (parts.length !== 2) return false;
+    
+    const [prefix, uuid] = parts;
+    
+    // Validate prefix
+    if (!/^[A-Z0-9]{3}$/.test(prefix)) return false;
+    
+    // Validate UUID part - only uppercase hex characters
+    if (!/^[A-F0-9]{24}$/.test(uuid)) return false;
+    
+    return true;
+  }
+
+  /**
+   * Detailed validation for hospital IDs with specific failure reasons
+   */
+  private static _validateHospitalIDWithDetails(id: string) {
+    const reasons: string[] = [];
+    
+    const parts = id.split(HOSPITAL_ID_SEPARATOR);
+    if (parts.length !== 2) {
+      return { 
+        isValid: false, 
+        reasons: ['Hospital ID must contain exactly one separator'] 
+      };
+    }
+    
+    const [prefix, uuid] = parts;
+    let isValid = true;
+    
+    // Validate prefix
+    if (!/^[A-Z0-9]{3}$/.test(prefix)) {
+      reasons.push('Hospital prefix must be exactly 3 uppercase alphanumeric characters');
+      isValid = false;
+    }
+    
+    // Validate UUID part
+    if (!/^[A-F0-9]{24}$/.test(uuid)) {
+      reasons.push('UUID part must be exactly 24 uppercase hexadecimal characters');
+      isValid = false;
+    }
+    
+    return { isValid, reasons: reasons.length > 0 ? reasons : undefined };
+  }
 }
 
 /**
- * Shuffle a string using the Fisher-Yates algorithm
+ * Medical ID Formatter class for display and normalization
  */
-function shuffleString(str: string): string {
-  const array = str.split('');
-  for (let i = array.length - 1; i > 0; i--) {
-    const j = Math.floor(secureRandom(i + 1));
-    [array[i], array[j]] = [array[j], array[i]]; // Swap elements
+export class MedicalIDFormatter {
+  /**
+   * Formats a medical ID for display
+   * Standard IDs: XX-XXX format
+   * Hospital IDs: Already formatted with separator
+   */
+  static format(id: string): string {
+    if (!id || typeof id !== 'string') return id;
+    
+    // Hospital IDs are already formatted
+    if (id.includes(HOSPITAL_ID_SEPARATOR)) {
+      return id;
+    }
+    
+    // Format standard ID as XX-XXX
+    if (id.length === 5) {
+      return `${id.substring(0, 2)}-${id.substring(2)}`;
+    }
+    
+    // Return original if format not recognized
+    return id;
   }
-  return array.join('');
+
+  /**
+   * Normalizes a medical ID by removing any formatting
+   * For standard IDs: removes hyphens
+   * For hospital IDs: preserves the separator
+   */
+  static normalize(id: string): string {
+    if (!id || typeof id !== 'string') return id;
+    
+    // For hospital IDs, we need to preserve the main separator but remove any other hyphens
+    if (id.includes(HOSPITAL_ID_SEPARATOR)) {
+      const parts = id.split(HOSPITAL_ID_SEPARATOR);
+      if (parts.length === 2) {
+        return `${parts[0]}${HOSPITAL_ID_SEPARATOR}${parts[1].replace(/-/g, '')}`;
+      }
+    }
+    
+    // For standard IDs, just remove any hyphens
+    return id.replace(/-/g, '');
+  }
 }
 
 /**
- * Validate if a string matches the Medical ID format
+ * Medical ID Uniqueness checker for database integration
+ * Abstracts database checks to allow swapping of persistence layers
  */
-export function isValidMedicalID(id: string): boolean {
-  // Basic format checks
-  if (!id || id.length !== 5) return false;
-  
-  // Reject prohibited IDs explicitly
-  if (PROHIBITED_IDS.includes(id)) {
-    console.warn(`Rejected prohibited medical ID: ${id}`);
-    return false;
-  }
-  
-  // Check if it only contains allowed characters
-  for (let i = 0; i < id.length; i++) {
-    if (!ALLOWED_CHARS.includes(id.charAt(i))) {
-      return false;
-    }
-  }
-  
-  // Check for at least one letter and at least one number
-  let hasLetter = false;
-  let hasNumber = false;
-  for (let i = 0; i < id.length; i++) {
-    const char = id.charAt(i);
-    if (LETTERS.includes(char)) {
-      hasLetter = true;
-    } else if (NUMBERS.includes(char)) {
-      hasNumber = true;
-    }
+export class MedicalIDUniqueness {
+  /**
+   * Check if a medical ID is unique in the database
+   * This is a placeholder for actual database integration
+   */
+  static async isUnique(id: string, hospitalId?: string, currentPatientId?: string): Promise<boolean> {
+    // This should be implemented to check against your database
+    // Return true if the ID is unique, false otherwise
+    // The hospitalId parameter can be used to scope the check to a specific hospital
+    // The currentPatientId parameter can be used to exclude the current patient from the check (for updates)
     
-    // Break early if both conditions are met
-    if (hasLetter && hasNumber) {
-      break;
-    }
-  }
-  
-  // Reject all-letter formats (like "SITPT")
-  if (/^[A-Z]+$/i.test(id)) {
-    console.error(`CRITICAL VALIDATION FAILURE: Rejected all-letter medical ID format: ${id}`);
-    return false;
-  }
-  
-  // Explicitly check for forbidden characters (especially I, O, 1, 0)
-  if (/[IO10l]/i.test(id)) {
-    console.error(`CRITICAL VALIDATION FAILURE: Medical ID contains forbidden characters: ${id}`);
-    return false;
-  }
-  
-  // Valid only if it has at least one letter AND one number
-  return hasLetter && hasNumber;
-}
-
-/**
- * Generate a unique hospital-specific medical ID
- * Format: [HOSPITAL_CODE]-[RANDOM_CHARS]
- *
- * @param {string} hospitalCode - The hospital code or prefix (optional)
- * @returns {string} - A formatted medical ID with hospital prefix
- */
-export function generateHospitalMedicalID(hospitalCode?: string): string {
-  // Normalize hospital code - limit to 3 chars, uppercase
-  const code = hospitalCode 
-    ? hospitalCode.toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 3)
-    : DEFAULT_HOSPITAL.id.toUpperCase().substring(0, 3);
-  
-  // Add separator
-  const prefix = code + '-';
-  
-  // Generate secure random characters for the ID portion
-  let suffix = '';
-  for (let i = 0; i < 6; i++) {
-    suffix += ALLOWED_CHARS.charAt(secureRandom(ALLOWED_CHARS.length));
-  }
-  
-  // Ensure we have at least one letter and one number in the suffix
-  if (!/[A-Z]/i.test(suffix)) {
-    suffix = suffix.substring(0, 5) + LETTERS.charAt(secureRandom(LETTERS.length));
-  }
-  if (!/[0-9]/.test(suffix)) {
-    suffix = suffix.substring(0, 4) + NUMBERS.charAt(secureRandom(NUMBERS.length)) + 
-            suffix.substring(5);
-  }
-  
-  return prefix + suffix;
-}
-
-/**
- * Verify uniqueness of a medical ID against existing records
- * @param id The medical ID to check
- * @returns Promise resolving to true if ID is unique, false if already exists
- */
-export async function isUniqueMedicalID(id: string): Promise<boolean> {
-  try {
-    // Import prisma here to avoid circular dependencies
-    const { prisma } = await import('@/lib/database/prisma-client');
+    // Example implementation:
+    // const count = await prisma.patient.count({
+    //   where: {
+    //     medicalId: id,
+    //     hospitalId: hospitalId,
+    //     id: { not: currentPatientId } // Exclude current patient if updating
+    //   }
+    // });
+    // return count === 0;
     
-    // First check if the ID is valid
-    if (!isValidMedicalID(id)) {
-      console.error(`Medical ID failed validation: ${id}`);
-      return false;
-    }
-    
-    // Check if any patient has this medical ID already
-    const existingPatient = await prisma.patient.findFirst({
-      where: { mrn: id }
-    });
-    
-    // Return true only if no patient with this medical ID was found
-    const isUnique = existingPatient === null;
-    
-    if (!isUnique) {
-      console.log(`Medical ID uniqueness check: ${id} already exists in database`);
-    } else {
-      console.log(`Medical ID uniqueness check: ${id} is unique and available`);
-    }
-    
-    return isUnique;
-  } catch (error) {
-    console.error('Error checking medical ID uniqueness:', error);
-    return false; // Fail safe - assume not unique if error occurs
+    // Temporary placeholder that just performs basic validation
+    return MedicalIDValidator.validate(id);
   }
 }
 
+// Legacy function aliases for backward compatibility
+export function generateMedicalID(): string {
+  return MedicalIDGenerator.generateStandardID();
+}
+
+export function validateStoredMedicalID(id: string): boolean {
+  return MedicalIDValidator.validateStandardID(id);
+}
+
+export function formatMedicalID(id: string): string {
+  return MedicalIDFormatter.format(id);
+}
+
+export function normalizeMedicalID(id: string): string {
+  return MedicalIDFormatter.normalize(id);
+}

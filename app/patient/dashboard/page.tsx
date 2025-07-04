@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from "next/navigation"
+import { MedicalIDGenerator, MedicalIDFormatter } from "@/utils/medical-id"
 import {
   Activity,
   AlertTriangle,
@@ -107,7 +108,8 @@ export default function PatientDashboardPage() {
     // Check for any valid authentication token per CentralHealth standards
     const hasToken = !!localStorage.getItem('authToken');
     const hasSession = !!localStorage.getItem('patient_session');
-    const hasMedicalNumber = !!localStorage.getItem('medicalNumber');
+    // No longer checking localStorage for medical IDs per CentralHealth policy
+    const hasMedicalNumber = !!profile?.medicalNumber;
     const hasPatientId = !!localStorage.getItem('patientId');
     
     // Security audit logging
@@ -244,9 +246,8 @@ export default function PatientDashboardPage() {
   // Check if the user is logged in by checking localStorage
   useEffect(() => {
     const checkLoginStatus = () => {
-      // Check for login token in localStorage
+      // Check for login token in localStorage - no longer check for medicalNumber per CentralHealth policy
       const hasToken = localStorage.getItem('authToken') || 
-                      localStorage.getItem('medicalNumber') || 
                       localStorage.getItem('patientId');
       
       // If we have a token or identifier, we can show the UI immediately
@@ -447,8 +448,12 @@ export default function PatientDashboardPage() {
         if (storedName) fallbackUpdates.name = storedName;
       }
       if (!currentData.medicalNumber || currentData.medicalNumber === "--") {
-        const storedMedicalNumber = localStorage.getItem('medicalNumber');
-        if (storedMedicalNumber) fallbackUpdates.medicalNumber = storedMedicalNumber;
+        if (profile?.medicalNumber) {
+          setPatientData(prev => ({
+            ...prev,
+            medicalNumber: profile.medicalNumber
+          }));
+        }
       }
       if (!currentData.email) {
         const storedEmail = localStorage.getItem('userEmail');
@@ -626,12 +631,10 @@ export default function PatientDashboardPage() {
 
   // To ensure proper rendering, display the full dashboard content if ANY of these conditions are met:
   // 1. We have a valid profile object
-  // 2. We have valid medical ID in localStorage indicating prior authentication
-  // 3. We're still loading (show skeleton UI but still render full dashboard structure)
-  const medicalId = typeof window !== 'undefined' ? 
-    localStorage.getItem('medicalNumber') || localStorage.getItem('mrn') || localStorage.getItem('patientId') : null;
-
-  const hasValidAuthentication = !!profile || !!medicalId || isLoading;
+  // 2. We're still loading (show skeleton UI but still render full dashboard structure)
+  // Note: We no longer check localStorage directly for medical IDs as per CentralHealth policy
+  
+  const hasValidAuthentication = !!profile || isLoading;
     
   // Only show login screen as a last resort when we're sure the user is not authenticated
   // This prevents the flash of login UI during normal loading
@@ -931,11 +934,18 @@ export default function PatientDashboardPage() {
                 <CardDescription>Doctors available for appointments and consultations</CardDescription>
               </CardHeader>
               <CardContent className="pb-2 px-2 md:px-6">
-                {/* Doctor Carousel with single line layout */}
-                {hospitalDoctors.length > 0 ? (
+                {/* Doctor Carousel with single line layout - only showing real hospital doctors */}
+                {isLoading ? (
+                  <div className="flex items-center justify-center p-6 bg-gray-50 rounded-lg">
+                    <div className="text-center">
+                      <Spinner className="w-8 h-8 mx-auto mb-2" />
+                      <p className="text-gray-500">Loading doctors...</p>
+                    </div>
+                  </div>
+                ) : hospitalDoctors && hospitalDoctors.length > 0 ? (
                   <DoctorCarousel
                     title=""
-                    doctors={hospitalDoctors}
+                    doctors={hospitalDoctors.slice(0, 3)}
                     onAppointmentRequest={handleAppointmentRequest}
                     singleLine={true}
                   />

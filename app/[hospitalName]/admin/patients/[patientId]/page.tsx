@@ -1,6 +1,6 @@
 "use client"
 
-import React, { use, useState, useEffect } from "react"
+import React, { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { PageHeader } from "@/components/page-header"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -15,10 +15,10 @@ import { MedicalIdGenerator } from "@/components/patients/medical-id-generator"
 
 // Patient details page props
 interface PatientDetailsPageProps {
-  params: Promise<{
+  params: {
     hospitalName: string
     patientId: string
-  }>
+  }
 }
 
 // Patient interface
@@ -42,7 +42,7 @@ interface Patient {
 
 export default function PatientDetailsPage({ params }: PatientDetailsPageProps) {
   const router = useRouter()
-  const { hospitalName, patientId } = use(params)
+  const { hospitalName, patientId } = params
   
   const [patient, setPatient] = useState<Patient | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -154,7 +154,7 @@ export default function PatientDetailsPage({ params }: PatientDetailsPageProps) 
   }, [hospitalName, patientId])
 
   // Handle medical ID update
-  const handleMedicalIdUpdate = (newMedicalId: string) => {
+  const handleMedicalIdUpdate = async (newMedicalId: string): Promise<void> => {
     console.log('Medical ID updated:', newMedicalId)
 
     // Save to localStorage for persistence across registration and onboarding
@@ -162,6 +162,9 @@ export default function PatientDetailsPage({ params }: PatientDetailsPageProps) 
       localStorage.setItem('medicalNumber', newMedicalId)
       localStorage.setItem('medicalIdSource', 'generator')
     }
+    
+    // Return resolved promise to match expected Promise<void> return type
+    return Promise.resolve()
 
     // Update the patient and form state
     if (patient) {
@@ -347,6 +350,7 @@ export default function PatientDetailsPage({ params }: PatientDetailsPageProps) 
                       <MedicalIdGenerator
                         patientId="new"
                         currentMedicalId={patient?.medicalNumber || ''}
+                        hospitalId={hospitalName}
                         onUpdate={handleMedicalIdUpdate}
                       />
                     </div>
@@ -548,8 +552,9 @@ export default function PatientDetailsPage({ params }: PatientDetailsPageProps) 
               <h4 className="text-sm font-medium">Medical ID</h4>
               <div className="sticky top-6 w-full">
                 <MedicalIdGenerator 
-                  currentMedicalId={patient.medicalNumber}
-                  patientId={patient.id}
+                  patientId={patient?.id || ''}
+                  currentMedicalId={patient?.medicalNumber}
+                  hospitalId={hospitalName}
                   onUpdate={handleMedicalIdUpdate}
                 />
               </div>

@@ -273,7 +273,7 @@ function buildWhereClause(params: {
   if (medicalId) {
     // Handle both exact match and partial match for medical IDs
     conditions.push(
-      { mrn: { equals: medicalId, mode: 'insensitive' } },
+      { mrn: { equals: medicalId } },
       { mrn: { contains: medicalId, mode: 'insensitive' } }
     );
   } else if (email) {
@@ -620,28 +620,5 @@ async function checkRateLimit(ipAddress: string, endpoint: keyof typeof RATE_LIM
   return null;
 }
 
-// Simplified security logging to avoid Prisma schema issues
-async function safeLogSecurityEvent(data: AuditLogData): Promise<void> {
-  try {
-    // Convert patientId to details if it exists
-    let finalDetails = {...(data.details || {})};
-    if (data.patientId) {
-      finalDetails.patientId = data.patientId;
-    }
-
-    // Log to database with a safe structure
-    await prisma.$executeRaw`
-      INSERT INTO "SecurityAuditLog" ("action", "ipAddress", "details", "success", "createdAt")
-      VALUES (
-        ${data.action},
-        ${data.ipAddress || null},
-        ${JSON.stringify(finalDetails)},
-        ${data.success || false},
-        ${new Date()}
-      )
-    `;
-  } catch (error) {
-    // Just log errors locally without failing
-    console.error('Failed to log security event:', error);
-  }
-}
+// Using the imported safeLogSecurityEvent function from '@/utils/security-logging'
+// The local implementation has been removed to fix the compile error
