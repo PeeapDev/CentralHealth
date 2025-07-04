@@ -225,14 +225,29 @@ export default function PatientSearch({
             const data = await response.json() as PatientData;
             console.log('API returned data:', data);
             // Convert from PatientData to the expected Patient format
+            // Include ALL relevant fields to ensure proper display
             patient = {
               id: data.id,
               mrn: data.mrn,
-              firstName: data.name.split(' ')[0] || '',
-              lastName: data.name.split(' ').slice(1).join(' ') || '',
+              firstName: data.name?.split(' ')[0] || '',
+              lastName: data.name?.split(' ').slice(1).join(' ') || '',
               dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth).toISOString() : undefined,
               sex: data.gender,
-              photo: undefined
+              // Include profile picture data
+              photo: data.profilePicture?.imageUrl,
+              // Include User data for name display
+              User: data.User,
+              // Include full profile picture object
+              profilePicture: data.profilePicture,
+              // Include full name for dialog display
+              fullName: data.User?.name || data.name || '',
+              // Include additional metadata fields
+              onboardingCompleted: data.onboardingCompleted,
+              lastVisit: data.lastVisit,
+              nextVisit: data.nextVisit,
+              note: data.note,
+              // Original data for reference
+              _original: data
             };
             console.log('Converted patient data:', patient);
           } else {

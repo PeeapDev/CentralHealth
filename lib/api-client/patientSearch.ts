@@ -85,16 +85,32 @@ export async function fetchPatientByMrn(mrn: string): Promise<Patient | null> {
 
     // Get patient data from response
     const patientData = await response.json() as PatientData;
+    console.log('Fetched patient data:', JSON.stringify(patientData, null, 2));
     
     // Convert from PatientData to the Patient format expected by the component
+    // While preserving all fields needed for the dialog display
     return {
       id: patientData.id,
-      mrn: patientData.mrn,
-      firstName: patientData.name.split(' ')[0] || '',
-      lastName: patientData.name.split(' ').slice(1).join(' ') || '',
+      mrn: patientData.mrn,  // Permanent medical ID per CentralHealth policy
+      firstName: patientData.name?.split(' ')[0] || '',
+      lastName: patientData.name?.split(' ').slice(1).join(' ') || '',
       dateOfBirth: patientData.dateOfBirth ? new Date(patientData.dateOfBirth).toISOString() : undefined,
       sex: patientData.gender,
-      photo: undefined
+      // Include profile picture from the correct field
+      photo: patientData.profilePicture?.imageUrl,
+      // Include User data to ensure we have the full name
+      User: patientData.User,
+      // Full profile picture object 
+      profilePicture: patientData.profilePicture,
+      // Include full name for convenience
+      fullName: patientData.User?.name || patientData.name || '',
+      // Include additional metadata
+      onboardingCompleted: patientData.onboardingCompleted,
+      lastVisit: patientData.lastVisit,
+      nextVisit: patientData.nextVisit,
+      note: patientData.note,
+      // Original raw data for completeness
+      _original: patientData
     };
   } catch (error) {
     console.error('Error in fetchPatientByMrn:', error);

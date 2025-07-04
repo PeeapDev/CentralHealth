@@ -4,12 +4,29 @@
 
 export interface Patient {
   id: string;
-  mrn: string; // Medical ID following NHS-style 5-character alphanumeric format
+  mrn: string; // Medical ID following NHS-style 5-character alphanumeric format (permanent per CentralHealth policy)
   firstName: string;
   lastName: string;
   dateOfBirth?: string;
   sex?: string;
   photo?: string;
+  // Additional fields needed for patient profile display
+  fullName?: string;
+  profilePicture?: {
+    id?: string;
+    imageUrl: string;
+  };
+  User?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  // Additional metadata
+  onboardingCompleted?: boolean;
+  lastVisit?: string | Date;
+  nextVisit?: string | Date;
+  note?: string;
+  _original?: any; // For preserving original data
 }
 
 export interface PatientSearchProps {

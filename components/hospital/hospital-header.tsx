@@ -47,30 +47,76 @@ function calculateAge(birthDate: Date): number {
 // FHIR Patient interface (simplified for search)
 interface FHIRPatient {
   id: string;
-  medicalNumber: string;
-  active: boolean;
-  name?: Array<{
-    text?: string;
-    family?: string;
-    given?: string[];
-  }> | string;
-  telecom?: Array<{
-    system: string;
-    value: string;
-    use?: string;
-  }> | string;
-  gender?: string;
-  birthDate?: string;
+  name?: { given?: string[]; family?: string; text?: string }[];
   email?: string;
-  modules?: string[];
+  telecom?: { system: string; value: string; use?: string }[];
+  birthDate?: string;
+  dateOfBirth?: Date;
+  gender?: string;
+  address?: any[];
   photo?: string;
+  active?: boolean;
+  mrn?: string;
+  medicalNumber?: string;
   hospitalId?: string;
+  modules?: string[];
+  profilePicture?: {
+    imageUrl: string;
+  };
+  // Database schema related fields
+  onboardingCompleted?: boolean;
+  lastVisit?: string | Date;
+  nextVisit?: string | Date;
+  note?: string;
+  // Patient name fields for different data sources
+  fullName?: string;
+  firstName?: string;
+  lastName?: string;
+  // Add User field for proper name display
+  User?: {
+    id: string;
+    name: string;
+    email: string;
+  };
 }
 
 // Helper function to get initials from name
 function getInitials(name?: string): string {
   if (!name) return "U"
   return name.split(" ").map(n => n[0]).join("").toUpperCase()
+}
+
+// Adapter to convert database patient to FHIR format
+function adaptDatabasePatientToFHIR(patient: any): FHIRPatient {
+  // Make sure we don't process null/undefined
+  if (!patient) return null as any;
+  
+  // Check if it's already in FHIR format
+  if (patient.medicalNumber && !patient.mrn) return patient;
+  
+  // Map database fields to FHIR format
+  return {
+    id: patient.id,
+    medicalNumber: patient.mrn, // Medical ID in NHS-style 5-character alphanumeric format
+    mrn: patient.mrn, // Ensure mrn is preserved for consistent identification
+    active: patient.active !== undefined ? patient.active : true,
+    name: patient.name ? [{ text: patient.name }] : [],
+    gender: patient.gender,
+    birthDate: patient.dateOfBirth ? new Date(patient.dateOfBirth).toISOString().split('T')[0] : undefined,
+    dateOfBirth: patient.dateOfBirth,
+    email: patient.email,
+    // Map profile picture - this is crucial for display in the UI
+    photo: patient.profilePicture?.imageUrl,
+    profilePicture: patient.profilePicture,
+    hospitalId: patient.hospitalId,
+    // Add User relationship data to ensure we have full name
+    User: patient.User,
+    // Preserve these fields for consistent data display
+    onboardingCompleted: patient.onboardingCompleted,
+    lastVisit: patient.lastVisit,
+    nextVisit: patient.nextVisit,
+    note: patient.note
+  };
 }
 
 export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
@@ -99,29 +145,44 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
   }
   
   // Handle patient selection from search widget
-  const handlePatientSelection = (patient: any) => {
-    setSelectedPatient(patient)
-    // Open patient profile dialog or navigate to patient details
+  const handlePatientSelection = (patient: FHIRPatient | any) => {
+    setSelectedPatient(adaptDatabasePatientToFHIR(patient))
     router.push(`/${hospitalName}/admin/patients/${patient.id}`)
   }
   
   // Open patient profile
-  const openPatientProfile = (patient: FHIRPatient) => {
-    setSelectedPatient(patient)
+  const openPatientProfile = (patient: FHIRPatient | any) => {
+    setSelectedPatient(adaptDatabasePatientToFHIR(patient))
     // Navigate to patient profile
     router.push(`/${hospitalName}/admin/patients/${patient.id}`)
   }
   
-  // Format patient name from FHIR format
-  const formatPatientName = (patient: FHIRPatient) => {
-    if (!patient.name) return "Unknown Patient"
+  // Format patient name from FHIR format or database format
+  const formatPatientName = (patient: FHIRPatient | any) => {
+    // Safety check for null/undefined patient
+    if (!patient) return "Unknown Patient"
     
-    // Handle string format (already processed)
-    if (typeof patient.name === 'string') {
+    // Use fullName directly if provided (likely from API)
+    if (patient.fullName) {
+      return patient.fullName
+    }
+    
+    // Handle User.name field if available (preferred for full name)
+    if (patient.User && patient.User.name) {
+      return patient.User.name
+    }
+    
+    // Try firstName + lastName if both are available (from PatientSearch)
+    if (patient.firstName && patient.lastName) {
+      return `${patient.firstName} ${patient.lastName}`
+    }
+    
+    // Direct name field (database format)
+    if (patient.name && typeof patient.name === 'string') {
       return patient.name
     }
     
-    // Handle array format
+    // FHIR format - array of name objects
     if (Array.isArray(patient.name) && patient.name.length > 0) {
       const nameObj = patient.name[0]
       let fullName = ''
@@ -138,10 +199,46 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
         fullName += fullName ? ` ${nameObj.family}` : nameObj.family
       }
       
-      return fullName || "Unknown Patient"
+      if (fullName) return fullName
+    }
+    
+    // Email as name fallback if present
+    if (patient.User && patient.User.email) {
+      return patient.User.email.split('@')[0]
+    }
+    
+    if (patient.email) {
+      return patient.email.split('@')[0]
+    }
+    
+    // Try to use the MRN as identification if name is missing
+    // Using permanent medical ID (mrn) per CentralHealth policy
+    const identifier = patient.mrn || patient.medicalNumber
+    if (identifier) {
+      // Don't use "Patient VYCF7" format - just show the ID
+      // This follows CentralHealth rules for patient identification
+      return identifier
     }
     
     return "Unknown Patient"
+  }
+  
+  // Calculate age from birth date
+  const calculateAge = (birthDateStr?: string | Date | null) => {
+    if (!birthDateStr) return null
+    
+    const birthDate = new Date(birthDateStr)
+    const today = new Date()
+    
+    let age = today.getFullYear() - birthDate.getFullYear()
+    const monthDiff = today.getMonth() - birthDate.getMonth()
+    
+    // Adjust age if birthday hasn't occurred yet this year
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+      age--
+    }
+    
+    return age
   }
   
 
@@ -190,25 +287,61 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           {selectedPatient && (
             <>
-              <DialogHeader className="flex justify-between items-start">
-                <DialogTitle className="flex items-center gap-3">
-                  <Avatar className="h-10 w-10">
-                    {selectedPatient.photo ? (
-                      <AvatarImage src={selectedPatient.photo} alt={formatPatientName(selectedPatient)} />
-                    ) : (
-                      <AvatarFallback className="bg-blue-600 text-white">
-                        {formatPatientName(selectedPatient).split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2)}
-                      </AvatarFallback>
-                    )}
-                  </Avatar>
-                  <div>
-                    <span>{formatPatientName(selectedPatient)}</span>
-                    <Badge variant={selectedPatient.active ? "default" : "secondary"} className="ml-2">
-                      {selectedPatient.active ? "Active" : "Inactive"}
-                    </Badge>
-                  </div>
-                </DialogTitle>
+              {/* Centered Profile Picture and Patient Information */}
+              <div className="flex flex-col items-center mb-6">
+                {/* Large Patient Avatar at the Top Center - Prioritize database profilePicture */}
+                <Avatar className="h-24 w-24 mb-3 ring-4 ring-blue-100">
+                  {(selectedPatient.profilePicture && selectedPatient.profilePicture.imageUrl) ? (
+                    <AvatarImage 
+                      src={selectedPatient.profilePicture.imageUrl} 
+                      alt={formatPatientName(selectedPatient)}
+                      className="object-cover"
+                    />
+                  ) : selectedPatient.photo ? (
+                    <AvatarImage 
+                      src={selectedPatient.photo} 
+                      alt={formatPatientName(selectedPatient)}
+                      className="object-cover"
+                    />
+                  ) : (
+                    <AvatarFallback className="bg-blue-600 text-white text-2xl">
+                      {formatPatientName(selectedPatient).split(' ').map((n: string) => n[0]).join('').toUpperCase().substring(0, 2)}
+                    </AvatarFallback>
+                  )}
+                </Avatar>
                 
+                {/* Patient Name as Title - Show full name if available */}
+                <div className="text-center mb-1">
+                  <DialogTitle className="text-xl font-semibold">
+                    {selectedPatient.User?.name || selectedPatient.fullName || selectedPatient.name || 
+                     (selectedPatient.firstName && selectedPatient.lastName ? 
+                      `${selectedPatient.firstName} ${selectedPatient.lastName}` : 
+                      formatPatientName(selectedPatient))}
+                  </DialogTitle>
+                </div>
+                
+                {/* Status Badge and Age (not DOB) */}
+                <div className="flex items-center gap-3 mb-2">
+                  <Badge variant={selectedPatient.active ? "default" : "secondary"}>
+                    {selectedPatient.active ? "Active" : "Inactive"}
+                  </Badge>
+                  
+                  {/* Show age instead of DOB */}
+                  {(selectedPatient.dateOfBirth || selectedPatient.birthDate) && (
+                    <span className="text-sm text-muted-foreground">
+                      {calculateAge(selectedPatient.dateOfBirth || selectedPatient.birthDate) ?? 'Unknown'} years old
+                    </span>
+                  )}
+                </div>
+                
+                {/* Permanent Medical ID - NHS-style 5-character alphanumeric format */}
+                <div className="bg-blue-50 px-3 py-1.5 rounded-md inline-flex items-center text-sm font-medium">
+                  <FileText className="h-4 w-4 mr-2 text-blue-500" />
+                  <strong className="mr-1">Medical ID:</strong> {selectedPatient.mrn || selectedPatient.medicalNumber || "Not assigned"}
+                </div>
+              </div>
+              
+              <div className="flex justify-end mb-4">
                 {/* View Complete Profile button moved to top right */}
                 <Button 
                   variant="outline" 
@@ -218,10 +351,13 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
                 >
                   View Complete Profile
                 </Button>
+              </div>
+              
+              <DialogHeader className="flex justify-between items-start">
                 <DialogDescription className="flex flex-wrap gap-3 mt-2">
-                  <span className="flex items-center text-sm">
-                    <FileText className="h-4 w-4 mr-1" />
-                    <strong className="mr-1">Medical #:</strong> {selectedPatient.medicalNumber || "Not assigned"}
+                  <span className="flex items-center text-sm bg-blue-50 px-2 py-1 rounded-md">
+                    <FileText className="h-4 w-4 mr-1 text-blue-500" />
+                    <strong className="mr-1">Medical ID:</strong> {selectedPatient.mrn || selectedPatient.medicalNumber || "Not assigned"}
                   </span>
                   {selectedPatient.email && (
                     <span className="flex items-center text-sm">
@@ -371,7 +507,7 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
                         </Button>
                       )}
                       
-                      {selectedPatient.birthDate && calculateAge(new Date(selectedPatient.birthDate)) < 5 && (
+                      {selectedPatient.birthDate && calculateAge(new Date(selectedPatient.birthDate)) < 5 && selectedPatient.id && (
                         <Button
                           variant="default"
                           size="sm"
@@ -506,22 +642,19 @@ export function HospitalHeader({ hospitalName }: HospitalHeaderProps) {
       </Dialog>
       
       <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <h1 className="text-xl font-semibold capitalize">{hospitalName.replace("-", " ")} - Admin Dashboard</h1>
-        </div>
 
-        <div className="flex items-center space-x-4">
-          {/* Patient Search Component */}
-          <div className="w-64">
-            <ConnectedPatientSearch 
-              onPatientSelect={handlePatientSelection}
-              showQrScanner={true}
-              searchPlaceholder="Search patients..."
-              className="w-full"
-            />
-          </div>
+  <div className="flex items-center space-x-4">
+    {/* Patient Search Component */}
+    <div className="w-64">
+      <ConnectedPatientSearch 
+        onPatientSelect={(patient: any) => handlePatientSelection(patient)}
+        showQrScanner={true}
+        searchPlaceholder="Search patients..."
+        className="w-full"
+      />
+    </div>
 
-          {/* Chat Notifications */}
+    {/* ... rest of the code remains the same ... */}
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="ghost" size="sm" className="relative">
