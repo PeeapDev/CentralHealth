@@ -6,7 +6,7 @@
  */
 
 import { prisma } from '@/lib/database/prisma-client';
-import { generateMedicalID, isValidMedicalID } from './medical-id';
+import { generateMedicalID, validateStoredMedicalID } from './medical-id';
 
 /**
  * Verify uniqueness of a medical ID against existing patient records
@@ -16,7 +16,7 @@ import { generateMedicalID, isValidMedicalID } from './medical-id';
 export async function isUniqueMedicalID(id: string): Promise<boolean> {
   try {
     // Verify ID format first
-    if (!isValidMedicalID(id)) {
+    if (!validateStoredMedicalID(id)) {
       console.error(`Medical ID failed validation: ${id}`);
       return false;
     }

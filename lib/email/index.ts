@@ -1,7 +1,7 @@
 import nodemailer from 'nodemailer';
 import type { SentMessageInfo } from 'nodemailer';
 import { format } from 'date-fns';
-import { isValidMedicalID } from '@/utils/medical-id';
+import { validateStoredMedicalID } from '@/utils/medical-id';
 
 /**
  * Email result interface for all email operations
@@ -525,7 +525,7 @@ export const sendVerificationEmail = async (data: VerificationEmailData): Promis
                   <div style="background-color: white; padding: 8px; border: 1px solid #ddd; display: inline-block;">
                     <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https://platform.com/patient/${(() => {
                       // Use the exact same medical ID as displayed above for consistency
-                      if (data.medicalId && isValidMedicalID(data.medicalId)) {
+                      if (data.medicalId && validateStoredMedicalID(data.medicalId)) {
                         return data.medicalId;
                       } else if (data._generatedMedId) {
                         // Reuse the generated ID from above

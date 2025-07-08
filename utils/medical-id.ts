@@ -45,50 +45,62 @@ export class MedicalIDGenerator {
 
   /**
    * Generates a standard 5-character NHS-style medical ID
-   * Guaranteed to be secure, random, and policy-compliant
+   * Guaranteed to be secure, random, and policy-compliant with:
+   * - Exactly 5 characters total
+   * - 2-3 letters and 2-3 numbers (always adding up to 5)
+   * - Follows NHS-style format requirements
    */
   static generateStandardID(): string {
     this.generationStats.totalGenerated++;
     
-    // Track attempts to prevent infinite loops
-    let attempts = 0;
-    const maxAttempts = 20;
+    // For NHS-style IDs, we'll always use the structured approach
+    // that guarantees the right distribution of letters and numbers
     
-    while (attempts < maxAttempts) {
-      attempts++;
-      
-      // Create secure random bytes
-      const randomBytes = crypto.randomBytes(10);
-      
-      // Build the 5-character ID
-      let id = '';
-      
-      // Ensure we have at least one number and one letter
-      let hasLetter = false;
-      let hasNumber = false;
-      
-      // Generate each character
-      for (let i = 0; i < 5; i++) {
-        // Use modulo to get index within ALLOWED_CHARS range
-        const index = randomBytes[i] % ALLOWED_CHARS.length;
-        const char = ALLOWED_CHARS[index];
-        
-        // Track if we've added letters and numbers
-        if (LETTER_CHARS.includes(char)) hasLetter = true;
-        if (NUMBER_CHARS.includes(char)) hasNumber = true;
-        
-        id += char;
-      }
-      
-      // Validate the generated ID
-      if (MedicalIDValidator.validateStandardID(id)) {
-        this.generationStats.lastGenerated = id;
-        return id;
-      }
+    // Decide if we want 2 letters + 3 numbers or 3 letters + 2 numbers
+    // Use a random byte to make this decision
+    const randomByte = crypto.randomBytes(1)[0];
+    const useThreeLetters = (randomByte % 2 === 0); // 50% chance for each format
+    
+    // Create secure random bytes for character selection
+    const randomBytes = crypto.randomBytes(10);
+    
+    // Build the character arrays based on our distribution decision
+    const letterCount = useThreeLetters ? 3 : 2;
+    const numberCount = 5 - letterCount; // Either 2 or 3
+    
+    // Create arrays of letters and numbers
+    const letters = [];
+    for (let i = 0; i < letterCount; i++) {
+      const letterChar = LETTER_CHARS[randomBytes[i] % LETTER_CHARS.length];
+      letters.push(letterChar);
     }
     
-    // If we've exceeded max attempts, use the backup method
-    return this._generateBackupID();
+    const numbers = [];
+    for (let i = 0; i < numberCount; i++) {
+      const numberChar = NUMBER_CHARS[randomBytes[i + letterCount] % NUMBER_CHARS.length];
+      numbers.push(numberChar);
+    }
+    
+    // Combine arrays and shuffle to randomize letter/number positions
+    const characters = [...letters, ...numbers];
+    
+    // Fisher-Yates shuffle algorithm
+    for (let i = characters.length - 1; i > 0; i--) {
+      const j = Math.floor((randomBytes[i % randomBytes.length] / 255) * (i + 1));
+      [characters[i], characters[j]] = [characters[j], characters[i]];
+    }
+    
+    // Join the characters to form the ID
+    const id = characters.join('');
+    
+    // Ensure the ID isn't in the prohibited list
+    if (PROHIBITED_IDS.has(id)) {
+      // Try again recursively - this is safe as prohibited IDs are very few
+      return this.generateStandardID();
+    }
+    
+    this.generationStats.lastGenerated = id;
+    return id;
   }
 
   /**

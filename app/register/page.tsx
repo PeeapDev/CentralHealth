@@ -304,32 +304,21 @@ export default function PatientRegistration() {
       // Don't display the OTP immediately - wait for successful email delivery
       // The OTP will only be displayed after email confirmation
       
-      // Priority system for medical ID:
-      // 1. Use existing medicalId from formData if available
-      // 2. Check localStorage for medicalNumber
-      // 3. Check localStorage for patientId
-      // 4. Generate a new one as last resort
-      let medicalId = formData.medicalId || 
-                   localStorage.getItem("medicalNumber") || 
-                   localStorage.getItem("patientId");
+      // Generate a medical ID for the verification and future registration
+      // According to CentralHealth policy, each patient must have one permanent medical ID
+      // that follows NHS-style 5-character alphanumeric format
+      console.log('Generating a new medical ID for the patient...');
+      const medicalId = generateMedicalID();
+      console.log(`Generated new medical ID using central utility: ${medicalId}`);
       
-      if (!medicalId) {
-        // Use the centralized medical ID generator for consistency only if we don't have an ID
-        medicalId = generateMedicalID();
-        console.log(`Generated new medical ID using central utility: ${medicalId}`);
-      } else {
-        console.log(`Using existing medical ID: ${medicalId}`);
-      }
-      
-      // Update form data with medical ID
+      // Update form data with the generated medical ID
       setFormData(prev => ({
         ...prev,
         medicalId: medicalId
       }));
       
-      // Ensure consistent storage in localStorage
-      localStorage.setItem("medicalNumber", medicalId);
-      localStorage.setItem("patientId", medicalId);
+      // We don't store this in localStorage to prevent confusion
+      // The medical ID will be properly saved when the patient completes registration
       
       // Hospital information for personalized email
       const hospitalName = "Sierra Leone National Health Service";
@@ -350,13 +339,16 @@ export default function PatientRegistration() {
         // Use server action to send email with real SMTP (this runs on the server side)
         // Wait for the email to be sent before continuing
         try {
+          // Use the directly generated medicalId rather than formData.medicalId
+          // because state updates (setFormData) are asynchronous and may not be reflected yet
+          console.log(`Sending email with medical ID: ${medicalId}`);
           const emailResult = await sendOTPEmail(
             formData.email, 
             generatedOTP,
             formData.firstName,
             formData.lastName,
             formData.gender,
-            formData.medicalId // Pass medical ID to the email template
+            medicalId // Use the direct variable, not the state variable
           );
           
           // Dismiss loading toast
@@ -727,59 +719,26 @@ export default function PatientRegistration() {
     return Object.keys(errors).length === 0;
   };
 
+  // Medical IDs are now handled by the server during registration
+  // According to CentralHealth System requirements:
+  // - Medical IDs must NEVER be regenerated for existing patients
+  // - Each patient receives ONE permanent medical ID for their lifetime
+  // - Medical IDs must follow NHS-style 5-character alphanumeric format
+  // - Medical IDs are only generated when a new patient record is created
   useEffect(() => {
-    const getMedicalId = () => {
-      // Priority system for medical ID
-      // 1. Use existing medicalId in formData if available
-      // 2. Check localStorage for medicalNumber
-      // 3. Check localStorage for patientId
-      // 4. Generate new ID as last resort
-      
-      // Check if we already have one in the form data
-      if (formData.medicalId) {
-        console.log('Using existing medical ID from form data:', formData.medicalId);
-        return formData.medicalId;
-      }
-      
-      // Check localStorage for medicalNumber
-      const storedMedicalNumber = localStorage.getItem('medicalNumber');
-      if (storedMedicalNumber) {
-        console.log('Using medical number from localStorage:', storedMedicalNumber);
-        return storedMedicalNumber;
-      }
-      
-      // Check localStorage for patientId
-      const storedPatientId = localStorage.getItem('patientId');
-      if (storedPatientId) {
-        console.log('Using patient ID from localStorage:', storedPatientId);
-        return storedPatientId;
-      }
-      
-      // Generate new ID as last resort
-      const generateMedicalId = () => {
-        // Generate a 5-character ID using letters and numbers
-        const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-        return [...Array(5)].map(() => chars.charAt(Math.floor(Math.random() * chars.length))).join("");
-      };
-      
-      const newId = generateMedicalId();
-      console.log('Generated new medical ID:', newId);
-      return newId;
-    };
+    // Clear any stored medical IDs from localStorage to prevent confusion
+    // The proper medical ID will be assigned during the actual registration process
+    localStorage.removeItem('medicalNumber');
+    localStorage.removeItem('patientId');
     
-    const medicalId = getMedicalId();
-    
-    // Store the medical ID in form data
+    // Clear any medical ID in the form data
     setFormData(prev => ({
       ...prev,
-      medicalId
+      medicalId: '' // Leave blank - will be generated by server
     }));
     
-    // Store in localStorage for persistence throughout the application
-    localStorage.setItem('medicalNumber', medicalId);
-    localStorage.setItem('patientId', medicalId);
-    
-  }, [formData.medicalId]);
+    console.log('Medical ID will be generated by the server during registration');
+  }, []);
 
   // Handle registration submission
   const handleRegister = async (e: React.FormEvent<HTMLFormElement>) => {
