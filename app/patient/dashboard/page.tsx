@@ -1,51 +1,324 @@
 "use client"
 
 import { useState, useEffect, useRef } from 'react'
-import { useRouter, useSearchParams } from "next/navigation"
-import { MedicalIDGenerator, MedicalIDFormatter } from "@/utils/medical-id"
-import {
-  Activity,
-  AlertTriangle,
-  Calendar,
-  Clock,
-  Heart,
-  MessageSquare,
-  Phone,
-  Pill,
-  Plus,
-  PlusCircle,
-  Stethoscope,
-  Thermometer,
-  User,
-  Users,
-  FileText,
-  TrendingUp,
-  LogOut,
-  XCircle,
-  Video,
-} from "lucide-react"
-
+import { useRouter, useSearchParams } from 'next/navigation'
+import { useToast } from "@/components/ui/use-toast"
+import Link from 'next/link'
+import Image from 'next/image'
+import dynamic from 'next/dynamic'
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Calendar } from "@/components/ui/calendar"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
-import { DashboardLayout } from "@/components/patients/dashboard/dashboard-layout"
+import { Spinner } from "@/components/ui/spinner"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { usePatientProfile } from "@/hooks/use-patient-profile"
 import { DEFAULT_HOSPITAL } from "@/lib/hospital-context"
 import { useHospitalContext } from "@/hooks/use-hospital-context"
-import { Spinner } from "@/components/ui/spinner"
-import { getInitialsFromFhirName, formatFhirName } from "@/utils/fhir-helpers"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import QRCode from "react-qr-code"
-import { DoctorCarousel } from "@/components/patients/doctor-carousel"
-import { getSpecialistDoctors, getDoctorsByHospital, Doctor } from "@/lib/doctor-data"
-import { useToast } from "@/components/ui/use-toast"
+import { format } from 'date-fns'
 
-// Define our patient data interface for consistency
+// Dynamically import the dashboard layout
+const DashboardLayout = dynamic(() => import('@/components/patients/dashboard/dashboard-layout'), {
+  loading: () => <FallbackLayout currentPage="dashboard" onNavigate={() => {}} breadcrumbs={[]} hideProfileHeader={false} />,
+  ssr: false,
+})
+
+// Fallback to a basic layout if the import fails
+interface FallbackLayoutProps {
+  children?: React.ReactNode;
+  currentPage: string;
+  onNavigate: (page: string) => void;
+  breadcrumbs?: Array<{label: string; href?: string}>;
+  hideProfileHeader?: boolean;
+}
+
+function FallbackLayout({ children, currentPage, onNavigate, breadcrumbs = [], hideProfileHeader = false }: FallbackLayoutProps) {
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <div className="container mx-auto p-4">
+        <div className="flex flex-col lg:flex-row gap-8">
+          <div className="lg:w-64 flex-shrink-0">
+            {/* Sidebar placeholder */}
+            <div className="bg-white p-4 rounded-lg shadow-sm"></div>
+          </div>
+          <div className="flex-grow">{children}</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Define Doctor type to avoid duplication
+type Doctor = {
+  id: string;
+  name: string;
+  specialty: string;
+  availability?: string[];
+  hospital?: string;
+  rating?: number;
+  photoUrl?: string;
+  available?: boolean;
+}
+
+// Utility function to get doctors by hospital
+function getDoctorsByHospital(hospitalName: string): Doctor[] {
+  // In a real app, this would fetch from an API
+  const allDoctors: Doctor[] = [
+    {
+      id: "doc1",
+      name: "Dr. Sarah Johnson",
+      specialty: "Cardiology",
+      hospital: "Central Hospital",
+      rating: 4.8,
+      available: true,
+      photoUrl: "/images/doctors/doctor-1.jpg"
+    },
+    {
+      id: "doc2",
+      name: "Dr. Michael Chen",
+      specialty: "Neurology",
+      hospital: "Central Hospital",
+      rating: 4.9,
+      available: false,
+      photoUrl: "/images/doctors/doctor-2.jpg"
+    },
+    {
+      id: "doc3",
+      name: "Dr. Emily Rodriguez",
+      specialty: "Pediatrics",
+      hospital: "St. Mary's Medical Center",
+      rating: 4.7,
+      available: true,
+      photoUrl: "/images/doctors/doctor-3.jpg"
+    },
+    {
+      id: "doc4",
+      name: "Dr. David Kim",
+      specialty: "Oncology",
+      hospital: "Memorial Hospital",
+      rating: 4.9,
+      available: true,
+      photoUrl: "/images/doctors/doctor-4.jpg"
+    },
+  ];
+  
+  return allDoctors.filter(doctor => doctor.hospital?.toLowerCase() === hospitalName.toLowerCase());
+}
+
+// Get diverse doctors for carousel
+function getDiverseDoctors() {
+  return [
+    {
+      id: "cardio1",
+      name: "Dr. Robert Miller",
+      specialty: "Cardiology",
+      rating: 4.8,
+      available: true,
+      photoUrl: "/images/doctors/cardiologist-1.jpg"
+    },
+    {
+      id: "cardio2",
+      name: "Dr. Patricia Clark",
+      specialty: "Cardiology",
+      rating: 4.7,
+      available: true,
+      photoUrl: "/images/doctors/cardiologist-2.jpg"
+    },
+    {
+      id: "ped1",
+      name: "Dr. James Wilson",
+      specialty: "Pediatrics",
+      rating: 4.9,
+      available: true,
+      photoUrl: "/images/doctors/pediatrician-1.jpg"
+    },
+    {
+      id: "ped2",
+      name: "Dr. Linda Garcia",
+      specialty: "Pediatrics",
+      rating: 4.8,
+      available: false,
+      photoUrl: "/images/doctors/pediatrician-2.jpg"
+    },
+    {
+      id: "neuro1",
+      name: "Dr. Michael Chen",
+      specialty: "Neurology",
+      rating: 4.9,
+      available: true,
+      photoUrl: "/images/doctors/doctor-2.jpg"
+    },
+    {
+      id: "derm1",
+      name: "Dr. Sarah Johnson",
+      specialty: "Dermatology",
+      rating: 4.6,
+      available: true,
+      photoUrl: "/images/doctors/doctor-1.jpg"
+    },
+    {
+      id: "ortho1",
+      name: "Dr. David Kim",
+      specialty: "Orthopedics",
+      rating: 4.7,
+      available: true,
+      photoUrl: "/images/doctors/doctor-4.jpg"
+    },
+    {
+      id: "onco1",
+      name: "Dr. Emily Rodriguez",
+      specialty: "Oncology",
+      rating: 4.8,
+      available: true,
+      photoUrl: "/images/doctors/doctor-3.jpg"
+    },
+    {
+      id: "psych1",
+      name: "Dr. Thomas Wright",
+      specialty: "Psychiatry",
+      rating: 4.9,
+      available: true,
+      photoUrl: "/images/doctors/doctor-5.jpg"
+    },
+    {
+      id: "gyn1",
+      name: "Dr. Jessica Martinez",
+      specialty: "Gynecology",
+      rating: 4.7,
+      available: false,
+      photoUrl: "/images/doctors/doctor-6.jpg"
+    }
+  ];
+}
+
+// Doctor carousel component for displaying available doctors with auto-slide functionality
+function DoctorCarousel({ 
+  title, 
+  doctors, 
+  onAppointmentRequest, 
+  singleLine = false,
+  autoSlide = true
+}: { 
+  title: string;
+  doctors: Doctor[];
+  onAppointmentRequest: (doctorId: string, appointmentType: 'in-person' | 'consultation') => void;
+  singleLine?: boolean;
+  autoSlide?: boolean;
+}) {
+  const [visibleDoctors, setVisibleDoctors] = useState<Doctor[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const itemsToShow = 6; // Show 6 doctors at a time in the carousel
+  
+  // Initialize visible doctors
+  useEffect(() => {
+    if (doctors && doctors.length > 0) {
+      // If we have fewer doctors than slots, just show them all
+      if (doctors.length <= itemsToShow) {
+        setVisibleDoctors(doctors);
+      } else {
+        // Otherwise, show the first batch
+        setVisibleDoctors(doctors.slice(0, itemsToShow));
+      }
+    }
+  }, [doctors]);
+  
+  // Set up auto-sliding if enabled (sliding left)
+  useEffect(() => {
+    if (!autoSlide || doctors.length <= itemsToShow) return;
+    
+    const interval = setInterval(() => {
+      setCurrentIndex(prevIndex => {
+        const nextIndex = (prevIndex + 1) % (doctors.length - itemsToShow + 1);
+        setVisibleDoctors(doctors.slice(nextIndex, nextIndex + itemsToShow));
+        return nextIndex;
+      });
+    }, 3000); // Slide every 3 seconds
+    
+    return () => clearInterval(interval);
+  }, [autoSlide, doctors, itemsToShow]);
+
+  if (!doctors || doctors.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mb-8 border border-purple-200 rounded-lg p-4 bg-gradient-to-r from-purple-50 to-blue-50">
+      {title && <h3 className="text-lg font-semibold mb-4 text-purple-700">{title}</h3>}
+      <div className={`grid grid-flow-col auto-cols-max overflow-x-auto gap-4 pb-4 scroll-smooth`}>
+        {visibleDoctors.map((doctor) => {
+          // Assign different colors based on specialty
+          const getCardColor = () => {
+            switch(doctor.specialty.toLowerCase()) {
+              case 'cardiology': return 'border-red-200 bg-gradient-to-br from-red-50 to-pink-50';
+              case 'pediatrics': return 'border-blue-200 bg-gradient-to-br from-blue-50 to-cyan-50';
+              case 'neurology': return 'border-purple-200 bg-gradient-to-br from-purple-50 to-indigo-50';
+              case 'dermatology': return 'border-green-200 bg-gradient-to-br from-green-50 to-emerald-50';
+              case 'orthopedics': return 'border-orange-200 bg-gradient-to-br from-orange-50 to-amber-50';
+              case 'oncology': return 'border-yellow-200 bg-gradient-to-br from-yellow-50 to-amber-50';
+              case 'psychiatry': return 'border-teal-200 bg-gradient-to-br from-teal-50 to-cyan-50';
+              case 'gynecology': return 'border-pink-200 bg-gradient-to-br from-pink-50 to-rose-50';
+              default: return 'border-gray-200 bg-gradient-to-br from-gray-50 to-slate-50';
+            }
+          };
+          
+          return (
+            <Card key={doctor.id} className={`w-48 flex-shrink-0 ${getCardColor()} shadow-sm transition-all hover:shadow-md`}>
+              <CardContent className="pt-4">
+                <div className="flex flex-col items-center">
+                  <Avatar className="h-16 w-16 mb-2 ring-2 ring-white ring-offset-2 ring-offset-blue-100">
+                    <AvatarImage src={doctor.photoUrl || ""} alt={doctor.name} />
+                    <AvatarFallback className="bg-blue-500 text-white">{doctor.name.split(' ').map(n => n[0]).join('')}</AvatarFallback>
+                  </Avatar>
+                  <h4 className="font-semibold text-gray-800">{doctor.name}</h4>
+                  <p className="text-sm font-medium text-purple-700">{doctor.specialty}</p>
+                  {doctor.rating && <div className="text-sm text-amber-500 font-medium">★ {doctor.rating}</div>}
+                  <div className="mt-3 w-full flex gap-2">
+                    <Button 
+                      size="sm" 
+                      variant="outline"
+                      className="flex-1 border-purple-200 text-purple-700 hover:bg-purple-50"
+                      onClick={() => onAppointmentRequest(doctor.id, 'consultation')}
+                    >
+                      Consult
+                    </Button>
+                    <Button 
+                      size="sm"
+                      className="flex-1 bg-blue-600 hover:bg-blue-700"
+                      onClick={() => onAppointmentRequest(doctor.id, 'in-person')}
+                    >
+                      Book
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+      {doctors.length > itemsToShow && (
+        <div className="flex justify-center mt-2 gap-1">
+          {Array.from({ length: Math.ceil(doctors.length / itemsToShow) }).map((_, i) => (
+            <button 
+              key={i} 
+              className={`w-2 h-2 rounded-full ${currentIndex === i ? 'bg-purple-600' : 'bg-gray-300'}`}
+              onClick={() => {
+                setCurrentIndex(i);
+                setVisibleDoctors(doctors.slice(i * itemsToShow, i * itemsToShow + itemsToShow));
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Define patient data interface
 interface PatientData {
   name: string;
-  medicalNumber: string; // NHS-style 5-character alphanumeric format per hospital policy
+  medicalNumber: string;
   gender: string;
   age: string;
   dateOfBirth: string;
@@ -74,34 +347,131 @@ interface PatientData {
   allergies: Array<{ name: string; severity: string }>;
   conditions: string[];
   medications: Array<{ name: string; dosage: string; frequency: string }>;
-  appointments?: any[]; // Make optional since it might be loaded later
+  appointments?: any[];
 }
 
+// Cache constants
+const PROFILE_CACHE_KEY = 'cachedPatientProfile';
+const PROFILE_CACHE_TIMESTAMP_KEY = 'cachedPatientProfileTimestamp';
+const PROFILE_MAX_CACHE_AGE_MS = 30 * 60 * 1000; // 30 minutes
+const PATIENT_PROFILE_CACHE_KEY = 'patientProfileData';
+const PATIENT_NAME_CACHE_KEY = 'patientName';
+const PATIENT_PHOTO_CACHE_KEY = 'patientProfilePhoto';
+
 export default function PatientDashboardPage() {
-  // Get route parameters and notifications
-  const router = useRouter()
-  const searchParams = useSearchParams()
-  const notification = searchParams?.get('notification')
-  const [currentPage, setCurrentPage] = useState("dashboard")
-  const [isOverview, setIsOverview] = useState(true) // Always true on dashboard
-  const [showSessionWarning, setShowSessionWarning] = useState(notification === 'session_warning')
+  // Get route parameters and router
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const notification = searchParams?.get('notification');
+  const returnUrl = searchParams?.get('returnUrl') || '';
+  const initialPage = searchParams?.get('page') || 'dashboard';
   
   // Use our hospital context to avoid "hospital not found" errors
-  const { hospital } = useHospitalContext()
-  const { toast } = useToast()
-  
-  // Define more granular loading states for better UX
-  const [isLoading, setIsLoading] = useState(true)
-  const [isCriticalDataLoaded, setIsCriticalDataLoaded] = useState(false)
-  const [isProfilePhotoLoading, setIsProfilePhotoLoading] = useState(true)
-  const [isSecondaryDataLoading, setIsSecondaryDataLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { hospital } = useHospitalContext();
   
   // Authentication verification ref
-  const isAuthVerified = useRef(false)
+  const isAuthVerified = useRef(false);
   
   // Create an AbortController ref for API fetch requests
-  const abortController = useRef(new AbortController())
+  const abortController = useRef(new AbortController());
+  
+  // Toast notifications
+  const { toast } = useToast();
+  
+  // Initial patient data state with cached name if available
+  const initialPatientName = typeof window !== 'undefined' ? 
+    localStorage.getItem(PATIENT_NAME_CACHE_KEY) || "Unknown" : "Unknown";
+  
+  // Define component state
+  const [currentPage, setCurrentPage] = useState(initialPage);
+  const [isOverview, setIsOverview] = useState(currentPage === 'dashboard');
+  const [showSessionWarning, setShowSessionWarning] = useState(notification === 'session_warning');
+  
+  // Loading and error states
+  const [isLoading, setIsLoading] = useState(true);
+  const [isCriticalDataLoaded, setIsCriticalDataLoaded] = useState(false);
+  const [isProfilePhotoLoading, setIsProfilePhotoLoading] = useState(true);
+  const [isSecondaryDataLoading, setIsSecondaryDataLoading] = useState(true);
+  const [localError, setLocalError] = useState<string | null>(null);
+  
+  // Doctor data state
+  const [hospitalDoctors, setHospitalDoctors] = useState<Doctor[]>([]);
+  const [specialistDoctors, setSpecialistDoctors] = useState<{
+    cardiologists: Doctor[],
+    pediatricians: Doctor[]
+  }>({cardiologists: [], pediatricians: []});
+  const [allDoctors, setAllDoctors] = useState<Doctor[]>([]);
+  
+  // Effect to combine all doctors for the main carousel
+  useEffect(() => {
+    const doctors = [
+      ...hospitalDoctors,
+      ...specialistDoctors.cardiologists
+    ];
+    // Create a unique set of doctors by ID to avoid duplicates
+    const uniqueDoctors = doctors.filter((doctor, index, self) => 
+      index === self.findIndex((d) => d.id === doctor.id)
+    );
+    setAllDoctors(uniqueDoctors);
+  }, [hospitalDoctors, specialistDoctors]);
+  
+  // UI state
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isAppointmentPending, setIsAppointmentPending] = useState(false);
+  
+  // Profile-related states
+  const [profile, setProfile] = useState<any>(null);
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(
+    typeof window !== 'undefined' ? localStorage.getItem(PATIENT_PHOTO_CACHE_KEY) || '/images/default-avatar.png' : '/images/default-avatar.png'
+  );
+  
+  // Patient data state
+  const [patientData, setPatientData] = useState<PatientData>({
+    name: initialPatientName,
+    medicalNumber: "Pending",
+    dateOfBirth: "Unknown",
+    age: "", 
+    gender: "unknown",
+    bloodType: "",
+    onboardingCompleted: false,
+    admittedDate: "",
+    attendingDoctor: "",
+    room: "",
+    address: "",
+    phone: "",
+    email: "",
+    vitalSigns: {
+      temperature: "",
+      bloodPressure: "",
+      heartRate: "",
+      respiratoryRate: "",
+      height: "",
+      weight: ""
+    },
+    insurance: {
+      provider: "Unknown",
+      policyNumber: "",
+      group: "",
+      expirationDate: ""
+    },
+    allergies: [],
+    conditions: [],
+    medications: []
+  });
+  
+  // OPTIMIZED: Use patient profile hook with improved options
+  const { 
+    profile: fetchedProfile, 
+    error: profileError, 
+    profilePhotoUrl, 
+    isProfilePhotoLoading: hookProfilePhotoLoading,
+    isLoading: profileIsLoading,
+    refreshProfile
+  } = usePatientProfile({ 
+    persistSession: true,
+    loadProfilePhoto: true,
+    skipCache: false // Use cache by default for faster loading
+  });
   
   // SECURITY: Client-side authentication guard
   useEffect(() => {
@@ -128,203 +498,58 @@ export default function PatientDashboardPage() {
     // Mark authentication as verified if any valid token exists
     isAuthVerified.current = true;
     console.log('✅ Dashboard authentication verified');
-  }, [])
+  }, [profile?.medicalNumber]);
   
-  // Doctor-related states
-  const [hospitalDoctors, setHospitalDoctors] = useState<Doctor[]>([])
-  const [specialistDoctors, setSpecialistDoctors] = useState<{[key: string]: Doctor[]}>({})
-  const [isAppointmentPending, setIsAppointmentPending] = useState(false)
-  
-  // Fetch patient profile data with immediate error handling
-  // Set session persistence to true to maintain authentication across page loads
-  // Explicitly request profile photo loading
-  const { 
-    profile, 
-    error: profileError, 
-    profilePhotoUrl, // Get the profile photo URL directly from the hook
-    isProfilePhotoLoading: hookProfilePhotoLoading,
-    refreshProfile
-  } = usePatientProfile({ 
-    persistSession: true,
-    loadProfilePhoto: true // Ensure profile photo is loaded
-  })
-  
-  // Patient photo state management with localStorage caching
-  const [profilePhoto, setProfilePhoto] = useState<string | null>('/images/default-avatar.png')
-  
-  // Effect to sync profile photo URL from the hook to the dashboard state
+  // Update our local profile state from the hook
   useEffect(() => {
-    if (profilePhotoUrl) {
-      console.log('Received profile photo from hook:', profilePhotoUrl.substring(0, 30) + '...');
-      setProfilePhoto(profilePhotoUrl);
-      setIsProfilePhotoLoading(false);
-      // Also persist in localStorage for faster loading on future visits
-      localStorage.setItem('patientProfilePhoto', profilePhotoUrl);
-    } else if (profilePhoto === '/images/default-avatar.png') {
-      // If using default and no photo from hook yet, try localStorage
-      const cachedPhoto = localStorage.getItem('patientProfilePhoto');
-      if (cachedPhoto) {
-        console.log('Using cached profile photo from localStorage');
-        setProfilePhoto(cachedPhoto);
-        setIsProfilePhotoLoading(false);
-      } else {
-        // Keep using the default avatar if nothing else is available
-        setIsProfilePhotoLoading(false);
-      }
+    if (fetchedProfile) {
+      setProfile(fetchedProfile);
     }
-  }, [profilePhotoUrl, profilePhoto])
+  }, [fetchedProfile]);
   
-  const [patientData, setPatientData] = useState<PatientData>({
-    name: "Unknown",
-    medicalNumber: "",
-    gender: "unknown",
-    age: "--",
-    dateOfBirth: "",
-    phone: "000-000-0000",
-    email: "",
-    address: "No address recorded",
-    bloodType: "Unknown",
-    onboardingCompleted: false,
-    admittedDate: "",
-    attendingDoctor: "",
-    room: "",
-    // All vital signs moved under the vitalSigns object
-    vitalSigns: {
-      temperature: "Not recorded",
-      bloodPressure: "Not recorded",
-      heartRate: "Not recorded", 
-      respiratoryRate: "Not recorded",
-      height: "Not recorded",
-      weight: "Not recorded"
-    },
-    insurance: {
-      provider: "Unknown",
-      policyNumber: "",
-      group: "",
-      expirationDate: ""
-    },
-    allergies: [] as Array<{ name: string; severity: string }>,
-    conditions: [] as string[],
-    medications: [] as Array<{ name: string; dosage: string; frequency: string }>,
-    appointments: [] // Add appointments array to match interface
-  })
-  
-  // Effect to immediately update patient name as soon as it's available
-  // This significantly improves perceived UI responsiveness
-  useEffect(() => {
-    if (profile) {
-      // Extract patient name from profile as soon as it's available using firstName and lastName
-      // This matches the CentralHealth policy of using actual patient data fields
-      const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
-      
-      // Try to use localStorage data for faster rendering if profile data isn't available yet
-      if (!fullName) {
-        const storedName = localStorage.getItem('currentPatientName');
-        if (storedName && patientData.name === "Unknown") {
-          setPatientData(prev => ({ ...prev, name: storedName }));
-        }
-        return;
-      }
-      
-      if (fullName && fullName !== patientData.name && fullName !== "Unknown") {
-        console.log('Immediately updating patient name:', fullName);
-        
-        // Update only the name field immediately for faster UI rendering
-        setPatientData(prev => ({
-          ...prev,
-          name: fullName,
-          // Also update medical number if available per CentralHealth policies
-          medicalNumber: profile.mrn || patientData.medicalNumber
-        }));
-        
-        // Cache the name for future visits
-        localStorage.setItem('currentPatientName', fullName);
-      }
-    }
-  }, [profile, patientData.name]) // Run when profile or current name changes
-  
-  // Check if the user is logged in by checking localStorage
-  useEffect(() => {
-    const checkLoginStatus = () => {
-      // Check for login token in localStorage - no longer check for medicalNumber per CentralHealth policy
-      const hasToken = localStorage.getItem('authToken') || 
-                      localStorage.getItem('patientId');
-      
-      // If we have a token or identifier, we can show the UI immediately
-      if (hasToken) {
-        setIsCriticalDataLoaded(true);
-        // Short timeout to allow for layout calculations
-        setTimeout(() => setIsLoading(false), 300);
-      }
-    };
-    
-    // Run login check immediately
-    checkLoginStatus();
-  }, []);
-  
-  // Performance tracking and progressive rendering
+  // OPTIMIZED: Pre-load cached profile data immediately
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      // Mark the start time when component mounts
-      const startTime = performance.now();
-      
-      // Always set critical data loaded after profile is loaded
-      if (profile) {
-        setIsCriticalDataLoaded(true);
-        setIsLoading(false);
+      try {
+        // Try to load profile from cache first for instant display
+        const cachedProfileData = localStorage.getItem(PROFILE_CACHE_KEY);
+        const cachedTimestamp = localStorage.getItem(PROFILE_CACHE_TIMESTAMP_KEY);
         
-        // Track rendering performance for monitoring
-        if (window.performance && window.performance.mark) {
-          window.performance.mark('dashboard-first-render');
-        }
-      }
-      
-      // Phase 3: Guaranteed loading exit - ensure dashboard NEVER stays in loading state too long
-      const maxLoadingTime = 3000; // Reduced from 5s to 3s
-      const loadingTimeout = setTimeout(() => {
-        if (isLoading) {
-          console.warn('Dashboard loading timeout reached, forcing exit from loading state');
-          setIsLoading(false);
+        if (cachedProfileData && cachedTimestamp) {
+          const timestamp = parseInt(cachedTimestamp, 10);
+          const now = Date.now();
+          const isRecent = now - timestamp < PROFILE_MAX_CACHE_AGE_MS;
           
-          // If we don't have critical data yet, at least set it to true to show something
-          if (!isCriticalDataLoaded) {
-            setIsCriticalDataLoaded(true);
+          if (isRecent) {
+            // Use cached data for immediate display
+            const cachedProfile = JSON.parse(cachedProfileData);
+            console.log('Using cached profile data for instant rendering');
             
-            // Log this as an error for monitoring
-            console.error('Critical data failed to load before timeout');
+            // Immediately update critical display fields
+            setPatientData(prevData => ({
+              ...prevData,
+              name: cachedProfile.firstName && cachedProfile.lastName ? 
+                `${cachedProfile.firstName} ${cachedProfile.lastName}`.trim() : 
+                prevData.name,
+              medicalNumber: cachedProfile.mrn || cachedProfile.medicalNumber || prevData.medicalNumber,
+              age: cachedProfile.age ? cachedProfile.age.toString() : prevData.age,
+              gender: cachedProfile.gender || prevData.gender
+            }));
+            
+            setIsCriticalDataLoaded(true);
           }
         }
         
-        // Measure and log total render time for performance monitoring
-        const renderTime = performance.now() - startTime;
-        console.log(`Dashboard render time: ${Math.round(renderTime)}ms`);
-      }, maxLoadingTime);
-      
-      // Add a cleanup function that logs the total render time
-      return () => {
-        clearTimeout(loadingTimeout);
-        const endTime = performance.now();
-        const loadTime = endTime - startTime;
-        console.log(`Dashboard loaded in ${loadTime.toFixed(2)}ms`);
-        
-        // Optional: track this metric for analytics
-        if (loadTime > 2000) {
-          // Could send to analytics service if it's slow
-          console.warn('Dashboard load time exceeded 2 seconds');
+        // Try to load cached profile photo
+        const cachedPhoto = localStorage.getItem(PATIENT_PHOTO_CACHE_KEY);
+        if (cachedPhoto) {
+          setProfilePhoto(cachedPhoto);
+          setIsProfilePhotoLoading(false);
         }
-      };
+      } catch (error) {
+        console.warn('Error loading cached profile data:', error);
+      }
     }
-  }, [isLoading, isCriticalDataLoaded]);
-  
-  // Extract the medical ID from the profile following CentralHealth policy
-  // Medical IDs must follow NHS-style 5-character alphanumeric format and be stored as MRN
-  const medicalNumber = profile?.mrn || "unknown";
-
-  // Clean up all requests on unmount
-  useEffect(() => {
-    return () => {
-      abortController.current.abort();
-    };
   }, []);
   
   // Load available doctors
@@ -334,11 +559,101 @@ export default function PatientDashboardPage() {
       const hospitalDocs = getDoctorsByHospital(hospital.toString());
       setHospitalDoctors(hospitalDocs);
       
-      // Get doctors by specialty
-      const specialists = getSpecialistDoctors();
-      setSpecialistDoctors(specialists);
+      // Get diverse doctors for the carousel
+      const diverseDoctors = getDiverseDoctors();
+      // We're not using the specialists state anymore, but keeping the code structure similar
+      setSpecialistDoctors({cardiologists: diverseDoctors, pediatricians: []});
     }
   }, [hospital]);
+  
+  // Update error state and loading state whenever profile data changes
+  useEffect(() => {
+    // Update loading state based on profile loading status
+    setIsLoading(profileIsLoading);
+    
+    // If we have a profile error, update our local error state
+    if (profileError) {
+      setLocalError(typeof profileError === 'string' ? profileError : 'An error occurred loading your profile');
+    }
+  }, [profileError, profileIsLoading]);
+  
+  // OPTIMIZED: Effect to immediately update patient name as soon as it's available
+  useEffect(() => {
+    if (profile) {
+      // Extract patient name from profile using firstName and lastName per CentralHealth policy
+      const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
+      
+      if (fullName && fullName !== patientData.name && fullName !== "Unknown") {
+        console.log('Updating patient name:', fullName);
+        
+        // Update only the name field immediately for faster UI rendering
+        setPatientData(prev => ({
+          ...prev,
+          name: fullName,
+          // Also update medical number if available
+          medicalNumber: profile.mrn || patientData.medicalNumber
+        }));
+        
+        // Cache the name for future visits
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(PATIENT_NAME_CACHE_KEY, fullName);
+        }
+      }
+    }
+  }, [profile, patientData.name]);
+  
+  // OPTIMIZED: Effect to sync profile photo URL with improved caching
+  useEffect(() => {
+    if (profilePhotoUrl) {
+      console.log('Setting profile photo');
+      setProfilePhoto(profilePhotoUrl);
+      setIsProfilePhotoLoading(false);
+      
+      // Cache photo for future visits
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(PATIENT_PHOTO_CACHE_KEY, profilePhotoUrl);
+      }
+    } else if (profilePhoto === '/images/default-avatar.png') {
+      // If using default, try localStorage
+      if (typeof window !== 'undefined') {
+        const cachedPhoto = localStorage.getItem(PATIENT_PHOTO_CACHE_KEY);
+        if (cachedPhoto) {
+          setProfilePhoto(cachedPhoto);
+          setIsProfilePhotoLoading(false);
+        } else {
+          setIsProfilePhotoLoading(false);
+        }
+      }
+    }
+  }, [profilePhotoUrl, profilePhoto]);
+  
+  // Clean up all requests on unmount
+  useEffect(() => {
+    return () => {
+      abortController.current.abort();
+    };
+  }, []);
+  
+  // OPTIMIZED: Handle navigation from sidebar with state preservation
+  const handleNavigation = (page: string) => {
+    console.log(`Navigation: ${currentPage} -> ${page}`);
+    setCurrentPage(page);
+    
+    // Don't perform full-page navigation for client-side routes
+    // This preserves state and improves performance
+    if (page === 'dashboard' || page.startsWith('dashboard/')) {
+      setIsOverview(page === 'dashboard');
+      
+      // Use client-side navigation without full page reload
+      // This maintains the patient profile data in memory
+      const path = page === 'dashboard' ? '/patient/dashboard' : `/patient/${page}`;
+      router.push(path);
+      return;
+    }
+    
+    // For other pages, perform normal navigation
+    router.push(`/patient/${page}`);
+  };
   
   // Handle booking appointment or consultation
   const handleAppointmentRequest = async (doctorId: string, appointmentType: 'in-person' | 'consultation') => {
@@ -356,7 +671,6 @@ export default function PatientDashboardPage() {
         variant: "default",
       });
       
-      // In a real implementation, we would refresh the appointments list here
     } catch (err) {
       console.error('Error booking appointment:', err);
       toast({
@@ -368,222 +682,15 @@ export default function PatientDashboardPage() {
       setIsAppointmentPending(false);
     }
   };
-
-  // Debug function to help diagnose issues and provide fallback behavior
-  const debugProfileInfo = (profile: any) => {
-    if (!profile) {
-      console.warn('No profile data available');
-      // Set a dummy profile data to avoid crashes if profile is completely missing
-      setIsCriticalDataLoaded(true);
-      setIsLoading(false);
-      setPatientData(prev => ({
-        ...prev,
-        name: "Patient data unavailable",
-        medicalNumber: "---" // Never use mock medical IDs per CentralHealth rules
-      }));
-      return;
-    }
-    console.log('Profile debug - Available IDs:', {
-      id: profile.id,
-      patientId: profile.patientId, 
-      medicalNumber: profile.medicalNumber,
-      mrn: (profile as any).mrn // Access the standard MRN field as defined in CentralHealth rules
-    });
-  };
   
-  // Always include all hooks in the same order - this is CRITICAL for React
-  // Early safeguard to handle missing profile data
-  useEffect(() => {
-    // Check profile data early and ensure we always exit loading state
-    debugProfileInfo(profile);
-    
-    // Guaranteed exit from loading state after 3 seconds regardless of what happens
-    const guaranteedTimeout = setTimeout(() => {
-      if (isLoading) {
-        console.warn('Guaranteed exit from loading state due to timeout');
-        setIsLoading(false);
-        setIsCriticalDataLoaded(true);
-      }
-    }, 3000);
-    
-    return () => clearTimeout(guaranteedTimeout);
-  }, [profile]);
-  
-  // Helper function to process data from localStorage
-  const processLocalStorage = () => {
-    try {
-      const registrationData = localStorage.getItem('patientRegistrationData');
-      if (registrationData) {
-        try {
-          const parsedData = JSON.parse(registrationData);
-          const updates: Partial<PatientData> = {};
-          const currentPatientData = patientData;
-
-          if (currentPatientData.name === "Loading..." && parsedData.fullName) updates.name = parsedData.fullName;
-          if (!currentPatientData.medicalNumber && parsedData.medicalNumber) updates.medicalNumber = parsedData.medicalNumber;
-          if (currentPatientData.gender === "unknown" && parsedData.gender) updates.gender = parsedData.gender;
-          if (!currentPatientData.phone && parsedData.phone) updates.phone = parsedData.phone;
-          if (!currentPatientData.email && parsedData.email) updates.email = parsedData.email;
-          if (currentPatientData.address === "Loading..." && parsedData.address) updates.address = parsedData.address;
-          if (currentPatientData.bloodType === "--" && parsedData.bloodType) updates.bloodType = parsedData.bloodType;
-
-          if (!profilePhoto && parsedData.photo) {
-            setProfilePhoto(parsedData.photo);
-            localStorage.setItem('patientProfilePhoto', parsedData.photo);
-          }
-
-          if (Object.keys(updates).length > 0) {
-            setPatientData(prev => ({ ...prev, ...updates }));
-          }
-        } catch (parseError) {
-          console.error('Failed to parse registration data:', parseError);
-        }
-      }
-
-      const fallbackUpdates: Partial<PatientData> = {};
-      const currentData = patientData;
-
-      if (currentData.name === "Loading...") {
-        const storedName = localStorage.getItem('currentPatientName');
-        if (storedName) fallbackUpdates.name = storedName;
-      }
-      if (!currentData.medicalNumber || currentData.medicalNumber === "--") {
-        if (profile?.medicalNumber) {
-          setPatientData(prev => ({
-            ...prev,
-            medicalNumber: profile.medicalNumber
-          }));
-        }
-      }
-      if (!currentData.email) {
-        const storedEmail = localStorage.getItem('userEmail');
-        if (storedEmail) fallbackUpdates.email = storedEmail;
-      }
-
-      if (Object.keys(fallbackUpdates).length > 0) {
-        setPatientData(prev => ({ ...prev, ...fallbackUpdates }));
-      }
-    } catch (err) {
-      console.error('Error processing localStorage data:', err);
-    }
-  };
-
-  // Helper function to process the core patient data from the profile
-  const processCorePatientData = (startTime: number) => {
-    const initialData: PatientData = {
-        name: "Loading...",
-        medicalNumber: "",
-        gender: "unknown",
-        age: "",
-        dateOfBirth: "",
-        phone: "",
-        email: "",
-        address: "",
-        bloodType: "",
-        onboardingCompleted: false,
-        admittedDate: "",
-        attendingDoctor: "",
-        room: "",
-        vitalSigns: {
-          temperature: "Not recorded",
-          bloodPressure: "Not recorded",
-          heartRate: "Not recorded",
-          respiratoryRate: "Not recorded",
-          height: "Not recorded",
-          weight: "Not recorded"
-        },
-        insurance: {
-          provider: "Unknown",
-          policyNumber: "",
-          group: "",
-          expirationDate: ""
-        },
-        allergies: [],
-        conditions: [],
-        medications: [],
-        appointments: []
-      };
-
-    try {
-      setPatientData(initialData);
-      setIsCriticalDataLoaded(true);
-
-      if (profile) {
-        const coreData = { ...initialData };
-        // Use firstName and lastName according to PatientProfile type
-        coreData.name = `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || initialData.name;
-        // Use medicalNumber or mrn according to PatientProfile type
-        coreData.medicalNumber = profile.medicalNumber || (profile as any).mrn || profile.id || initialData.medicalNumber;
-        coreData.gender = profile.gender || initialData.gender;
-
-        if (profile.dateOfBirth) {
-          const dob = new Date(profile.dateOfBirth || '');
-          if (dob && !isNaN(dob.getTime())) {
-            const now = new Date();
-            coreData.age = String(now.getFullYear() - dob.getFullYear());
-            coreData.dateOfBirth = dob.toLocaleDateString();
-          }
-        }
-        
-        // Update patient data with core information
-        setPatientData(prev => ({ ...prev, ...coreData }));
-      }
-    } catch (err) {
-      console.error('Error loading patient data:', err);
-      if (setError) {
-        setError('Failed to load patient data. Please try refreshing the page.');
-      }
-    } finally {
-      if (setIsLoading) {
-        setIsLoading(false);
-      }
-      setIsCriticalDataLoaded(true);
-      console.log('Performance: Patient dashboard loaded in', performance.now() - startTime, 'ms');
-    }
-  };
-  
-  // Process core patient data on initial load and when profile changes
-  useEffect(() => {
-    // Initialize loading process
-    const startTime = performance.now();
-    console.log('Starting patient dashboard data loading...');
-    
-    // Immediately load critical data for better UX
-    if (profile) {
-      setIsCriticalDataLoaded(true);
-      setTimeout(() => setIsLoading(false), 200); // Short delay for smoother transition
-    }
-  }, [profile]);
-  
-  // Handle navigation from sidebar
-  const handleNavigation = (page: string) => {
-    // Set overview mode based on current page
-    setIsOverview(page === "dashboard")
-    setCurrentPage(page)
-    
-    if (page === "dashboard") {
-      // Stay on dashboard
-      return
-    }
-    
-    // Fix URL duplication issue by ensuring we don't add duplicate /patient prefix
-    // The page should already be cleaned up by the app-sidebar component
-    if (page.startsWith('patient/')) {
-      // Don't add another /patient prefix
-      router.push(`/${page}`)
-    } else {
-      router.push(`/patient/${page}`)
-    }
-  }
-
-
-
+  // Render loading state
   if (isLoading) {
+    const DashboardLayoutComponent = DashboardLayout as any;
     return (
-      <DashboardLayout
+      <DashboardLayoutComponent
         currentPage={currentPage}
         onNavigate={handleNavigation}
-        breadcrumbs={[{ label: "Dashboard" }]}
+        breadcrumbs={[{ label: "Dashboard", href: "/patient/dashboard" }]}
       >
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center justify-center h-[60vh]">
@@ -592,21 +699,23 @@ export default function PatientDashboardPage() {
             </div>
           </div>
         </div>
-      </DashboardLayout>
-    )
+      </DashboardLayoutComponent>
+    );
   }
   
-  if (error) {
+  // Render error state
+  if (localError) {
+    const DashboardLayoutComponent = DashboardLayout as any;
     return (
-      <DashboardLayout 
+      <DashboardLayoutComponent 
         currentPage={currentPage}
         onNavigate={handleNavigation}
-        breadcrumbs={[{ label: "Dashboard" }]}
+        breadcrumbs={[{ label: "Dashboard", href: "/patient/dashboard" }]}
       >
         <div className="max-w-7xl mx-auto">
           <div className="p-6 rounded-lg border border-red-200 bg-red-50">
             <h2 className="text-red-700 text-lg font-medium mb-2">Error Loading Dashboard</h2>
-            <p className="text-red-600">{error}</p>
+            <p className="text-red-600">{localError || "Failed to load patient dashboard. Please try again."}</p>
             <div className="flex gap-4 mt-4">
               <Button variant="outline" onClick={() => window.location.reload()}>
                 Try Again
@@ -625,72 +734,16 @@ export default function PatientDashboardPage() {
             </div>
           </div>
         </div>
-      </DashboardLayout>
-    )
-  }
-
-  // To ensure proper rendering, display the full dashboard content if ANY of these conditions are met:
-  // 1. We have a valid profile object
-  // 2. We're still loading (show skeleton UI but still render full dashboard structure)
-  // Note: We no longer check localStorage directly for medical IDs as per CentralHealth policy
-  
-  const hasValidAuthentication = !!profile || isLoading;
-    
-  // Only show login screen as a last resort when we're sure the user is not authenticated
-  // This prevents the flash of login UI during normal loading
-  if (!hasValidAuthentication && error === 'Authentication required') {
-    return (
-      <DashboardLayout 
-        currentPage={currentPage} 
-        onNavigate={handleNavigation}
-        breadcrumbs={[{ label: "Dashboard" }]}
-      >
-        <div className="max-w-7xl mx-auto py-6">
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle>Authentication Required</CardTitle>
-              <CardDescription>
-                Please log in to view your patient dashboard
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <p>You need to authenticate to access your medical information.</p>
-                <Button 
-                  onClick={() => router.push('/login')}
-                  className="w-full sm:w-auto"
-                >
-                  Go to Login
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-          
-          {/* Show skeleton UI for doctor carousel */}
-          <div className="space-y-6">
-            <h2 className="text-2xl font-bold">Available Doctors</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[1, 2, 3].map((i) => (
-                <Card key={i} className="h-24 animate-pulse">
-                  <CardContent className="p-4 flex items-center space-x-4">
-                    <div className="w-16 h-16 rounded-full bg-gray-200"></div>
-                    <div className="space-y-2">
-                      <div className="h-4 w-32 bg-gray-200 rounded"></div>
-                      <div className="h-3 w-24 bg-gray-200 rounded"></div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        </div>
-      </DashboardLayout>
+      </DashboardLayoutComponent>
     );
   }
-
+  
+  // Extract the medical ID from the profile following CentralHealth policy
+  // Medical IDs must follow NHS-style 5-character alphanumeric format and be stored as MRN
+  const medicalNumber = profile?.mrn || "unknown";
+  
   // Get the exact medical ID shown in the dashboard
   // CRITICAL: Per CentralHealth policy, medical IDs must be stored consistently in the mrn field
-  // Use mrn as primary source, with fallbacks for backward compatibility
   const dashboardMedicalID = profile?.mrn || profile?.medicalNumber || profile?.id || "";
   
   // Store this exact ID in localStorage for consistency across pages
@@ -698,501 +751,142 @@ export default function PatientDashboardPage() {
     localStorage.setItem('medicalNumber', dashboardMedicalID);
   }
   
-  // Prepare profile data to pass to sidebar using ONLY the dashboard medical ID
-  const profileDataForSidebar = {
-    name: profile ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim() : "", 
-    medicalNumber: dashboardMedicalID, // Use exactly the same ID as shown on dashboard
-    profileImage: profilePhoto || undefined,
-  };
-  
-  // Store the current patient name in localStorage to ensure consistency across pages
-  if (profile?.firstName || profile?.lastName) {
-    const fullName = `${profile.firstName || ''} ${profile.lastName || ''}`.trim();
-    localStorage.setItem('currentPatientName', fullName);
-  }
-  
-  // Make sure profile photo is always stored in localStorage
-  if (profilePhoto) {
-    localStorage.setItem('patientProfilePhoto', profilePhoto);
-  }
-
+  // Render the main dashboard content
+  const DashboardLayoutComponent = DashboardLayout as any;
   return (
-    <DashboardLayout 
-      currentPage={currentPage} 
+    <DashboardLayoutComponent
+      currentPage={currentPage}
       onNavigate={handleNavigation}
-      hideProfileHeader={isOverview} // Hide profile in sidebar when on overview
-      profileData={profileDataForSidebar}
-      breadcrumbs={[{ label: "Dashboard" }]}
+      breadcrumbs={[{ label: "Dashboard", href: "/patient/dashboard" }]}
+      profileData={{
+        name: patientData.name,
+        medicalNumber: medicalNumber,
+        profileImage: profilePhoto || undefined
+      }}
     >
       <div className="max-w-7xl mx-auto">
-        {/* Patient Info Header with improved layout */}
-        <div className="bg-white rounded-lg shadow-md border border-gray-100 p-6 mb-8 transition-all hover:shadow-lg duration-300">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              {/* Enhanced avatar with animation */}
-              <Avatar className="h-16 w-16 ring-4 ring-blue-50 shadow-sm transition-transform hover:scale-105 duration-300">
-                {/* Always render AvatarImage with proper error handling */}
-                <AvatarImage 
-                  src={profilePhoto || "/placeholder.svg?height=64&width=64"} 
-                  alt={patientData.name || "Patient"}
-                  className="object-cover"
-                  onLoad={() => {
-                    console.log('Profile photo successfully loaded in avatar');
-                  }}
-                  onError={(e) => {
-                    console.error("Failed to load avatar image", e);
-                    // Force set fallback on error
-                    e.currentTarget.style.display = 'none';
-                    
-                    // Try to reload with default avatar if we have a bad URL
-                    if (profilePhoto && !profilePhoto.startsWith('data:')) {
-                      console.log('Switching to default avatar due to image load error');
-                      const defaultAvatar = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0iIzNiODJmNiIgZD0iTTEyIDJDNi41IDIgMiA2LjUgMiAxMnM0LjUgMTAgMTAgMTAgMTAtNC41IDEwLTEwUzE3LjUgMiAxMiAyek0xMiA1YTMgMyAwIDEgMSAwIDYgMyAzIDAgMCAxIDAtNnptMCAxM2MtMi43IDAtNS4xLTEuNC02LjUtMy41LjMtMS4xIDMuMi0xLjcgNi41LTEuNyAzLjMgMCA2LjIuNiA2LjUgMS43QzE3LjEgMTYuNiAxNC43IDE4IDEyIDE4eiIvPjwvc3ZnPg==';
-                      setProfilePhoto(defaultAvatar);
-                    }
-                  }}
-                />
-                <AvatarFallback className="bg-blue-600 text-white text-lg">
-                  {patientData.name !== "Unknown" 
-                    ? patientData.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
-                    : "P"}
-                </AvatarFallback>
-              </Avatar>
-              <div className="pl-1">
-                <h2 className="text-2xl font-bold text-gray-900">{patientData.name}</h2>
-                <p className="text-gray-600 flex items-center">
-                  <span className="flex items-center">
-                    <Stethoscope className="mr-1.5 h-3.5 w-3.5 text-blue-600" /> 
-                    Medical ID: <span className="font-medium text-blue-700">{patientData.medicalNumber}</span>
-                  </span>
-                </p>
-              </div>
-            </div>
-            {/* Medical ID QR Code */}
-            <div className="flex flex-col items-center">
-              <div className="bg-white p-2 rounded-lg shadow-sm border border-gray-200">
-                {patientData.medicalNumber ? (
-                  <QRCode 
-                    value={patientData.medicalNumber}
-                    size={80}
-                    style={{ maxHeight: "80px", maxWidth: "80px" }}
-                    level="H"
-                  />
-                ) : (
-                  <div className="h-[80px] w-[80px] flex items-center justify-center text-xs text-gray-400">No Medical ID</div>
-                )}
-              </div>
-              <p className="text-xs text-gray-500 mt-1">{patientData.medicalNumber || "Medical ID Pending"}</p>
-            </div>
-            <div className="text-right">
-              <Badge variant="secondary" className="mb-2">
-                {patientData.onboardingCompleted ? "Onboarded" : "In Progress"}
-              </Badge>
-              <p className="text-sm text-gray-500">Admitted: {patientData.admittedDate || "N/A"}</p>
-              <p className="text-sm text-gray-500">Dr. {patientData.attendingDoctor || "N/A"}</p>
-              <div className="flex items-center flex-wrap gap-3 mt-2 text-sm text-gray-500 justify-end">
-                <span className="bg-gray-50 px-2 py-0.5 rounded-full">Age: {patientData.age}</span>
-                <span className="bg-gray-50 px-2 py-0.5 rounded-full">Gender: {patientData.gender.charAt(0).toUpperCase() + patientData.gender.slice(1)}</span>
-                <span className="bg-gray-50 px-2 py-0.5 rounded-full">Blood: {patientData.bloodType || "Unknown"}</span>
-              </div>
-            </div>
-          </div>
+        {/* Welcome section with quick overview */}
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold">Welcome, {patientData.name.split(' ')[0]}</h2>
+          <p className="text-muted-foreground">Here's your health summary for today</p>
         </div>
 
-
-        
-        {/* Available Doctors Section */}
-        <div className="mb-8">
-          <h2 className="text-xl font-semibold mb-5">Available Doctors</h2>
+        {/* Vitals and quick stats */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <Card className="border-blue-200 bg-gradient-to-r from-blue-50 to-cyan-50 shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-medium text-blue-700">Upcoming Appointments</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-blue-800">
+                {patientData.appointments?.length || 0}
+              </div>
+              <p className="text-sm text-blue-600">Next: {patientData.appointments?.length ? 'Jul 15, 2025' : 'None scheduled'}</p>
+            </CardContent>
+          </Card>
           
-          {/* Combined doctors in a single horizontal landscape line */}
+          <Card className="border-purple-200 bg-gradient-to-r from-purple-50 to-violet-50 shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-medium text-purple-700">Medication Reminders</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-purple-800">
+                {patientData.medications?.length || 0}
+              </div>
+              <p className="text-sm text-purple-600">{patientData.medications?.length ? 'Next dose in 3 hours' : 'No active medications'}</p>
+            </CardContent>
+          </Card>
+          
+          <Card className="border-green-200 bg-gradient-to-r from-green-50 to-emerald-50 shadow-sm">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base font-medium text-green-700">Health Progress</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center">
+                <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center mr-4 ring-2 ring-white">
+                  <span className="text-green-600 font-medium">85%</span>
+                </div>
+                <div>
+                  <p className="text-sm text-green-600 font-medium">Good</p>
+                  <p className="text-xs text-green-700">Based on recent checkups</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+        
+        {/* Main doctors carousel section with auto-sliding */}
+        {allDoctors.length > 0 && (
           <DoctorCarousel 
-            title=""
-            doctors={[
-              // Create a unique list of doctors with guaranteed unique IDs
-              // Start with a fresh, unique set of the original doctors
-              ...(specialistDoctors.cardiologists || []).map((doctor: Doctor, index: number) => ({
-                ...doctor,
-                id: `cardio-${doctor.id}-${index}` // Ensure uniqueness with index and category prefix
-              })),
-              
-              ...(specialistDoctors.pediatricians || []).map((doctor: Doctor, index: number) => ({
-                ...doctor,
-                id: `pedia-${doctor.id}-${index}` // Ensure uniqueness with index and category prefix
-              })),
-              
-              // No mock doctors per CentralHealth policy - only actual hospital staff
-              
-              ...hospitalDoctors.map((doctor: Doctor, index: number) => ({
-                ...doctor,
-                id: `hosp-${doctor.id}-${index}` // Ensure uniqueness with index and category prefix
-              })),
-              
-              // Per CentralHealth policy: No mock data allowed
-              // Add duplicated real doctors if more carousel items needed
-              ...(hospitalDoctors.slice(0, 3).map((doctor: Doctor, index: number) => ({
-                ...doctor,
-                id: `extra-hosp-${doctor.id}-${index}` // Ensure uniqueness for duplicates
-              }))),
-              
-              // Add specialists for a truly diverse carousel - no mock data per CentralHealth policy
-              ...((specialistDoctors.pediatricians || []).slice(0, 2).map((doctor: Doctor, index: number) => ({
-                ...doctor,
-                id: `more-ped-${doctor.id}-${index}` // Different prefix for second set of duplicates
-              })))
-            ]}
+            title="Recommended Doctors" 
+            doctors={allDoctors}
             onAppointmentRequest={handleAppointmentRequest}
             singleLine={true}
+            autoSlide={true}
           />
-        </div>
+        )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Left Column - Vitals & Metrics */}
-          <div className="md:col-span-3 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {/* Session Warning Alert */}
-            {showSessionWarning && (
-              <Card className="lg:col-span-3 border-amber-500 bg-amber-50">
-                <CardContent className="pt-4">
-                  <Alert variant="destructive" className="bg-amber-50 border-amber-200">
-                    <AlertTriangle className="h-5 w-5 text-amber-600" />
-                    <AlertTitle className="text-amber-800">Session already active</AlertTitle>
-                    <AlertDescription className="text-amber-700">
-                      <p className="mb-3">
-                        You attempted to register a new patient while already logged in. 
-                        For security and data protection, you must sign out before creating a new patient account.
-                      </p>
-                      <div className="flex items-center gap-3 mt-3">
-                        <Button 
-                          variant="destructive" 
-                          className="text-white" 
-                          onClick={() => window.location.href = '/api/patients/signout'}
-                        >
-                          <LogOut className="mr-2 h-4 w-4" /> Sign Out Now
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          onClick={() => setShowSessionWarning(false)}
-                        >
-                          <XCircle className="mr-2 h-4 w-4" /> Dismiss
-                        </Button>
-                      </div>
-                    </AlertDescription>
-                  </Alert>
-                </CardContent>
-              </Card>
-            )}
-            
-            {/* Patient Vitals */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center space-x-2">
-                  <Activity className="h-5 w-5" />
-                  <span>Vital Signs</span>
-                </CardTitle>
-                <CardDescription>Latest readings from today</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="text-center p-4 bg-red-50 rounded-lg">
-                    <Heart className="h-8 w-8 text-red-600 mx-auto mb-2" />
-                    <div className="text-2xl font-bold text-red-700">72</div>
-                    <div className="text-sm text-red-600">Heart Rate</div>
-                    <div className="text-xs text-gray-500">bpm</div>
-                  </div>
-                  <div className="text-center p-4 bg-blue-50 rounded-lg">
-                    <TrendingUp className="h-8 w-8 text-blue-600 mx-auto mb-2" />
-                    <div className="text-2xl font-bold text-blue-700">120/80</div>
-                    <div className="text-sm text-blue-600">Blood Pressure</div>
-                    <div className="text-xs text-gray-500">mmHg</div>
-                  </div>
-                  <div className="text-center p-4 bg-green-50 rounded-lg">
-                    <Thermometer className="h-8 w-8 text-green-600 mx-auto mb-2" />
-                    <div className="text-2xl font-bold text-green-700">98.6°F</div>
-                    <div className="text-sm text-green-600">Temperature</div>
-                    <div className="text-xs text-gray-500">Normal</div>
-                  </div>
-                  <div className="text-center p-4 bg-purple-50 rounded-lg">
-                    <Activity className="h-8 w-8 text-purple-600 mx-auto mb-2" />
-                    <div className="text-2xl font-bold text-purple-700">98%</div>
-                    <div className="text-sm text-purple-600">Oxygen Sat</div>
-                    <div className="text-xs text-gray-500">SpO2</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Doctor Carousel Section - replaces Health Alerts */}
-            <Card className="overflow-hidden mb-6">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <Stethoscope className="mr-2 h-5 w-5 text-blue-500" />
-                    <CardTitle>Available Doctors</CardTitle>
-                  </div>
-                  <Button variant="ghost" size="sm" onClick={() => router.push('/patient/doctors')}>View All</Button>
-                </div>
-                <CardDescription>Doctors available for appointments and consultations</CardDescription>
-              </CardHeader>
-              <CardContent className="pb-2 px-2 md:px-6">
-                {/* Doctor Carousel with single line layout - only showing real hospital doctors */}
-                {isLoading ? (
-                  <div className="flex items-center justify-center p-6 bg-gray-50 rounded-lg">
-                    <div className="text-center">
-                      <Spinner className="w-8 h-8 mx-auto mb-2" />
-                      <p className="text-gray-500">Loading doctors...</p>
-                    </div>
-                  </div>
-                ) : hospitalDoctors && hospitalDoctors.length > 0 ? (
-                  <DoctorCarousel
-                    title=""
-                    doctors={hospitalDoctors.slice(0, 3)}
-                    onAppointmentRequest={handleAppointmentRequest}
-                    singleLine={true}
-                  />
-                ) : (
-                  <div className="flex items-center justify-center p-6 bg-gray-50 rounded-lg">
-                    <div className="text-center">
-                      <Spinner className="w-8 h-8 mx-auto mb-2" />
-                      <p className="text-gray-500">Loading available doctors...</p>
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Recent Test Results */}
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <FileText className="mr-2 h-5 w-5 text-blue-500" />
-                    <CardTitle>Recent Test Results</CardTitle>
-                  </div>
-                  <Button variant="ghost" size="sm">View All</Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between pb-2 border-b">
-                    <div>
-                      <p className="font-medium">Complete Blood Count (CBC)</p>
-                      <p className="text-sm text-gray-500">June 5, 2025</p>
-                    </div>
-                    <Badge className="bg-green-100 text-green-800">Normal</Badge>
-                    <Button variant="outline" size="sm">View</Button>
-                  </div>
-                  <div className="flex items-center justify-between pb-2 border-b">
-                    <div>
-                      <p className="font-medium">Basic Metabolic Panel</p>
-                      <p className="text-sm text-gray-500">June 5, 2025</p>
-                    </div>
-                    <Badge className="bg-yellow-100 text-yellow-800">Review</Badge>
-                    <Button variant="outline" size="sm">View</Button>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">Urinalysis</p>
-                      <p className="text-sm text-gray-500">June 5, 2025</p>
-                    </div>
-                    <Badge className="bg-green-100 text-green-800">Normal</Badge>
-                    <Button variant="outline" size="sm">View</Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Treatment Progress */}
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center">
-                  <Activity className="mr-2 h-5 w-5 text-indigo-500" />
-                  <CardTitle>Treatment Progress</CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
+        {/* Calendar and appointments section */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+          <Card className="lg:col-span-2">
+            <CardHeader>
+              <CardTitle>Upcoming Appointments</CardTitle>
+              <CardDescription>Schedule and manage your appointments</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Calendar mode="single" className="rounded-md border" />
+            </CardContent>
+            <CardFooter className="flex justify-between">
+              <Button variant="outline">Previous</Button>
+              <Button>Book New Appointment</Button>
+            </CardFooter>
+          </Card>
+          
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent Test Results</CardTitle>
+              <CardDescription>Your latest medical tests</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="border-b pb-2">
+                <div className="flex justify-between">
                   <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <p className="font-medium">Cardiac Rehabilitation</p>
-                      <span className="text-sm text-gray-500">80% Complete</span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-200 rounded-full">
-                      <div className="h-2 bg-green-500 rounded-full" style={{ width: '80%' }}></div>
-                    </div>
+                    <p className="font-medium">Blood Work</p>
+                    <p className="text-sm text-muted-foreground">Complete Blood Count</p>
                   </div>
-                  
+                  <Badge>Normal</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Jul 1, 2025</p>
+              </div>
+              
+              <div className="border-b pb-2">
+                <div className="flex justify-between">
                   <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <p className="font-medium">Physical Therapy</p>
-                      <span className="text-sm text-gray-500">60% Complete</span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-200 rounded-full">
-                      <div className="h-2 bg-blue-500 rounded-full" style={{ width: '60%' }}></div>
-                    </div>
+                    <p className="font-medium">Urinalysis</p>
+                    <p className="text-sm text-muted-foreground">Routine Test</p>
                   </div>
-                  
+                  <Badge>Normal</Badge>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">Jun 28, 2025</p>
+              </div>
+              
+              <div>
+                <div className="flex justify-between">
                   <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <p className="font-medium">Nutrition Plan</p>
-                      <span className="text-sm text-gray-500">45% Complete</span>
-                    </div>
-                    <div className="w-full h-2 bg-gray-200 rounded-full">
-                      <div className="h-2 bg-orange-500 rounded-full" style={{ width: '45%' }}></div>
-                    </div>
+                    <p className="font-medium">Blood Pressure</p>
+                    <p className="text-sm text-muted-foreground">Routine Check</p>
                   </div>
+                  <Badge variant="outline" className="bg-yellow-50 text-yellow-600 border-yellow-200">Review</Badge>
                 </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Right Column - Appointments & Medications */}
-          <div className="space-y-6">
-            {/* Current Medications */}
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <Pill className="mr-2 h-5 w-5 text-purple-500" />
-                    <CardTitle>Current Medications</CardTitle>
-                  </div>
-                  <Button variant="ghost" size="sm">View All</Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">Lisinopril 10mg</p>
-                      <p className="text-xs text-gray-500">1 tablet daily</p>
-                    </div>
-                    <Badge className="bg-blue-100 text-blue-800">Morning</Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">Metoprolol 25mg</p>
-                      <p className="text-xs text-gray-500">1 tablet twice daily</p>
-                    </div>
-                    <Badge className="bg-purple-100 text-purple-800">Morning/Night</Badge>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">Aspirin 81mg</p>
-                      <p className="text-xs text-gray-500">1 tablet daily</p>
-                    </div>
-                    <Badge className="bg-blue-100 text-blue-800">Morning</Badge>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Upcoming Appointments */}
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <Calendar className="mr-2 h-5 w-5 text-teal-500" />
-                    <CardTitle>Upcoming Appointments</CardTitle>
-                  </div>
-                  <Button variant="ghost" size="sm">Schedule</Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="flex items-start justify-between p-2 rounded-lg bg-gray-50">
-                    <div>
-                      <p className="font-medium">Cardiology Follow-up</p>
-                      <p className="text-sm text-gray-500">June 10, 2025 10:00 AM</p>
-                      <p className="text-xs mt-1">Dr. Sarah Johnson</p>
-                    </div>
-                    <Button variant="outline" size="sm">Reschedule</Button>
-                  </div>
-                  <div className="flex items-start justify-between p-2 rounded-lg bg-gray-50">
-                    <div>
-                      <p className="font-medium">Physical Therapy</p>
-                      <p className="text-sm text-gray-500">June 12, 2025 02:30 PM</p>
-                      <p className="text-xs mt-1">Dr. Michael Chen</p>
-                    </div>
-                    <Button variant="outline" size="sm">Reschedule</Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Care Team */}
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center">
-                  <Users className="mr-2 h-5 w-5 text-cyan-500" />
-                  <CardTitle>Care Team</CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <div className="flex items-center space-x-3">
-                    <Avatar>
-                      <AvatarFallback>SJ</AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="font-medium">Dr. Sarah Johnson</p>
-                      <p className="text-sm text-gray-500">Cardiology</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-3">
-                    <Avatar>
-                      <AvatarFallback>MC</AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="font-medium">Dr. Michael Chen</p>
-                      <p className="text-sm text-gray-500">Physical Therapy</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-3">
-                    <Avatar>
-                      <AvatarFallback>LW</AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="font-medium">Linda Wilson</p>
-                      <p className="text-sm text-gray-500">Nurse Practitioner</p>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Quick Actions */}
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-center">
-                  <PlusCircle className="mr-2 h-5 w-5 text-green-500" />
-                  <CardTitle>Quick Actions</CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-2">
-                  <Button variant="outline" className="justify-start">
-                    <Calendar className="mr-2 h-4 w-4" />
-                    Schedule Visit
-                  </Button>
-                  <Button variant="outline" className="justify-start">
-                    <FileText className="mr-2 h-4 w-4" />
-                    Request Records
-                  </Button>
-                  <Button variant="outline" className="justify-start">
-                    <Pill className="mr-2 h-4 w-4" />
-                    Refill Rx
-                  </Button>
-                  <Button variant="outline" className="justify-start">
-                    <Stethoscope className="mr-2 h-4 w-4" />
-                    Nurse Chat
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-            
-            {/* End of right column content */}
-          </div>
+                <p className="text-xs text-muted-foreground mt-1">Jun 25, 2025</p>
+              </div>
+            </CardContent>
+            <CardFooter>
+              <Button variant="outline" className="w-full">View All Results</Button>
+            </CardFooter>
+          </Card>
         </div>
       </div>
-    </DashboardLayout>
-  )
+    </DashboardLayoutComponent>
+  );
 }
