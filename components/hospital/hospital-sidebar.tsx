@@ -56,16 +56,47 @@ export function HospitalSidebar({ hospitalName }: HospitalSidebarProps) {
   const [unreadMessages, setUnreadMessages] = useState<number>(0)
   
   // Fetch hospital data to get enabled modules
-  // Fetch unread message count
+  // Fetch unread message count with enhanced error handling
   const fetchUnreadMessages = async () => {
+    // Skip fetching if no hospital name is available
+    if (!hospitalName) {
+      return;
+    }
+    
     try {
-      const response = await fetch(`/api/hospitals/${hospitalName}/messages/recent`)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+      
+      const response = await fetch(`/api/hospitals/${hospitalName}/messages/recent`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache'
+        },
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
       if (response.ok) {
-        const data = await response.json()
-        setUnreadMessages(data.unreadCount || 0)
+        const data = await response.json();
+        setUnreadMessages(data.unreadCount || 0);
+      } else {
+        // Handle non-200 responses silently in production
+        if (process.env.NODE_ENV === 'development') {
+          console.warn(`Messages API returned status: ${response.status}`);
+        }
       }
     } catch (error) {
-      console.error("Error fetching unread messages:", error)
+      // Only log detailed errors in development
+      if (process.env.NODE_ENV === 'development') {
+        if ((error as Error)?.name === 'AbortError') {
+          console.warn('Messages fetch timed out');
+        } else {
+          console.warn('Error fetching unread messages:', error);
+        }
+      }
+      // Silently handle errors - unread count stays as is
     }
   }
   

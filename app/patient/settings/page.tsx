@@ -15,7 +15,7 @@ import { Switch } from "@/components/ui/switch"
 import { DashboardLayout } from "@/components/patients/dashboard/dashboard-layout"
 import { usePatientProfile } from "@/hooks/use-patient-profile"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
-import { isEligibleForMaternalCare, SpecializedCareSettings, DEFAULT_SPECIALIZED_CARE_SETTINGS } from "@/lib/specialized-care-utils"
+// Specialized care imports removed
 import { calculateAge } from "@/lib/patient-profile-utils"
 
 export default function PatientSettings() {

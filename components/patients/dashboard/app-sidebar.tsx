@@ -216,18 +216,12 @@ export function AppSidebar({ onNavigate, currentPage, hideProfileHeader = false,
                 <SidebarMenuItem key={item.name || item.href}>
                   <SidebarMenuButton
                     onClick={() => {
-                      // Fix URL duplication by handling navigation properly
-                      const cleanPath = item.href.startsWith('/patient/') 
-                        ? item.href.substring(9) // Remove '/patient/' prefix if it exists
-                        : item.href.startsWith('/patient') 
-                          ? item.href.substring(8) // Remove '/patient' prefix if it exists
-                          : item.href.startsWith('/') 
-                            ? item.href.substring(1) // Remove leading slash
-                            : item.href;
-                      
-                      onNavigate?.(cleanPath);
+                      if (item.href) {
+                        // Direct navigation to the full href instead of using onNavigate
+                        window.location.href = item.href;
+                      }
                     }}
-                    isActive={currentPage === item.href.replace("/", "").replace("/patient/", "").replace("/patient", "")}
+                    isActive={currentPage === (item.href.split('/').pop() || 'dashboard')}
                   >
                     <div className="flex items-center justify-between w-full">
                       <div className="flex items-center space-x-2">

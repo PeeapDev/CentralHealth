@@ -31,7 +31,7 @@ import {
   Heart,
 } from "lucide-react"
 import { usePatientProfile } from "@/hooks/use-patient-profile"
-import { shouldShowMaternalCare, SpecializedCareSettings, DEFAULT_SPECIALIZED_CARE_SETTINGS } from "@/lib/specialized-care-utils"
+// Specialized care imports removed
 import { PatientProfile } from "@/lib/patient-profile-types"
 
 interface DashboardLayoutProps {
@@ -85,40 +85,9 @@ function DashboardLayout({
 
   useEffect(() => {
     const updateNavigation = () => {
-      let settings: SpecializedCareSettings = DEFAULT_SPECIALIZED_CARE_SETTINGS;
-      try {
-        const storedSettings = localStorage.getItem('specializedCareSettings');
-        if (storedSettings) {
-          settings = JSON.parse(storedSettings);
-        }
-      } catch (err) {
-        console.error("Error loading settings:", err);
-      }
-
-      let isPregnant = false;
-      let recentBirth = false;
+      // Removed specialized care settings code
       
-      // Parse medical history if it exists
-      if (profile && 'medicalHistory' in profile) {
-        try {
-          const medHistory = typeof profile.medicalHistory === 'string' 
-            ? JSON.parse(profile.medicalHistory)
-            : profile.medicalHistory || {};
-            
-          isPregnant = !!medHistory.isPregnant;
-          recentBirth = !!medHistory.recentBirth;
-        } catch (err) {
-          console.error("Error parsing medical history:", err);
-        }
-      }
-
-      const showMaternal = shouldShowMaternalCare(
-        profile?.dateOfBirth,
-        profile?.gender,
-        settings,
-        isPregnant,
-        recentBirth
-      );
+      const showMaternal = false; // Default to not showing maternal care options
       
       setShowMaternalCare(showMaternal);
       
@@ -132,17 +101,14 @@ function DashboardLayout({
     if (profile) {
       updateNavigation();
     }
-    
-    const handleSettingsChange = (event: CustomEvent<SpecializedCareSettings>) => {
-      updateNavigation();
-    };
-    
-    window.addEventListener('specializedCareSettingsChanged', handleSettingsChange as EventListener);
-    
-    return () => {
-      window.removeEventListener('specializedCareSettingsChanged', handleSettingsChange as EventListener);
-    };
   }, [profile]);
+
+  useEffect(() => {
+    // No specialized care event listeners needed
+    return () => {
+      // No cleanup needed
+    };
+  }, []);
 
   // Update the current status based on the pathname
   useEffect(() => {

@@ -30,15 +30,72 @@ export function PatientSearchWidget({
 
   // Define the fetchPatientByMrn function that will be passed to PatientSearch
   const fetchPatientByMrn = async (mrn: string) => {
-    try {
-      const response = await fetch(`/api/patients?mrn=${encodeURIComponent(mrn)}`);
-      if (!response.ok) throw new Error('Failed to fetch patient by MRN');
-      const data = await response.json();
-      return data.patients?.[0] || null;
-    } catch (error) {
-      console.error('Error fetching patient by MRN:', error);
-      return null;
+    console.log('Fetching patient by MRN:', mrn);
+    let attempts = 0;
+    const maxAttempts = 3;
+    
+    // Clean up the MRN to handle various formats
+    const cleanMrn = mrn.trim().toUpperCase();
+    console.log('Cleaned MRN:', cleanMrn);
+    
+    while (attempts < maxAttempts) {
+      try {
+        attempts++;
+        console.log(`Attempt ${attempts} to fetch patient with MRN: ${cleanMrn}`);
+        
+        // Try different API endpoints to maximize chance of success
+        let endpoints = [
+          `/api/patients?mrn=${encodeURIComponent(cleanMrn)}`,
+          `/api/patients/${encodeURIComponent(cleanMrn)}`,
+          `/api/v1/patients?mrn=${encodeURIComponent(cleanMrn)}`
+        ];
+        
+        // Try each endpoint until one succeeds
+        for (const endpoint of endpoints) {
+          try {
+            console.log(`Trying endpoint: ${endpoint}`);
+            const response = await fetch(endpoint, {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                'Cache-Control': 'no-cache'
+              },
+              cache: 'no-store'
+            });
+            
+            console.log(`Response status: ${response.status}`);
+            
+            if (response.ok) {
+              const data = await response.json();
+              console.log('Patient data found:', data);
+              if (data.patients?.[0]) {
+                return data.patients[0];
+              } else if (data.patient) {
+                return data.patient;
+              } else if (Array.isArray(data) && data[0]) {
+                return data[0];
+              }
+            }
+          } catch (endpointError) {
+            console.warn(`Error with endpoint ${endpoint}:`, endpointError);
+            // Continue to next endpoint
+          }
+        }
+        
+        // Wait before retrying
+        if (attempts < maxAttempts) {
+          console.log(`Waiting before retry attempt ${attempts + 1}...`);
+          await new Promise(resolve => setTimeout(resolve, 500 * attempts));
+        }
+      } catch (error) {
+        console.error(`Attempt ${attempts} failed:`, error);
+        if (attempts >= maxAttempts) break;
+        await new Promise(resolve => setTimeout(resolve, 500 * attempts));
+      }
     }
+    
+    console.error('All attempts to fetch patient by MRN failed');
+    return null;
   };
 
   // Handle the patient selection, ensuring the data format is consistent

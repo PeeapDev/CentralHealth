@@ -375,8 +375,7 @@ export default function QRScanner({
         {
           fps: scanConfig?.fps || 10,
           qrbox: scanConfig?.qrbox || { width: 200, height: 200 },
-          aspectRatio: scanConfig?.aspectRatio || 1.0,
-          disableFlash: true
+          aspectRatio: scanConfig?.aspectRatio || 1.0
         },
         (decodedText) => {
           if (!mountedRef.current) return;
@@ -393,7 +392,20 @@ export default function QRScanner({
           const normalScanningErrors = [
             'QR code not found',
             'No QR code found',
-            'No MultiFormat Readers were able to detect',
+            'No MultiFormat Readers were able to detect'
+          ];
+          
+          // Only show errors that aren't normal scanning issues
+          if (!normalScanningErrors.some(msg => errorMessage.includes(msg))) {
+            onScanError?.(errorMessage);
+          }
+        }
+      );
+    } catch (error) {
+      console.error('[QR] Error starting scanner:', error);
+      setErrorMessage(error instanceof Error ? error.message : String(error));
+      setStatus('error');
+      window._qrScannerState.isStarting = false;
     }
   }, [
     status, 

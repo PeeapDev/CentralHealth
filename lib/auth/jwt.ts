@@ -35,12 +35,19 @@ export interface JWTPayload {
   hospitalId: string
   role: string
   email: string
-  iat?: number
-  exp?: number
+  sub?: string  // JWT standard subject identifier, maps to userId (optional for backward compatibility)
+  iat?: number  // Issued at timestamp
+  exp?: number  // Expiration timestamp
 }
 
 export async function signToken(payload: Omit<JWTPayload, "iat" | "exp">): Promise<string> {
-  return await new jose.SignJWT(payload)
+  // Ensure the sub field is set, defaulting to userId if not provided
+  const finalPayload = {
+    ...payload,
+    sub: payload.sub || payload.userId
+  };
+  
+  return await new jose.SignJWT(finalPayload)
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime(JWT_EXPIRES_IN)

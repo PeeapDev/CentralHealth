@@ -6,8 +6,7 @@ import { validateEmail, validateName, normalizeEmail } from '../../../../utils/v
 import { validateStoredMedicalID } from '../../../../utils/medical-id';
 import { isUniqueMedicalID, generateUniqueMedicalID } from '../../../../utils/check-id-uniqueness';
 import { createPatientProfilePicture } from '../../../../utils/profile-picture';
-import { isValidMedicalId } from '../../../../utils/qr-code';
-import { generatePatientQRCode } from '../../../../utils/generate-qr';
+import { isValidMedicalId, normalizeMedicalId } from '../../../../utils/qr-code';
 
 /**
  * Medical ID preservation is critical. According to CentralHealth System requirements:
@@ -170,15 +169,10 @@ async function handleBasicRegistration(body: any, req: NextRequest) {
     const userId = uuidv4();
     const patientId = uuidv4();
     
-    // Prepare QR code data for patient
-    let qrCodeData = null;
-    try {
-      qrCodeData = await generatePatientQRCode(medicalId);
-      console.log(`Generated QR code for medical ID: ${medicalId}`);
-    } catch (qrError) {
-      console.error('Failed to generate QR code:', qrError);
-      // Continue with registration even if QR code generation fails
-    }
+    // We don't need to generate QR codes at registration time
+    // QR codes are displayed in the patient profile based on their medical ID
+    // This follows CentralHealth System policy for consistent medical ID usage
+    console.log(`Registration with medical ID: ${medicalId}`);
     
     // Format the birthdate (if provided)
     let birthDateObj = null;
@@ -219,7 +213,6 @@ async function handleBasicRegistration(body: any, req: NextRequest) {
           name: createPatientName(firstName, lastName),
           dateOfBirth: birthDateObj,
           gender: gender || 'unknown',
-          qrCode: qrCodeData,
           onboardingCompleted: true,
           userId: newUser.id // Simple reference instead of complex connect
         }

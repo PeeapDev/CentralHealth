@@ -393,9 +393,26 @@ export default function StableQRScanner({
           },
           (errorMessage) => {
             // Filter out common errors to reduce console noise
-            if (!errorMessage.includes('source height is 0') && 
-                !errorMessage.includes('Invalid element or state')) {
-              console.error('QR Scanner error:', errorMessage);
+            const commonErrors = [
+              'source height is 0',
+              'Invalid element or state',
+              'No MultiFormat Readers',
+              'QR code not found',
+              'No barcode or QR code detected',
+              'Error = No barcode or QR code detected',
+              'frame is undefined',
+              'scanning in progress'
+            ];
+            
+            // Check if this is a common error we should filter
+            const isCommonError = commonErrors.some(commonError => 
+              errorMessage.toLowerCase().includes(commonError.toLowerCase())
+            );
+            
+            // Only log significant errors
+            if (!isCommonError) {
+              // Use warn instead of error to reduce severity in console
+              console.warn('QR Scanner message:', errorMessage);
             }
           }
         );

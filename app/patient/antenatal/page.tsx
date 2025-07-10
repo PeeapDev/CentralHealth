@@ -9,7 +9,7 @@ import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { usePatientProfile } from "@/hooks/use-patient-profile"
 import { useToast } from "@/components/ui/use-toast"
-import { shouldShowMaternalCare, DEFAULT_SPECIALIZED_CARE_SETTINGS } from "@/lib/specialized-care-utils"
+// Specialized care imports removed
 import { format } from "date-fns"
 
 // Define proper interfaces for TypeScript

@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter }
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { usePatientProfile } from "@/hooks/use-patient-profile"
 import { useToast } from "@/components/ui/use-toast"
-import { shouldShowMaternalCare, DEFAULT_SPECIALIZED_CARE_SETTINGS } from "@/lib/specialized-care-utils"
+// Specialized care imports removed
 import { format, addDays } from "date-fns"
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts"
 import { PatientSearchWidget } from "@/components/patient-search-widget"
@@ -57,10 +57,11 @@ export default function NeonatalCarePage() {
 
   useEffect(() => {
     const checkAccess = async () => {
-      let settings = DEFAULT_SPECIALIZED_CARE_SETTINGS
       try {
         const storedSettings = localStorage.getItem('specializedCareSettings')
-        if (storedSettings) settings = JSON.parse(storedSettings)
+        if (storedSettings) {
+          const settings = JSON.parse(storedSettings)
+        }
       } catch (err) {
         console.error("Error loading settings:", err)
       }

@@ -133,7 +133,8 @@ export default function PatientProfilePage() {
   
   // Extract the medical ID from the profile following CentralHealth policy
   // Medical IDs must follow NHS-style 5-character alphanumeric format and be stored as MRN
-  const medicalNumber = profile?.mrn || "unknown";
+  // Must NEVER show placeholder/generated IDs as per CentralHealth policy - only show actual MRN
+  const medicalNumber = (profile?.mrn && /^[A-Z0-9]{5}$/i.test(profile.mrn)) ? profile.mrn : "";
     // Prepare patient data for sidebar with guaranteed medical ID
     const profileDataForSidebar = {
       name: profile ? `${profile.firstName || ''} ${profile.lastName || ''}`.trim() : "", 

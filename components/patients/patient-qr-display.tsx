@@ -33,17 +33,17 @@ export function PatientQRDisplay({
 
   useEffect(() => {
     // SECURITY: Verify medical ID format - should be 5 characters per CentralHealth policy
-    const isValidMedicalID = medicalNumber && medicalNumber.length === 5
-    
-    if (!isValidMedicalID) {
-      console.error('[QR CODE] Invalid medical ID format detected', 
-        { length: medicalNumber?.length || 0 })
-    }
+    const isValidMedicalID = medicalNumber && /^[A-Z0-9]{5}$/i.test(medicalNumber)
     
     // Generate QR code value with permanent medical ID and minimal patient info
     // Format: CentralHealth|MRN:XXXXX|FirstName|LastName
-    const qrData = `CentralHealth|MRN:${medicalNumber}|${firstName}|${lastName}`
-    setQrValue(qrData)
+    if (isValidMedicalID) {
+      const qrData = `CentralHealth|MRN:${medicalNumber}|${firstName}|${lastName}`
+      setQrValue(qrData)
+    } else {
+      // Use a loading placeholder rather than invalid data
+      setQrValue(`CentralHealth|MRN:LOADING|${firstName}|${lastName}`)
+    }
   }, [medicalNumber, firstName, lastName])
 
   return (

@@ -45,43 +45,21 @@ export default function StaffWalletPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   
-  // Function to fetch wallet data
   const fetchWalletData = async () => {
     setLoading(true);
+    setError("");
+    
     try {
-      console.log(`Fetching wallet data for hospital: ${hospitalName}`);
-      
-      // Use real API endpoint to fetch wallet data with credentials to include cookies
-      const response = await fetch(`/api/hospitals/${hospitalName}/staff/wallet`, {
-        credentials: 'include', // This ensures cookies (including auth token) are sent
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await fetch(`/api/${hospitalName}/wallet/staff`);
       
       if (!response.ok) {
-        // Get detailed error message if available
-        let errorMessage = `Error ${response.status}: ${response.statusText}`;
-        try {
-          const errorData = await response.json();
-          if (errorData && errorData.error) {
-            errorMessage = `${errorMessage} - ${errorData.error}`;
-          }
-        } catch (e) {
-          // Response might not contain valid JSON
-        }
-        
-        // Show toast notification for user feedback
+        console.error(`Error: ${response.status} ${response.statusText}`);
         toast({
-          title: "Failed to fetch wallet data",
-          description: errorMessage,
+          title: "Error",
+          description: "Failed to load wallet data",
           variant: "destructive"
         });
-        
-        console.error(`Staff Wallet Page - Data fetch error: ${errorMessage}`);
-        
-        setLoading(false);
-        setError(errorMessage);
+        setError("Failed to load wallet data. Please try again later.");
         return;
       }
       
@@ -91,58 +69,28 @@ export default function StaffWalletPage() {
         console.error(errorMessage);
         toast({
           title: "Data Error",
-          description: "Received invalid wallet data structure",
+          description: "Invalid response format",
           variant: "destructive"
-        })
-        setLoading(false);
-        setError(errorMessage);
+        });
+        setError("Invalid data format received from server.");
         return;
       }
       
-      const data = await response.json()
-      console.log('Wallet data received:', data)
+      const responseData = await response.json();
+      console.log('Wallet data received:', responseData);
       
-      if (data.wallet) {
-        setWalletData(data.wallet as WalletData)
-        setTransactions(data.transactions as Transaction[] || [])
+      if (responseData.wallet) {
+        setWalletData(responseData.wallet);
+        if (responseData.transactions) {
+          setTransactions(responseData.transactions);
+        }
       } else {
-        console.error('Invalid wallet data structure:', data)
         toast({
           title: "Data Error",
-          description: "Received invalid wallet data structure",
-          variant: "destructive"
-        })
-        setLoading(false);
-        setError("Invalid wallet data received. Please contact support.");
-        setError("Invalid wallet data received. Please contact support.");
-        return;
-      }
-      
-      const data = await response.json();
-      console.log('Wallet data received:', data);
-      
-      if (data.wallet) {
-        setWalletData({
-          balance: data.wallet.balance || 0,
-          currency: data.wallet.currency || 'USD',
-          pendingSalary: data.wallet.pendingSalary,
-          lastPayment: data.wallet.lastPayment,
-          nextPayment: data.wallet.nextPayment
-        });
-        
-        if (data.transactions && Array.isArray(data.transactions)) {
-          setTransactions(data.transactions);
-        }
-        
-        setError(null);
-      } else {
-        console.error('Invalid wallet data structure:', data);
-        toast({
-          title: "Data Structure Error",
-          description: "Received incomplete wallet data",
+          description: "Incomplete wallet data received",
           variant: "destructive"
         });
-        setError("Invalid wallet data structure received.");
+        setError("Wallet data is incomplete or unavailable.");
       }
     } catch (error) {
       console.error('Error fetching wallet data:', error);
@@ -151,35 +99,13 @@ export default function StaffWalletPage() {
         description: "Failed to load wallet data",
         variant: "destructive"
       });
-      setError("Failed to load wallet data. Please try again later.");
+      setError("An unexpected error occurred. Please try again later.");
     } finally {
       setLoading(false);
     }
-        }
-        
-        const data = await response.json()
-        console.log('Wallet data received:', data)
-        
-        if (data.wallet) {
-          setWalletData(data.wallet as WalletData)
-          setTransactions(data.transactions as Transaction[] || [])
-        } else {
-          console.error('Invalid wallet data structure:', data)
-          toast({
-            title: "Data Error",
-            description: "Received invalid wallet data structure",
-            variant: "destructive"
-          })
-          setError("Invalid wallet data received. Please contact support.")
-        }
-      } catch (error) {
-        console.error("Error fetching wallet data:", error)
-        setError("Failed to load wallet data. Please try again.")
-      } finally {
-        setLoading(false)
-      }
-    }
-    
+  };
+  
+  useEffect(() => {
     fetchWalletData()
   }, [hospitalName, toast])
   
@@ -233,8 +159,8 @@ export default function StaffWalletPage() {
   
   const walletInfo = generateWalletData()
   
-  // Use transactions from API or fallback to sample data in development or empty array in production
-  const transactions: Transaction[] = [];
+  // Use transactions from API or fallback to empty array in production
+  // Following CentralHealth policy: no mock/test data in production
   const displayTransactions: Transaction[] = transactions.length > 0 ? transactions : 
     (process.env.NODE_ENV === "development" ? [
     {

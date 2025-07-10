@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import StableQRScanner from '@/components/qr-scanner/stable-scanner';
 import { PatientData } from '@/services/patientService';
 import { Patient, PatientSearchProps } from './types';
@@ -266,8 +266,24 @@ export default function PatientSearch({
     setError(null);
     
     try {
-      const scannedMrn = result.trim();
-      console.log('Processed MRN:', scannedMrn);
+      // Process the QR code result which might be in various formats
+      let scannedMrn = result.trim();
+      console.log('Raw QR scan result:', scannedMrn);
+      
+      // Handle CentralHealth formatted QR codes: "CentralHealth|MRN:XXXXX|name|details"
+      if (scannedMrn.includes('|')) {
+        const parts = scannedMrn.split('|');
+        
+        // Check if it's likely a CentralHealth QR format
+        if (parts.length >= 2 && parts[1]?.includes('MRN:')) {
+          // Extract just the MRN part (e.g., from "MRN:DACW2" extract "DACW2")
+          const mrnPart = parts[1].split(':');
+          if (mrnPart.length === 2) {
+            scannedMrn = mrnPart[1].trim();
+            console.log('Extracted MRN from CentralHealth format:', scannedMrn);
+          }
+        }
+      }
       
       // Strict validation of NHS-style medical ID format (5-character alphanumeric)
       if (!scannedMrn || scannedMrn.length !== 5 || !/^[A-Z0-9]{5}$/.test(scannedMrn.toUpperCase())) {
@@ -469,7 +485,8 @@ export default function PatientSearch({
             }, 2000); // 2 second cooldown
           }
         }}>
-          <DialogContent>
+          <DialogContent className="w-full max-w-md">
+            <DialogTitle>Scan Patient QR Code</DialogTitle>
             <div className={styles.qrScannerContainer}>
               <StableQRScanner
                 onScanSuccess={handleQrScanSuccess}
