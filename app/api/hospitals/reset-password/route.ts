@@ -7,28 +7,33 @@ import crypto from 'crypto';
 
 export async function POST(request: NextRequest) {
   try {
-    // TEMPORARY: For development/testing purposes, bypass strict authentication
-    // In production, this should be properly secured with token validation
-    
-    // Mock session for testing
-    const session = { user: { email: 'admin@test.com', role: 'superadmin', id: '1' } };
-    
-    // Comment out the strict token verification for now
-    // const token = request.cookies.get('token')?.value;
-    // if (!token) {
-    //   return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
-    // }
+    // Verify authentication token
+    const token = request.cookies.get('token')?.value;
+    if (!token) {
+      return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+    }
 
-    // // Verify superadmin role
-    // try {
-    //   const payload = await verifyToken(token);
-    //   if (payload.role !== 'superadmin') {
-    //     return NextResponse.json({ error: 'Unauthorized: Superadmin access required' }, { status: 403 });
-    //   }
-    // } catch (error) {
-    //   console.error('Token verification failed:', error);
-    //   return NextResponse.json({ error: 'Invalid authentication token' }, { status: 401 });
-    // }
+    // Verify superadmin role
+    let payload;
+    try {
+      payload = await verifyToken(token);
+      if (payload.role !== 'superadmin') {
+        return NextResponse.json({ error: 'Unauthorized: Superadmin access required' }, { status: 403 });
+      }
+    } catch (error) {
+      console.error('Token verification failed:', error instanceof Error ? error.message : String(error));
+      return NextResponse.json({ error: 'Invalid authentication token' }, { status: 401 });
+    }
+    
+    // Use the authenticated session user
+    // The JWT payload might contain either sub or userId as the identifier
+    const session = { 
+      user: { 
+        email: payload.email, 
+        role: payload.role, 
+        id: payload.sub || payload.userId || '' 
+      }
+    };
 
     // Get the email from the request body
     const body = await request.json();
@@ -50,7 +55,7 @@ export async function POST(request: NextRequest) {
     const user = await prisma.user.findFirst({
       where: { email },
       include: {
-        hospital: {
+        Hospital: {
           select: {
             id: true,
             name: true,
@@ -59,12 +64,20 @@ export async function POST(request: NextRequest) {
         }
       }
     });
+    
+    // Rename the Hospital property to hospital for easier access
+    // This is needed because Prisma uses capitalized relation names
+    const userWithHospital = user ? {
+      ...user,
+      hospital: user.Hospital
+    } : null;
 
-    if (!user) {
+    if (!user || !userWithHospital) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    if (user.role !== 'admin') {
+    // Check if user role matches 'ADMIN' from UserRole enum
+    if (user.role !== 'ADMIN') {
       return NextResponse.json({ error: 'This endpoint is only for resetting hospital admin passwords' }, { status: 400 });
     }
 
@@ -81,31 +94,46 @@ export async function POST(request: NextRequest) {
     });
 
     // Send the new credentials to the admin's email
-    if (user.hospital) {
+    if (userWithHospital.hospital) {
       try {
-        const emailResult = await sendAdminCredentials({
-          hospitalName: user.hospital.name,
-          adminEmail: user.email,
-          adminPassword: newPassword,
-          hospitalSubdomain: user.hospital.subdomain,
-          adminName: user.name || 'Hospital Administrator'
-        });
+        console.log('Attempting to send admin credentials email to', userWithHospital.email);
+        
+        // NEVER store plain text passwords - this violates CentralHealth security policy
+        // The hashed password was already stored above
+        
+        let emailResult;
+        try {
+          // Try to send email if SMTP is configured
+          emailResult = await sendAdminCredentials({
+            hospitalName: userWithHospital.hospital.name,
+            adminEmail: userWithHospital.email,
+            adminPassword: newPassword,
+            hospitalSubdomain: userWithHospital.hospital.subdomain,
+            adminName: userWithHospital.name || 'Hospital Administrator'
+          });
+        } catch (emailError: unknown) {
+          console.error('Failed to send email:', emailError);
+          emailResult = { success: false, error: emailError instanceof Error ? emailError.message : String(emailError) };
+        }
 
-        if (!emailResult.success) {
+        // No passwords should be logged, even in development
+        console.log(`Password reset completed for ${userWithHospital.email}`);
+
+        if (!emailResult?.success) {
           // Even though we updated the password, the email failed to send
           // We should inform the superadmin so they can communicate the password manually
           return NextResponse.json({
             success: true,
-            warning: 'Password was reset but the email failed to send. Please contact the admin manually.',
-            password: newPassword // Return the password for manual communication
+            warning: 'Password was reset but the email failed to send. Contact the admin with the password below.',
+            temporaryPasswordLength: newPassword.length // NEVER return actual passwords in API responses
           });
         }
       } catch (error) {
         console.error('Failed to send admin credentials email:', error);
         return NextResponse.json({
           success: true,
-          warning: 'Password was reset but the email failed to send. Please contact the admin manually.',
-          password: newPassword // Return the password for manual communication
+          warning: 'Password was reset but the email failed to send. Please contact IT support.',
+          temporaryPasswordLength: newPassword.length // NEVER return actual passwords in API responses
         });
       }
     }

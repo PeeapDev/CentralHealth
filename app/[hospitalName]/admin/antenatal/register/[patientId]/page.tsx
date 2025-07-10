@@ -1,18 +1,22 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
-import { useRouter, useParams } from "next/navigation"
+import React, { useState, useEffect, useCallback } from "react"
+import { useParams, useRouter } from "next/navigation"
 import { 
-  Card, 
-  CardContent, 
-  CardDescription, 
-  CardFooter, 
-  CardHeader, 
-  CardTitle 
-} from "@/components/ui/card"
+  ArrowLeft, 
+  Check, 
+  CircleX,
+  CalendarIcon, 
+  ClipboardCheck, 
+  FileText, 
+  StethoscopeIcon, 
+  Activity 
+} from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { useToast } from "@/components/ui/use-toast"
+import { Toaster } from "@/components/ui/toaster"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, CalendarIcon, ClipboardCheck, FileText, StethoscopeIcon, Activity } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
@@ -35,17 +39,85 @@ interface Patient {
   photo?: string
 }
 
+interface BookingVisit {
+  lmp: string;
+  edd: string;
+  gravida: string;
+  para: string;
+  completed: boolean;
+}
+
+interface MedicalHistory {
+  previousPregnancies: string;
+  complications: string;
+  chronicConditions: string;
+  allergies: string;
+  medications: string;
+  surgicalHistory: string;
+  completed: boolean;
+}
+
+interface PhysicalExam {
+  height: string;
+  weight: string;
+  bmi: string;
+  bloodPressure: string;
+  pulse: string;
+  temperature: string;
+  completed: boolean;
+}
+
+interface LabRequests {
+  bloodGroup: string;
+  hemoglobin: string;
+  hivStatus: string;
+  hepatitis: string;
+  urinalysis: string;
+  completed: boolean;
+}
+
+interface VisitPlan {
+  nextVisitDate: string;
+  visitTime: string;
+  careProvider: string;
+  visitReason: string;
+  visitNotes: string;
+  sendSMS: boolean;
+  sendAppNotification: boolean;
+  missedVisitFollowUp: boolean;
+  phoneCallReminder: boolean;
+  visitSchedule: string[];
+  completed: boolean;
+}
+
+interface Complications {
+  riskFactors: string[];
+  riskLevel: "low" | "medium" | "high";
+  completed: boolean;
+}
+
+interface AntenatalFormData {
+  bookingVisit: BookingVisit;
+  medicalHistory: MedicalHistory;
+  physicalExam: PhysicalExam;
+  labRequests: LabRequests;
+  visitPlan: VisitPlan;
+  complications: Complications;
+}
+
 export default function AntenatalRegistration() {
   const router = useRouter()
-  const params = useParams()
-  // Add non-null assertions to ensure TypeScript knows these values exist
-  const hospitalName = params?.hospitalName as string
-  const patientId = params?.patientId as string
+  const params = useParams<{ patientId: string; hospitalName: string }>()
+  const { toast } = useToast()
+  
+  // Handle parameters safely with fallbacks
+  const patientId = params?.patientId || ''
+  const hospitalName = params?.hospitalName || ''
   
   const [activeTab, setActiveTab] = useState("booking-visit")
   const [patient, setPatient] = useState<Patient | null>(null)
   const [loading, setLoading] = useState(true)
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<AntenatalFormData>({
     bookingVisit: {
       lmp: "",
       edd: "",
@@ -81,7 +153,15 @@ export default function AntenatalRegistration() {
     },
     visitPlan: {
       nextVisitDate: "",
-      visitSchedule: [],
+      visitTime: "", 
+      careProvider: "", 
+      visitReason: "", 
+      visitNotes: "", 
+      sendSMS: true, 
+      sendAppNotification: true, 
+      missedVisitFollowUp: true, 
+      phoneCallReminder: false, 
+      visitSchedule: [] as string[], 
       completed: false,
     },
     complications: {
@@ -156,23 +236,48 @@ export default function AntenatalRegistration() {
     fetchPatient()
   }, [patientId, hospitalName])
   
-  // Update form data for a specific section
+  // Update form data for specific section
   const updateFormData = (section: string, data: any) => {
-    setFormData(prevData => ({
-      ...prevData,
-      [section]: {
-        ...prevData[section as keyof typeof prevData],
-        ...data,
-        completed: true
-      }
-    }))
+    // Create updated form data with section marked as completed
+    const updatedSection = {
+      ...data,
+      completed: true // Mark section as completed on save
+    };
     
-    // Automatically move to next tab if available
-    const tabs = ['booking-visit', 'medical-history', 'physical-exam', 'lab-requests', 'visit-plan', 'complications']
-    const currentIndex = tabs.indexOf(section)
+    // Update state
+    setFormData((prev) => ({
+      ...prev,
+      [section]: updatedSection
+    }));
     
-    if (currentIndex < tabs.length - 1) {
-      setActiveTab(tabs[currentIndex + 1])
+    // Show success toast
+    toast({
+      title: "Section Saved",
+      description: `${section.charAt(0).toUpperCase() + section.slice(1).replace(/([A-Z])/g, ' $1')} information saved successfully.`,
+      duration: 3000,
+    });
+    
+    // Auto navigate to next tab after saving
+    const tabOrder = ["booking-visit", "medical-history", "physical-exam", "lab-requests", "visit-plan", "complications"]
+    const currentIndex = tabOrder.indexOf(activeTab)
+    if (currentIndex < tabOrder.length - 1) {
+      setActiveTab(tabOrder[currentIndex + 1])
+    } else {
+      // If we're on the last tab, check if all tabs are completed
+      setTimeout(() => {
+        const allCompleted = Object.values({
+          ...formData,
+          [section]: updatedSection
+        }).every(section => section.completed === true);
+        
+        if (allCompleted) {
+          toast({
+            title: "All Sections Completed",
+            description: "You can now complete the registration process.",
+            duration: 5000,
+          });
+        }
+      }, 500);
     }
   }
   
@@ -227,6 +332,25 @@ export default function AntenatalRegistration() {
     // Save all data and redirect to patient antenatal dashboard
     if (patient) {
       try {
+        // Show loading toast
+        toast({
+          title: "Saving registration data",
+          description: "Please wait while we save the complete antenatal registration...",
+        });
+        
+        // Ensure all sections are marked as completed
+        const completeFormData = {
+          bookingVisit: { ...formData.bookingVisit, completed: true },
+          medicalHistory: { ...formData.medicalHistory, completed: true },
+          physicalExam: { ...formData.physicalExam, completed: true },
+          labRequests: { ...formData.labRequests, completed: true },
+          visitPlan: { ...formData.visitPlan, completed: true },
+          complications: { ...formData.complications, completed: true }
+        };
+        
+        // Set form data as completed in state
+        setFormData(completeFormData);
+        
         // Save complete antenatal registration data
         const response = await fetch(`/api/antenatal/complete-registration`, {
           method: 'POST',
@@ -236,17 +360,32 @@ export default function AntenatalRegistration() {
           body: JSON.stringify({
             patientId: patient.id,
             hospitalName,
-            formData,
+            formData: completeFormData, // Use the fully completed form data
             isTransfer: !!transferData,
-            sourceHospital: transferData?.sourceHospital || null
+            sourceHospital: transferData?.sourceHospital || null,
+            medicalNumber: patient.medicalNumber // Ensure medical number is preserved
           })
         })
         
         if (!response.ok) {
-          throw new Error('Failed to complete registration')
+          const errorData = await response.json().catch(() => ({}));
+          console.error('Server response error:', errorData);
+          toast({
+            variant: "destructive",
+            title: "Registration Failed",
+            description: errorData.message || "Failed to complete antenatal registration. Please try again.",
+          });
+          throw new Error(errorData.message || 'Failed to complete registration')
         }
         
         const result = await response.json()
+        
+        // Show success message
+        toast({
+          variant: "default",
+          title: "Registration Complete",
+          description: "Antenatal registration has been successfully saved.",
+        });
         
         // Schedule notifications for upcoming visit if available
         if (formData.visitPlan.nextVisitDate) {
@@ -254,10 +393,16 @@ export default function AntenatalRegistration() {
         }
         
         // Navigate to antenatal dashboard for this patient
-        router.push(`/${hospitalName}/admin/antenatal/patient/${patient.id}`)
+        setTimeout(() => {
+          router.push(`/${hospitalName}/admin/antenatal/patient/${patient.id}`)
+        }, 1000); // Small delay to show success message
       } catch (error) {
         console.error('Error completing registration:', error)
-        // Show error message
+        toast({
+          variant: "destructive",
+          title: "Registration Failed",
+          description: error instanceof Error ? error.message : "Unknown error occurred. Please try again.",
+        });
       }
     }
   }
@@ -316,6 +461,17 @@ export default function AntenatalRegistration() {
     formData.labRequests.completed && 
     formData.visitPlan.completed && 
     formData.complications.completed
+    
+  // Whenever the form changes, check if all tabs are completed
+  useEffect(() => {
+    if (allTabsCompleted) {
+      toast({
+        title: "All sections completed",
+        description: "You can now complete the registration by clicking 'Save & Complete Registration'.",
+        duration: 5000,
+      });
+    }
+  }, [allTabsCompleted, toast]);
   
   if (loading) {
     return (
@@ -342,6 +498,7 @@ export default function AntenatalRegistration() {
   
   return (
     <div className="container mx-auto px-4 py-6 max-w-7xl">
+      <Toaster />
       {/* Back button */}
       <div className="mb-6">
         <Button variant="ghost" onClick={handleBack}>
@@ -852,16 +1009,31 @@ export default function AntenatalRegistration() {
         </p>
       </div>
       
-      {/* Save & Complete Registration Button */}
+      {/* Save & Complete Registration Button - SINGLE BUTTON */}
       <div className="mt-8 flex justify-end">
         <Button 
           onClick={handleCompleteRegistration}
           disabled={!allTabsCompleted}
-          className="px-6"
+          className={`px-6 ${allTabsCompleted ? 'bg-primary hover:bg-primary-600' : 'bg-gray-400'}`}
+          size="lg"
         >
-          Save & Complete Registration
+          {allTabsCompleted ? (
+            <>
+              <Check className="mr-2 h-4 w-4" />
+              Save & Complete Registration
+            </>
+          ) : (
+            'Complete All Sections First'
+          )}
         </Button>
       </div>
+      
+      {/* Display completion status */}
+      {!allTabsCompleted && (
+        <div className="mt-2 text-center text-sm text-gray-500">
+          Please complete all {6 - Object.values(formData).filter(section => section.completed).length} remaining sections
+        </div>
+      )}
     </div>
   )
 }

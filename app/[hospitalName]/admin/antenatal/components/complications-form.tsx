@@ -38,14 +38,22 @@ interface ComplicationsFormProps {
 }
 
 export default function ComplicationsForm({ patientData, initialData, onSave }: ComplicationsFormProps) {
-  const [formData, setFormData] = useState<ComplicationsData>(initialData || {
+  // Define default data to ensure all fields are initialized
+  const defaultData: ComplicationsData = {
     riskFactors: [],
     riskLevel: "low",
     referToSpecialist: false,
     specialistDetails: "",
     managementPlan: "",
     emergencyContact: "",
-    additionalNotes: ""
+    additionalNotes: "",
+    completed: false
+  }
+  
+  // Merge initialData with defaults to ensure no undefined values
+  const [formData, setFormData] = useState<ComplicationsData>({
+    ...defaultData,
+    ...initialData
   })
   
   const [errors, setErrors] = useState<Record<string, string>>({})

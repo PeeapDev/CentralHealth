@@ -44,7 +44,29 @@ interface PhysicalExamFormProps {
 }
 
 export default function PhysicalExamForm({ patientData, initialData, onSave }: PhysicalExamFormProps) {
-  const [formData, setFormData] = useState<PhysicalExamData>(initialData)
+  // Ensure all form fields have initial values to prevent uncontrolled/controlled input errors
+  const defaultData: PhysicalExamData = {
+    height: "",
+    weight: "",
+    bmi: "",
+    bloodPressure: "",
+    pulse: "",
+    temperature: "",
+    respiratoryRate: "",
+    fetalHeartRate: "",
+    fundalHeight: "",
+    presentation: "",
+    edema: "none",
+    generalAppearance: "",
+    notes: "",
+    completed: false
+  }
+  
+  // Merge initial data with default values to ensure no undefined values
+  const [formData, setFormData] = useState<PhysicalExamData>({
+    ...defaultData,
+    ...initialData
+  })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [warnings, setWarnings] = useState<Record<string, string>>({})
   

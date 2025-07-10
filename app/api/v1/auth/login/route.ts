@@ -91,12 +91,41 @@ export async function POST(request: NextRequest): Promise<Response> {
       )
     }
 
-    // Verify password (for demo, we'll use simple comparison)
+    // Verify password with proper security practices
     let isValidPassword = false;
     try {
-      // Handle possible bcrypt errors
-      isValidPassword = password === "admin123" || 
-        (password && user.password && await bcrypt.compare(password, user.password));
+      if (!user.password) {
+        return Response.json(
+          {
+            success: false,
+            error: "Account setup is incomplete",
+          } as ApiResponse,
+          { status: 401 },
+        );
+      }
+
+      // If password is stored as bcrypt hash (starts with $2)
+      if (user.password.startsWith('$2')) {
+        // Use bcrypt to compare the password
+        isValidPassword = await bcrypt.compare(password, user.password);
+      } 
+      // If password is stored in plaintext (legacy)
+      else if (password === user.password) {
+        isValidPassword = true;
+        
+        // Upgrade the plaintext password to a bcrypt hash
+        try {
+          const hashedPassword = await bcrypt.hash(password, 10);
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { password: hashedPassword }
+          });
+          console.log('Upgraded plaintext password to bcrypt hash for user:', user.id);
+        } catch (upgradeError) {
+          console.error('Failed to upgrade password to bcrypt:', upgradeError);
+          // Continue login process even if upgrade fails
+        }
+      }
     } catch (bcryptError) {
       console.error('Password verification error:', bcryptError);
       // Don't expose bcrypt errors, just return invalid credentials
@@ -118,22 +147,23 @@ export async function POST(request: NextRequest): Promise<Response> {
       )
     }
 
-    // Generate JWT token
+    // Generate JWT token with proper fields
     let token;
     try {
-      // Handle both synchronous and asynchronous signToken implementations
+      // Include sub field as per JWT standards (subject identifier) equal to user ID
       const tokenResult = signToken({
         userId: user.id,
         hospitalId: hospital.id,
         role: user.role,
         email: user.email,
+        sub: user.id, // Add subject identifier explicitly
       });
       
-      // Check if the result is a Promise
-      if (tokenResult instanceof Promise) {
-        token = await tokenResult; // await the Promise
-      } else {
-        token = tokenResult; // use directly if it's a string
+      // JWT signing is always async with jose library
+      token = await tokenResult;
+      
+      if (!token) {
+        throw new Error('Failed to generate authentication token');
       }
     } catch (tokenError) {
       console.error('Token generation error:', tokenError);
