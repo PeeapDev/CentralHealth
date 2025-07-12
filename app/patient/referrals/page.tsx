@@ -16,11 +16,14 @@ import { format, parseISO, isValid } from 'date-fns'
 import { AlertCircle, ArrowRight, Clock, CheckCircle2, XCircle } from "lucide-react"
 import dynamic from 'next/dynamic'
 
-// Dynamically import the dashboard layout
-const DashboardLayout = dynamic(() => import('@/components/patients/dashboard/dashboard-layout'), {
-  loading: () => <div className="min-h-screen bg-slate-50 p-4">Loading...</div>,
-  ssr: false,
-})
+// Dynamically import the dashboard layout with explicit named import
+const DashboardLayout = dynamic(
+  () => import('@/components/patients/dashboard/dashboard-layout').then(mod => ({ default: mod.DashboardLayout })),
+  {
+    loading: () => <div className="min-h-screen bg-slate-50 p-4">Loading...</div>,
+    ssr: false,
+  }
+)
 
 // Define referral priority and status types
 type ReferralPriority = 'ROUTINE' | 'URGENT' | 'EMERGENCY';

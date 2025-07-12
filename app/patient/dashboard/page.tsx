@@ -19,11 +19,14 @@ import { DEFAULT_HOSPITAL } from "@/lib/hospital-context"
 import { useHospitalContext } from "@/hooks/use-hospital-context"
 import { format } from 'date-fns'
 
-// Dynamically import the dashboard layout
-const DashboardLayout = dynamic(() => import('@/components/patients/dashboard/dashboard-layout'), {
-  loading: () => <FallbackLayout currentPage="dashboard" onNavigate={() => {}} breadcrumbs={[]} hideProfileHeader={false} />,
-  ssr: false,
-})
+// Dynamically import the dashboard layout with explicit named import
+const DashboardLayout = dynamic(
+  () => import('@/components/patients/dashboard/dashboard-layout').then(mod => ({ default: mod.DashboardLayout })),
+  {
+    loading: () => <FallbackLayout currentPage="dashboard" onNavigate={() => {}} breadcrumbs={[]} hideProfileHeader={false} />,
+    ssr: false,
+  }
+)
 
 // Fallback to a basic layout if the import fails
 interface FallbackLayoutProps {
