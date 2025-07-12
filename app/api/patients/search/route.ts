@@ -19,7 +19,8 @@ function getClientIp(request: NextRequest): string | null {
 // Type definitions
 interface PatientSearchResult {
   id: string;
-  medicalNumber: string;
+  mrn: string;           // Medical ID following NHS-style 5-character alphanumeric format
+  medicalNumber?: string; // @deprecated - For backward compatibility
   name: string;
   email: string;
   phone: string;
@@ -102,21 +103,25 @@ export async function GET(request: NextRequest) {
     }
     
     try {
-      // Execute the query with transaction for consistency and additional error handling
+      // Execute the query with improved error handling
       let patients = [];
       let totalCount = 0;
       
       try {
-        [patients, totalCount] = await prisma.$transaction([
-          prisma.patient.findMany({
-            where: whereClause,
-            select: getPatientSelectFields(),
-            skip,
-            take: pageSize,
-            orderBy: { createdAt: 'desc' },
-          }),
-          prisma.patient.count({ where: whereClause }),
-        ]);
+        // Log the query we're about to execute for debugging
+        console.log(`[${requestId}] Executing patient search with fields:`, 
+          JSON.stringify(getPatientSelectFields(), null, 2));
+            
+        // Use separate queries instead of transaction to isolate errors
+        patients = await prisma.patient.findMany({
+          where: whereClause,
+          select: getPatientSelectFields(),
+          skip,
+          take: pageSize,
+          orderBy: { createdAt: 'desc' },
+        });
+        
+        totalCount = await prisma.patient.count({ where: whereClause });
       } catch (prismaError) {
         console.error(`[${requestId}] Prisma query error:`, prismaError);
         // If the transaction fails, try simple query without transaction
@@ -161,7 +166,8 @@ export async function GET(request: NextRequest) {
           if (patient?.id) {
             processedPatients.push({
               id: patient.id,
-              medicalNumber: patient.mrn || '',
+              mrn: patient.mrn || '', // Primary field for medical ID per CentralHealth policy
+              medicalNumber: patient.mrn || '', // For backward compatibility
               name: 'Patient Record',
               email: '',
               phone: '',
@@ -221,23 +227,42 @@ export async function GET(request: NextRequest) {
     }
 
   } catch (error) {
-    const requestId = crypto.randomUUID();
-    console.error(`[${requestId}] Patient search error:`, error);
+    // Generate a new request ID for this error instance for tracking
+    const errorRequestId = crypto.randomUUID();
+    console.error(`[${errorRequestId}] Patient search error:`, error);
     
-    await safeLogSecurityEvent({
-      action: 'PATIENT_SEARCH_ERROR',
-      details: {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        url: request.url,
-      },
-      success: false,
-    });
+    // Log the error for security audit
+    try {
+      await safeLogSecurityEvent({
+        action: 'PATIENT_SEARCH_ERROR',
+        details: {
+          error: error instanceof Error ? error.message : 'Unknown error',
+          url: request.url,
+        },
+        success: false,
+      });
+    } catch (logError) {
+      // Don't let logging errors prevent returning a response
+      console.error(`[${errorRequestId}] Error logging security event:`, logError);
+    }
 
+    // Determine if this is a database error or another type of error
+    const isPrismaError = error instanceof Error && 
+      (error.name === 'PrismaClientKnownRequestError' || 
+       error.name === 'PrismaClientUnknownRequestError' ||
+       error.name === 'PrismaClientValidationError');
+       
+    const errorMessage = isPrismaError ? 
+      'Database error while searching for patients' : 
+      'An error occurred while searching for patients';
+
+    // Return a structured error response with helpful information
     return NextResponse.json(
       {
         success: false,
-        message: 'An error occurred while searching for patients',
-        requestId,
+        message: errorMessage,
+        requestId: errorRequestId,
+        // Include debug info in non-production environments
         ...(process.env.NODE_ENV !== 'production' && {
           debug: error instanceof Error ? {
             name: error.name,
@@ -350,10 +375,18 @@ function processPatientResult(patient: any): PatientSearchResult {
   }
 
   try {
+    // Ensure mrn is available - this is critical per CentralHealth policy
+    // If mrn is missing, log this as a serious data integrity issue
+    if (!patient.mrn) {
+      console.error(`CRITICAL DATA INTEGRITY ERROR: Patient ${patient.id} is missing required mrn field`);
+      // We don't throw here to avoid breaking the entire search, but this should be fixed in the database
+    }
+    
     // Use defensive coding pattern throughout to avoid any null/undefined errors
     return {
       id: patient.id,
-      medicalNumber: patient.mrn || '',
+      mrn: patient.mrn || '', // Primary field for medical ID per CentralHealth policy
+      medicalNumber: patient.mrn || '', // For backward compatibility (must use mrn as source of truth)
       // Handle missing or malformed name with fallback
       name: patient.name ? formatPatientName(patient.name) : 'Patient',
       // Handle potentially missing email extraction
@@ -382,7 +415,8 @@ function processPatientResult(patient: any): PatientSearchResult {
     // Return minimal valid data on error
     return {
       id: patient.id,
-      medicalNumber: patient.mrn || '',
+      mrn: patient.mrn || '', // Primary field for medical ID per CentralHealth policy
+      medicalNumber: patient.mrn || '', // For backward compatibility
       name: 'Patient Record',
       email: '',
       phone: '',

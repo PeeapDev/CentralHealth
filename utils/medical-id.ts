@@ -53,45 +53,41 @@ export class MedicalIDGenerator {
   static generateStandardID(): string {
     this.generationStats.totalGenerated++;
     
-    // For NHS-style IDs, we'll always use the structured approach
-    // that guarantees the right distribution of letters and numbers
-    
-    // Decide if we want 2 letters + 3 numbers or 3 letters + 2 numbers
-    // Use a random byte to make this decision
-    const randomByte = crypto.randomBytes(1)[0];
-    const useThreeLetters = (randomByte % 2 === 0); // 50% chance for each format
+    // CRITICAL FIX: Use a fixed pattern approach to guarantee valid IDs
+    // Always use 3 letters + 2 numbers in a fixed pattern to ensure compliance
     
     // Create secure random bytes for character selection
     const randomBytes = crypto.randomBytes(10);
     
-    // Build the character arrays based on our distribution decision
-    const letterCount = useThreeLetters ? 3 : 2;
-    const numberCount = 5 - letterCount; // Either 2 or 3
+    // Fixed pattern: LNLNL (Letter-Number-Letter-Number-Letter)
+    // This guarantees a mix of letters and numbers in every ID
+    let id = '';
     
-    // Create arrays of letters and numbers
-    const letters = [];
-    for (let i = 0; i < letterCount; i++) {
-      const letterChar = LETTER_CHARS[randomBytes[i] % LETTER_CHARS.length];
-      letters.push(letterChar);
+    // Position 0: Letter
+    id += LETTER_CHARS[randomBytes[0] % LETTER_CHARS.length];
+    
+    // Position 1: Number
+    id += NUMBER_CHARS[randomBytes[1] % NUMBER_CHARS.length];
+    
+    // Position 2: Letter
+    id += LETTER_CHARS[randomBytes[2] % LETTER_CHARS.length];
+    
+    // Position 3: Number
+    id += NUMBER_CHARS[randomBytes[3] % NUMBER_CHARS.length];
+    
+    // Position 4: Letter
+    id += LETTER_CHARS[randomBytes[4] % LETTER_CHARS.length];
+    
+    // Double-check that our ID contains both letters and numbers
+    // This is a redundant safety check since our pattern guarantees it
+    const hasLetter = /[A-Z]/.test(id);
+    const hasNumber = /[0-9]/.test(id);
+    
+    if (!hasLetter || !hasNumber) {
+      console.error('CRITICAL ERROR: Generated invalid medical ID:', id);
+      // This should never happen with our fixed pattern, but just in case
+      return this._generateBackupID();
     }
-    
-    const numbers = [];
-    for (let i = 0; i < numberCount; i++) {
-      const numberChar = NUMBER_CHARS[randomBytes[i + letterCount] % NUMBER_CHARS.length];
-      numbers.push(numberChar);
-    }
-    
-    // Combine arrays and shuffle to randomize letter/number positions
-    const characters = [...letters, ...numbers];
-    
-    // Fisher-Yates shuffle algorithm
-    for (let i = characters.length - 1; i > 0; i--) {
-      const j = Math.floor((randomBytes[i % randomBytes.length] / 255) * (i + 1));
-      [characters[i], characters[j]] = [characters[j], characters[i]];
-    }
-    
-    // Join the characters to form the ID
-    const id = characters.join('');
     
     // Ensure the ID isn't in the prohibited list
     if (PROHIBITED_IDS.has(id)) {

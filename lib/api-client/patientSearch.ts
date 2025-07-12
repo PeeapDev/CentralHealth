@@ -14,36 +14,79 @@ export async function searchPatients(searchTerm: string): Promise<Patient[]> {
   try {
     console.log('Searching patients with term:', searchTerm);
     
-    // Make API request to our search endpoint
-    const response = await fetch(`/api/patients/search?search=${encodeURIComponent(searchTerm)}`, {
+    if (!searchTerm || searchTerm.trim().length === 0) {
+      console.warn('Empty search term provided to searchPatients');
+      return [];
+    }
+    
+    // Make API request to our search endpoint with proper error handling
+    const encodedSearchTerm = encodeURIComponent(searchTerm.trim());
+    const url = `/api/patients/search?search=${encodedSearchTerm}`;
+    
+    console.log(`Making request to ${url}`);
+    
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
       },
+      // Add cache control to prevent stale results
+      cache: 'no-cache',
     });
 
     if (!response.ok) {
-      console.error('Error searching patients:', response.status, response.statusText);
-      throw new Error(`Error searching patients: ${response.statusText}`);
+      // Get more detailed error information if available
+      let errorDetail = response.statusText;
+      try {
+        const errorData = await response.json();
+        if (errorData?.message) {
+          errorDetail = errorData.message;
+        }
+      } catch (parseError) {
+        // If we can't parse the error response, just use the status text
+      }
+      
+      console.error('Error searching patients:', response.status, errorDetail);
+      throw new Error(`Error searching patients: ${errorDetail}`);
     }
 
     const data = await response.json();
     
-    if (!data.success || !Array.isArray(data.data)) {
-      console.error('Invalid search response format:', data);
+    // Validate response structure
+    if (!data.success) {
+      console.error('API returned unsuccessful response:', data);
+      return [];
+    }
+    
+    // Handle both response formats (data or patients array)
+    const patientsArray = Array.isArray(data.data) ? data.data : 
+                         Array.isArray(data.patients) ? data.patients : [];
+    
+    if (patientsArray.length === 0) {
+      console.log('No patients found for search term:', searchTerm);
       return [];
     }
     
     // Convert API response to Patient format for the PatientSearch component
-    return data.data.map((apiPatient: any) => ({
-      id: apiPatient.id || '',
-      mrn: apiPatient.medicalNumber || apiPatient.mrn || '',
-      firstName: apiPatient.name?.split(' ')[0] || '',
-      lastName: apiPatient.name?.split(' ').slice(1).join(' ') || '',
-      dateOfBirth: apiPatient.dateOfBirth,
-      sex: apiPatient.gender,
-      photo: apiPatient.photo || undefined
-    }));
+    // Ensure mrn is prioritized as the primary medical ID field per CentralHealth policy
+    return patientsArray.map((apiPatient: any) => {
+      // Ensure we have a valid patient object
+      if (!apiPatient || typeof apiPatient !== 'object' || !apiPatient.id) {
+        console.warn('Invalid patient object in search results', apiPatient);
+        return null;
+      }
+      
+      return {
+        id: apiPatient.id || '',
+        // CRITICAL: Always prioritize mrn as the primary medical ID per CentralHealth policy
+        mrn: apiPatient.mrn || apiPatient.medicalNumber || '',
+        firstName: apiPatient.name?.split(' ')[0] || '',
+        lastName: apiPatient.name?.split(' ').slice(1).join(' ') || '',
+        dateOfBirth: apiPatient.dateOfBirth,
+        sex: apiPatient.gender,
+        photo: apiPatient.photo || undefined
+      };
+    }).filter(Boolean); // Remove any null entries
   } catch (error) {
     console.error('Error in searchPatients:', error);
     throw error;
