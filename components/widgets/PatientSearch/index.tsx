@@ -285,6 +285,13 @@ export default function PatientSearch({
       let scannedMrn = result.trim();
       console.log('Raw QR scan result:', scannedMrn);
       
+      // Skip processing for placeholder or special values
+      if (['LOADING', 'INIT', 'PLACEHOLDER'].includes(scannedMrn.toUpperCase())) {
+        console.log('Ignoring placeholder value:', scannedMrn);
+        setIsLoading(false);
+        return;
+      }
+      
       // Handle CentralHealth formatted QR codes: "CentralHealth|MRN:XXXXX|name|details"
       if (scannedMrn.includes('|')) {
         const parts = scannedMrn.split('|');
@@ -301,7 +308,16 @@ export default function PatientSearch({
       }
       
       // Strict validation of NHS-style medical ID format (5-character alphanumeric)
-      if (!scannedMrn || scannedMrn.length !== 5 || !/^[A-Z0-9]{5}$/.test(scannedMrn.toUpperCase())) {
+      // First check if it's a valid string with some content
+      if (!scannedMrn || typeof scannedMrn !== 'string' || !scannedMrn.trim()) {
+        console.log('Empty or invalid MRN value');
+        setError('No valid medical ID found in QR code. Please try again.');
+        setIsLoading(false);
+        return;
+      }
+      
+      // Then validate against the NHS-style format (5-character alphanumeric)
+      if (scannedMrn.length !== 5 || !/^[A-Z0-9]{5}$/.test(scannedMrn.toUpperCase())) {
         console.error('Invalid MRN format:', scannedMrn);
         setError('Invalid medical ID format. Please scan a valid QR code.');
         setIsLoading(false);
