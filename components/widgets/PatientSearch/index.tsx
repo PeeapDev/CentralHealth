@@ -173,14 +173,24 @@ export default function PatientSearch({
     }
   }, [isQrScannerOpenAllowed]);
   
-  // Clean up any running search debounce on unmount
+  // Clean up any running search debounce on unmount and initialize safety timeouts
   useEffect(() => {
+    // Auto-clear any loading state that persists too long
+    const safetyTimer = setTimeout(() => {
+      if (isLoading) {
+        console.log('Safety timeout triggered: clearing stuck loading state');
+        setIsLoading(false);
+        setError('Search reset due to timeout. Please try again.');
+      }
+    }, 10000); // 10 second max search time
+    
     return () => {
       if (searchDebounceRef.current) {
         clearTimeout(searchDebounceRef.current);
       }
+      clearTimeout(safetyTimer);
     };
-  }, []);
+  }, [isLoading]);
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -236,23 +246,61 @@ export default function PatientSearch({
       return;
     }
     
+    // Use a shorter debounce time for faster responses
+    const debounceTime = value.length <= 3 ? 150 : 100;
+    
     // Debounce search to prevent excessive API calls
     searchDebounceRef.current = setTimeout(async () => {
       if (!fetchPatients) return;
       
       try {
         setIsLoading(true);
-        const results = await fetchPatients(value.trim());
-        setPatients(results);
+        
+        // Set up a timeout to prevent the search from hanging
+        let searchTimeout: NodeJS.Timeout | null = null;
+        let searchCompleted = false;
+        
+        // Create a timeout promise that will reject after 5 seconds
+        const timeoutPromise = new Promise<Patient[]>((_, reject) => {
+          searchTimeout = setTimeout(() => {
+            if (!searchCompleted) {
+              reject(new Error('Search timed out'));
+            }
+          }, 5000); // 5 second timeout
+        });
+        
+        // Race between the actual search and the timeout
+        const results = await Promise.race([
+          fetchPatients(value.trim()),
+          timeoutPromise
+        ]);
+        
+        searchCompleted = true;
+        if (searchTimeout) clearTimeout(searchTimeout);
+        
+        console.log(`Search for "${value}" found ${results?.length || 0} results`);
+        setPatients(results || []);
       } catch (err) {
         console.error('Error searching patients:', err);
-        setError('Failed to search patients');
+        setError('Search timed out. Please try again.');
         setPatients([]);
       } finally {
+        // Ensure loading state is cleared even if something fails
         setIsLoading(false);
+        
+        // Add an extra safety net to clear any stuck searching state after 8 seconds
+        setTimeout(() => {
+          if (setIsLoading) {
+            setIsLoading(false);
+            // Only set error if we're still loading (stuck state)
+            if (isLoading) {
+              setError('Search took too long. Please try again.');
+            }
+          }
+        }, 8000);
       }
-    }, 300);
-  }, [fetchPatients]);
+    }, debounceTime);
+  }, [fetchPatients, isQrScannerOpen]);
   
   // Handle patient selection from search results
   const handlePatientSelect = useCallback((patient: Patient) => {
@@ -279,6 +327,9 @@ export default function PatientSearch({
     console.log('QR scan result:', result);
     setIsLoading(true);
     setError(null);
+    
+    // Close the scanner immediately upon successful scan
+    setIsQrScannerOpen(false);
     
     try {
       // Process the QR code result which might be in various formats
@@ -391,28 +442,22 @@ export default function PatientSearch({
           searchDebounceRef.current = undefined;
         }
         
-        // Wait briefly to show success before closing
-        setTimeout(() => {
-          // Close scanner first
-          setIsQrScannerOpen(false);
-          
-          // Clear all search state
-          setIsLoading(false);
-          setSearchTerm('');
-          setPatients([]);
-          
-          // Select the patient
-          if (onPatientSelect) {
-            onPatientSelect(patient);
-          }
-          
-          // Force clear any search input element
-          const searchInput = document.querySelector('input[placeholder="' + searchPlaceholder + '"]');
-          if (searchInput && searchInput instanceof HTMLInputElement) {
-            searchInput.value = '';
-            searchInput.blur();
-          }
-        }, 500);
+        // Clear all search state immediately
+        setIsLoading(false);
+        setSearchTerm('');
+        setPatients([]);
+        
+        // Select the patient immediately to open registration flow
+        if (onPatientSelect) {
+          onPatientSelect(patient);
+        }
+        
+        // Force clear any search input element
+        const searchInput = document.querySelector('input[placeholder="' + searchPlaceholder + '"]');
+        if (searchInput && searchInput instanceof HTMLInputElement) {
+          searchInput.value = '';
+          searchInput.blur();
+        }
       } else {
         setError('Patient not found with the scanned ID');
         setIsLoading(false);
@@ -471,9 +516,19 @@ export default function PatientSearch({
       </div>
       
       {isLoading && (
-        <div className={styles.loadingIndicator}>
-          <div className={styles.spinner}></div>
+        <div className={styles.searchingIndicator}>
+          <div className={styles.loadingSpinner} />
           <span>Searching...</span>
+          <button 
+            className={styles.cancelButton}
+            onClick={() => {
+              console.log('Search cancelled by user');
+              setIsLoading(false);
+              setError(null);
+            }}
+          >
+            Cancel
+          </button>
         </div>
       )}
       

@@ -51,7 +51,7 @@
   color: #111827;
 }
 
-.loadingIndicator {
+.loadingIndicator, .searchingIndicator {
   display: flex;
   align-items: center;
   margin-top: 8px;
@@ -62,7 +62,12 @@
   color: #4b5563;
 }
 
-.spinner {
+.searchingIndicator {
+  background-color: #eff6ff;
+  justify-content: flex-start;
+}
+
+.spinner, .loadingSpinner {
   width: 16px;
   height: 16px;
   border: 2px solid rgba(59, 130, 246, 0.3);
@@ -70,6 +75,22 @@
   border-top: 2px solid #3b82f6;
   margin-right: 8px;
   animation: spin 1s linear infinite;
+}
+
+.cancelButton {
+  margin-left: auto;
+  background-color: transparent;
+  border: 1px solid #3b82f6;
+  color: #3b82f6;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.cancelButton:hover {
+  background-color: #dbeafe;
 }
 
 @keyframes spin {
