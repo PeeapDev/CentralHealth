@@ -29,6 +29,7 @@ import {
   User,
   Baby,
   Heart,
+  ArrowRight,
 } from "lucide-react"
 import { usePatientProfile } from "@/hooks/use-patient-profile"
 // Specialized care imports removed
@@ -54,6 +55,7 @@ const baseNavigation = [
   { name: "Dashboard", href: "/patient/dashboard", icon: Home, current: true },
   { name: "Appointments", href: "/patient/appointments", icon: CalendarDays, current: false },
   { name: "Medical Records", href: "/patient/medical-records", icon: FileText, current: false },
+  { name: "Referrals", href: "/patient/referrals", icon: ArrowRight, current: false },
   { name: "Messages", href: "/patient/messages", icon: MessagesSquare, current: false },
   { name: "Billing", href: "/patient/billing", icon: CreditCard, current: false },
   { name: "My Doctor", href: "/patient/doctor", icon: Stethoscope, current: false },

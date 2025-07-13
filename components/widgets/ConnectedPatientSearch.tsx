@@ -31,7 +31,22 @@ export default function ConnectedPatientSearch({
   const handlePatientSelect = (patient: Patient) => {
     console.log('Patient selected:', patient);
     if (onPatientSelect) {
+      // Call the parent's onPatientSelect handler
       onPatientSelect(patient);
+      
+      // Force stop any ongoing search processes
+      // This is crucial to prevent continuous searching after selection
+      const searchInput = document.querySelector('input[placeholder="Search patients..."]') as HTMLInputElement;
+      if (searchInput) {
+        searchInput.value = '';
+        
+        // Create and dispatch an input event to clear the search
+        const event = new Event('input', { bubbles: true });
+        searchInput.dispatchEvent(event);
+        
+        // Remove focus from the input
+        searchInput.blur();
+      }
     }
   };
 

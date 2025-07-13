@@ -227,6 +227,12 @@ export default function PatientSearch({
     // If empty, clear results
     if (!value.trim()) {
       setPatients([]);
+      setIsLoading(false); // Ensure loading state is cleared
+      return;
+    }
+    
+    // Don't search if we're in the QR scanner
+    if (isQrScannerOpen) {
       return;
     }
     
@@ -250,13 +256,22 @@ export default function PatientSearch({
   
   // Handle patient selection from search results
   const handlePatientSelect = useCallback((patient: Patient) => {
+    // Clear any running search debounce
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = undefined;
+    }
+    
+    // Clear search state completely
+    setSearchTerm('');
+    setPatients([]);
+    setIsLoading(false);
+    setError(null);
+    
+    // Notify parent component
     if (onPatientSelect) {
       onPatientSelect(patient);
     }
-    
-    // Clear search after selection
-    setSearchTerm('');
-    setPatients([]);
   }, [onPatientSelect]);
   
   // Handle QR scan success
@@ -354,10 +369,33 @@ export default function PatientSearch({
       }
       
       if (patient) {
+        // Clear any running search debounce
+        if (searchDebounceRef.current) {
+          clearTimeout(searchDebounceRef.current);
+          searchDebounceRef.current = undefined;
+        }
+        
         // Wait briefly to show success before closing
         setTimeout(() => {
+          // Close scanner first
           setIsQrScannerOpen(false);
-          handlePatientSelect(patient);
+          
+          // Clear all search state
+          setIsLoading(false);
+          setSearchTerm('');
+          setPatients([]);
+          
+          // Select the patient
+          if (onPatientSelect) {
+            onPatientSelect(patient);
+          }
+          
+          // Force clear any search input element
+          const searchInput = document.querySelector('input[placeholder="' + searchPlaceholder + '"]');
+          if (searchInput && searchInput instanceof HTMLInputElement) {
+            searchInput.value = '';
+            searchInput.blur();
+          }
         }, 500);
       } else {
         setError('Patient not found with the scanned ID');
@@ -368,7 +406,7 @@ export default function PatientSearch({
       setError('Error processing QR code result');
       setIsLoading(false);
     }
-  }, [fetchPatientByMrn, handlePatientSelect]);
+  }, [fetchPatientByMrn, handlePatientSelect, onPatientSelect, searchPlaceholder]);
   
   // Handle QR scan error
   const handleQrScanError = useCallback((errorMessage: string) => {

@@ -398,6 +398,17 @@ export function validateStoredMedicalID(id: string): boolean {
   return MedicalIDValidator.validateStandardID(id);
 }
 
+/**
+ * Validates if a medical ID follows the CentralHealth System requirements
+ * - Must be 5 characters for standard IDs
+ * - Must contain a mix of letters and numbers
+ * - Must not be in the prohibited list
+ * - For hospital IDs, must have valid format with proper separator
+ */
+export function isValidMedicalID(medicalID: string): boolean {
+  return MedicalIDValidator.validate(medicalID);
+}
+
 export function formatMedicalID(id: string): string {
   return MedicalIDFormatter.format(id);
 }

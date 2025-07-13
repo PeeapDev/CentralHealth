@@ -24,6 +24,7 @@ import {
   LogOut,
   Bell,
   Clock,
+  ArrowRight,
 } from "lucide-react"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -100,6 +101,12 @@ const navigationItems = [
     url: "/messages",
     icon: MessageSquare,
     badge: "5",
+  },
+  {
+    title: "Referrals",
+    url: "/referrals",
+    icon: ArrowRight,
+    badge: null,
   },
   {
     title: "Billing",

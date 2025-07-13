@@ -228,8 +228,6 @@ model User {
   patientProfile           Patient?
   PatientAccess_grantedBy  PatientHospitalAccess[]
   Prescriptions            Prescription[]          @relation("PrescribingDoctor")
-  ReferralsReceived        Referral[]              @relation("ReceivingDoctor")
-  ReferralsSent            Referral[]              @relation("ReferringDoctor")
   StaffProfile             StaffProfile?
   Hospital                 Hospital?               @relation(fields: [hospitalId], references: [id])
   PasswordResets           PasswordReset[]
@@ -434,33 +432,55 @@ model PatientWidgetPreference {
   patient            Patient  @relation(fields: [patientId], references: [id])
 }
 
+enum ReferralStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  COMPLETED
+  CANCELLED
+}
+
+enum ReferralPriority {
+  ROUTINE
+  URGENT
+  EMERGENCY
+}
+
 model Referral {
-  id                String           @id @default(uuid())
-  patientId         String
-  fromHospitalId    String
-  toHospitalId      String
-  referringDoctorId String
-  receivingDoctorId String?
-  reason            String
-  notes             String?
-  priority          ReferralPriority @default(ROUTINE)
-  status            ReferralStatus   @default(PENDING)
-  medicalRecords    Json?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-  completedAt       DateTime?
-  fromHospital      Hospital         @relation("FromHospital", fields: [fromHospitalId], references: [id])
-  patient           Patient          @relation("PatientReferrals", fields: [patientId], references: [id])
-  receivingDoctor   User?            @relation("ReceivingDoctor", fields: [receivingDoctorId], references: [id])
-  referringDoctor   User             @relation("ReferringDoctor", fields: [referringDoctorId], references: [id])
-  toHospital        Hospital         @relation("ToHospital", fields: [toHospitalId], references: [id])
+  id                  String             @id @default(uuid())
+  patientId           String
+  fromHospitalId      String
+  toHospitalId        String
+  reason              String
+  notes               String?
+  priority            ReferralPriority   @default(ROUTINE)
+  status              ReferralStatus     @default(PENDING)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  completedAt         DateTime?
+  referralCode        String             @unique
+  requiresAmbulance   Boolean            @default(false)
+
+  patient             Patient            @relation("PatientReferrals", fields: [patientId], references: [id])
+  fromHospital        Hospital           @relation("FromHospital", fields: [fromHospitalId], references: [id])
+  toHospital          Hospital           @relation("ToHospital", fields: [toHospitalId], references: [id])
+  statusHistory       StatusHistory[]
 
   @@index([patientId])
   @@index([fromHospitalId])
   @@index([toHospitalId])
-  @@index([referringDoctorId])
-  @@index([status])
-  @@index([priority])
+}
+
+model StatusHistory {
+  id          String   @id @default(uuid())
+  referralId  String
+  status      String
+  changedAt   DateTime @default(now())
+  changedBy   String
+
+  referral    Referral @relation(fields: [referralId], references: [id])
+
+  @@index([referralId])
 }
 
 model Ambulance {
@@ -902,6 +922,8 @@ enum EmploymentStatus {
   TERMINATED
 }
 
+
+
 enum AccessLevel {
   READ
   WRITE
@@ -916,19 +938,7 @@ enum AppointmentStatus {
   NO_SHOW
 }
 
-enum ReferralPriority {
-  ROUTINE
-  URGENT
-  EMERGENCY
-}
 
-enum ReferralStatus {
-  PENDING
-  ACCEPTED
-  COMPLETED
-  REJECTED
-  CANCELLED
-}
 
 enum AmbulanceType {
   BASIC

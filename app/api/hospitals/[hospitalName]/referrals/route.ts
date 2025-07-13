@@ -54,8 +54,8 @@ export async function GET(
     // Build filter
     const filter: any = {
       OR: [
-        { referringHospitalId: hospital.id },
-        { receivingHospitalId: hospital.id }
+        { fromHospitalId: hospital.id },
+        { toHospitalId: hospital.id }
       ]
     };
 
@@ -72,14 +72,14 @@ export async function GET(
       where: filter,
       include: {
         patient: true,
-        referringHospital: {
+        fromHospital: {
           select: {
             id: true,
             name: true,
             subdomain: true
           }
         },
-        receivingHospital: {
+        toHospital: {
           select: {
             id: true,
             name: true,
@@ -131,19 +131,21 @@ export async function POST(
 
     // Parse the request body
     const body = await request.json();
+    console.log('Received referral request body:', body);
+    
     const { 
       patientId, 
+      toHospitalId, 
+      reason,
       notes, 
-      medicalSummary, 
-      receivingHospitalId,
       priority = "ROUTINE", 
-      ambulanceRequired = false 
+      requiresAmbulance = false
     } = body;
 
     // Validate required fields
-    if (!patientId || !receivingHospitalId) {
+    if (!patientId || !toHospitalId) {
       return new NextResponse(
-        JSON.stringify({ error: "Missing required fields" }),
+        JSON.stringify({ error: "Missing required fields", received: { patientId, toHospitalId } }),
         { status: 400 }
       );
     }
@@ -161,42 +163,77 @@ export async function POST(
         { status: 404 }
       );
     }
+    
+    // Get the receiving hospital
+    const receivingHospital = await prisma.hospital.findFirst({
+      where: {
+        id: toHospitalId,
+      },
+    });
+
+    if (!receivingHospital) {
+      return new NextResponse(
+        JSON.stringify({ error: "Receiving hospital not found" }),
+        { status: 404 }
+      );
+    }
+    
+    // Get the patient to retrieve the mrn (medical ID)
+    const patient = await prisma.patient.findUnique({
+      where: { id: patientId },
+      select: { id: true, name: true, mrn: true }
+    });
+    
+    if (!patient) {
+      return new NextResponse(
+        JSON.stringify({ error: "Patient not found" }),
+        { status: 404 }
+      );
+    }
 
     // Generate a unique referral code
     const referralCode = `REF-${uuidv4().substring(0, 8).toUpperCase()}`;
-
-    // Create the referral
-    const referral = await prisma.referral.create({
+    
+    // Create the referral in the database
+    const newReferral = await prisma.referral.create({
       data: {
-        patientId,
-        referralCode,
+        patient: { connect: { id: patient.id } },
+        fromHospital: { connect: { id: referringHospital.id } },
+        toHospital: { connect: { id: receivingHospital.id } },
+        reason,
         notes,
-        medicalSummary,
-        referringHospitalId: referringHospital.id,
-        receivingHospitalId,
         priority,
-        ambulanceRequired,
-        status: "PENDING"
+        requiresAmbulance,
+        status: "PENDING",
+        referralCode,
+        statusHistory: {
+          create: {
+            status: "PENDING",
+            changedAt: new Date(),
+            changedBy: "System", // Or use authenticated user info
+          },
+        },
+      },
+      include: {
+        patient: true,
+        fromHospital: true,
+        toHospital: true,
       },
     });
 
-    // Update the patient's referral status
-    await prisma.patient.update({
-      where: { id: patientId },
-      data: { 
-        referralCode: referralCode,
-        referralStatus: "PENDING",
-        currentHospitalId: referringHospital.id
-      },
-    });
-
+    // Revalidate the path to show the new referral in the list
+    revalidatePath(`/`);
+    
     // Revalidate the referrals page
     revalidatePath(`/${params.hospitalName}/admin/referral`);
-
+    
+    // Return the response with the client referral
     return NextResponse.json({ 
-      referral,
+      success: true,
+      clientReferral: clientReferral,
       message: "Referral created successfully" 
     });
+
   } catch (error) {
     console.error("Error creating referral:", error);
     return new NextResponse(

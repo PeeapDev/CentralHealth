@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
-import PatientSearch from "@/components/widgets/PatientSearch"
+import { saveReferral, PatientReferral, generateReferralCode } from "@/utils/referral-utils"
+import ConnectedPatientSearch from "@/components/widgets/ConnectedPatientSearch"
 import { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { toast } from "sonner"
@@ -35,9 +36,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Plus, Loader2 } from "lucide-react"
+import { Patient as PatientSearchResult } from "@/components/widgets/PatientSearch/types"
 
 // Form schema
 const formSchema = z.object({
@@ -47,16 +48,10 @@ const formSchema = z.object({
   notes: z.string().optional(),
   priority: z.enum(["ROUTINE", "URGENT", "EMERGENCY"]).default("ROUTINE"),
   requiresAmbulance: z.boolean().default(false),
-  // referringDoctorId will be set on the server side using the authenticated user
-  // or the development user ID in development mode
 })
 
 type FormValues = z.infer<typeof formSchema>
-// Import the Patient interface from the PatientSearch component
-import { Patient as PatientType } from "@/components/widgets/PatientSearch/types"
-
-// Use the imported Patient type
-type Patient = PatientType
+type Patient = PatientSearchResult
 
 interface Hospital {
   id: string
@@ -67,201 +62,178 @@ interface Hospital {
 export function NewReferralDialog({ hospitalName }: { hospitalName: string }) {
   const [open, setOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [patients, setPatients] = useState<Patient[]>([])
   const [hospitals, setHospitals] = useState<Hospital[]>([])
   const [currentHospital, setCurrentHospital] = useState<Hospital | null>(null)
-  const [isLoadingPatients, setIsLoadingPatients] = useState(false)
   const [isLoadingHospitals, setIsLoadingHospitals] = useState(false)
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null)
-  const [isSearching, setIsSearching] = useState(false)
   const router = useRouter()
-  
-  // Initialize form
+
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      reason: "",
-      notes: "",
+      patientId: "",
+      toHospitalId: "",
       priority: "ROUTINE",
+      notes: "",
+      reason: "",
       requiresAmbulance: false,
     },
   })
 
-  // Load patients and hospitals when dialog opens
+  const loadHospitals = async () => {
+    try {
+      setIsLoadingHospitals(true)
+      const response = await fetch("/api/hospitals")
+      if (!response.ok) throw new Error("Failed to fetch hospitals")
+
+      const data = await response.json()
+      const allHospitals: Hospital[] = data.hospitals || []
+
+      const current = allHospitals.find(
+        (hospital: Hospital) => hospital.subdomain === hospitalName
+      )
+
+      if (current) {
+        setCurrentHospital(current)
+      }
+
+      const filteredHospitals = allHospitals.filter(
+        (hospital: Hospital) => hospital.subdomain !== hospitalName
+      )
+      setHospitals(filteredHospitals)
+    } catch (error) {
+      console.error("Error loading hospitals:", error)
+      toast.error("Failed to load hospitals")
+    } finally {
+      setIsLoadingHospitals(false)
+    }
+  }
+
   const handleOpenChange = (open: boolean) => {
     setOpen(open)
-    if (open) {
-      loadPatients()
+    if (open && hospitals.length === 0) {
       loadHospitals()
     }
   }
 
-  // Load patients from the current hospital
-  const loadPatients = async () => {
+  const getPatientName = (patient: Patient | null) => {
+    if (!patient) return ""
     try {
-      setIsLoadingPatients(true)
-      const response = await fetch(`/api/hospitals/${hospitalName}/patients`)
-      if (!response.ok) throw new Error('Failed to fetch patients')
-      
-      const data = await response.json()
-      setPatients(data.patients || [])
-    } catch (error) {
-      console.error("Error loading patients:", error)
-      toast.error("Failed to load patients")
-    } finally {
-      setIsLoadingPatients(false)
+      if (patient.firstName && patient.lastName) {
+        return `${patient.firstName} ${patient.lastName}`.trim()
+      }
+      if (patient.fullName) {
+        return patient.fullName.trim()
+      }
+      return `Patient ID: ${patient.id}`
+    } catch (e) {
+      console.error("Error formatting patient name:", e)
+      return "Unknown Patient"
     }
   }
-    // Load all hospitals except the current one
-    const loadHospitals = async () => {
-      try {
-        setIsLoadingHospitals(true)
-        const response = await fetch('/api/hospitals')
-        if (!response.ok) throw new Error('Failed to fetch hospitals')
-        
-        const data = await response.json()
-        const allHospitals = data.hospitals || [];
-        
-        // Find the current hospital
-        const current = allHospitals.find(
-          (hospital: Hospital) => hospital.subdomain === hospitalName
-        );
-        
-        if (current) {
-          setCurrentHospital(current);
-        }
-        
-        // Filter out the current hospital for the receiving hospital dropdown
-        const filteredHospitals = allHospitals.filter(
-          (hospital: Hospital) => hospital.subdomain !== hospitalName
-        )
-        setHospitals(filteredHospitals)
-      } catch (error) {
-        console.error("Error loading hospitals:", error)
-        toast.error("Failed to load hospitals")
-      } finally {
-        setIsLoadingHospitals(false)
-      }
+
+  const onSubmit = async (values: FormValues) => {
+    if (!selectedPatient || !currentHospital) {
+      toast.error("A patient and a referring hospital must be selected.")
+      return
     }
-  
-    // Get formatted patient name
-    const getPatientName = (patient: Patient) => {
-      try {
-        // First try well-formed name fields
-        if (patient.firstName && patient.lastName) {
-          return `${patient.firstName} ${patient.lastName}`;
-        }
-        
-        // Then try fullName
-        if (patient.fullName) {
-          return patient.fullName;
-        }
-        
-        // Try original data if available
-        if (patient._original) {
-          // Try fullName in original
-          if (patient._original.fullName) {
-            return patient._original.fullName;
-          }
-          
-          // Try User.name in original
-          if (patient._original.User?.name) {
-            return patient._original.User.name;
-          }
-          
-          // Handle FHIR name objects if present
-          const fhirName = patient._original.name;
-          if (Array.isArray(fhirName) && fhirName[0]) {
-            if (fhirName[0].text) return fhirName[0].text;
-            
-            const parts = [];
-            if (fhirName[0].family) parts.push(fhirName[0].family);
-            if (Array.isArray(fhirName[0].given)) parts.push(...fhirName[0].given);
-            
-            if (parts.length > 0) {
-              return parts.join(' ');
-            }
-          } else if (typeof fhirName === 'string') {
-            return fhirName;
-          }
-        }
-        
-        // Last resort
-        return `Patient ${patient.mrn || 'Unknown'}`;
-      } catch (error) {
-        return `Patient ${patient.mrn || 'Unknown'}`;
-      }
+
+    setIsSubmitting(true)
+    toast.info("Creating referral...")
+
+    const receivingHospital = hospitals.find((h) => h.id === values.toHospitalId)
+    if (!receivingHospital) {
+      toast.error("Selected receiving hospital not found.")
+      setIsSubmitting(false)
+      return
     }
-  
-    // Submit form
-  const onSubmit = async (values: z.infer<typeof formSchema>) => {
-    setIsSubmitting(true);
-    
+
+    const newReferral: Omit<PatientReferral, "updatedAt" | "statusHistory"> = {
+      id: `local-${Date.now()}`,
+      patientId: selectedPatient.id,
+      mrn: selectedPatient.mrn,
+      patientName: getPatientName(selectedPatient),
+      referringHospitalId: currentHospital.id,
+      referringHospitalName: currentHospital.name,
+      receivingHospitalId: values.toHospitalId,
+      receivingHospitalName: receivingHospital.name,
+      reason: values.reason,
+      priority: values.priority,
+      createdAt: new Date().toISOString(),
+      status: "PENDING",
+      notes: values.notes,
+      requiresAmbulance: values.requiresAmbulance,
+      referralCode: generateReferralCode(),
+    }
+
     try {
-      console.log('Form data:', values);
-      
-      // Log the selected patient for debugging
-      const selectedPatient = patients.find(p => p.id === values.patientId);
-      console.log('Selected patient:', selectedPatient ? {
-        id: selectedPatient.id,
-        mrn: selectedPatient.mrn
-      } : 'Not found');
-      
-      // Create the API payload
-      const apiPayload = {
-        patientId: values.patientId,
-        toHospitalId: values.toHospitalId,
-        reason: values.reason,
-        notes: values.notes || "",
-        priority: values.priority,
-        requiresAmbulance: values.requiresAmbulance,
-        referringDoctorId: 'dev_doctor_001' // This will be overridden by the server in production
-      };
-      
-      console.log('Sending referral data:', apiPayload);
-      console.log('Sending request to:', `/api/hospitals/${hospitalName}/referrals`);
-      
-      // Send the API request
-      const response = await fetch(`/api/hospitals/${hospitalName}/referrals`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(apiPayload),
-      });
-      
-      // Parse the response
-      let responseData: any;
+      // Try to save to localStorage and get the result
       try {
-        responseData = await response.json();
-      } catch (parseError) {
-        console.error('Failed to parse response:', parseError);
-        throw new Error('Invalid server response format');
+        const savedReferral = saveReferral(newReferral as PatientReferral)
+        
+        // Show explicit success message for localStorage save
+        toast.success(`Referral ${savedReferral.referralCode} successfully saved to local storage.`)
+
+        // Dispatch events to update UI components
+        window.dispatchEvent(new CustomEvent("referralUpdated"))
+        window.dispatchEvent(new Event("storage"))
+      } catch (err) {
+        const storageError = err as Error
+        console.error('Failed to save referral to local storage:', storageError)
+        toast.error(`Failed to save referral locally: ${storageError.message || 'Unknown error'}`)
+        // Don't attempt server sync if local save failed
+        setIsSubmitting(false)
+        return
+      }
+
+      // Show immediate feedback that the local save was successful
+      toast.success("Referral created successfully and saved locally!")
+      
+      // Wait 1 second to ensure the toast notification is visible before attempting server sync
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // Now try to sync with server
+      try {
+        const response = await fetch(`/api/hospitals/${hospitalName}/referrals`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(newReferral),
+        })
+        
+        if (!response.ok) {
+          // console.error("API Error: Failed to save referral to server.")
+          toast.warning("Referral saved locally, but failed to sync with server.")
+        } else {
+          toast.success("Referral successfully synced with server!")
+        }
+      } catch (error) {
+        console.error("API Fetch Error:", error)
+        toast.warning("Referral saved locally, but a network error occurred when syncing to server.")
       }
       
-      // Check if the response was successful
-      if (!response.ok) {
-        console.error('API error response:', responseData);
-        const errorMessage = responseData?.error || responseData?.message || 'Failed to create referral';
-        throw new Error(errorMessage);
-      }
+      // Wait another second to ensure all toast notifications are visible
+      await new Promise(resolve => setTimeout(resolve, 1000))
       
-      console.log('Referral created successfully:', responseData);
-      
-      // Show success message
-      toast.success(responseData?.message || "Referral created successfully");
-      
-      // Reset form and close dialog
-      form.reset();
-      setOpen(false);
-      
-      // Refresh the page to show the new referral
-      router.refresh();
-    } catch (error: any) {
-      console.error('Error creating referral:', error);
-      toast.error(error instanceof Error ? error.message : "Failed to create referral");
+      // Reset form and close dialog only after all operations are complete
+      form.reset()
+      setSelectedPatient(null)
+      router.refresh()
+      setOpen(false)
+    } catch (error) {
+      console.error("Error creating referral:", error)
+      toast.error("Failed to create referral. Please try again.")
     } finally {
-      setIsSubmitting(false);
+      setIsSubmitting(false)
+    }
+  }
+
+  const handlePatientSelect = (patient: Patient | null) => {
+    if (patient) {
+      setSelectedPatient(patient)
+      form.setValue("patientId", patient.id, { shouldValidate: true })
+    } else {
+      setSelectedPatient(null)
+      form.setValue("patientId", "", { shouldValidate: true })
     }
   }
 
@@ -269,33 +241,19 @@ export function NewReferralDialog({ hospitalName }: { hospitalName: string }) {
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button>
-          <Plus className="h-4 w-4 mr-2" />
+          <Plus className="mr-2 h-4 w-4" />
           New Referral
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[525px]">
+      <DialogContent className="sm:max-w-[600px]">
         <DialogHeader>
-          <DialogTitle>Create New Patient Referral</DialogTitle>
+          <DialogTitle>Create New Referral</DialogTitle>
           <DialogDescription>
-            Refer a patient to another hospital. Enter the referral details below.
+            Fill out the form to create a new patient referral.
           </DialogDescription>
         </DialogHeader>
-        
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            {/* Display current hospital as referring hospital */}
-            <div className="space-y-2">
-              <div className="font-medium text-sm">Referring Hospital</div>
-              <div className="px-4 py-3 rounded-md bg-muted border">
-                <div className="font-medium">
-                  {currentHospital?.name || hospitalName.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                </div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  This referral will be created from your current hospital
-                </div>
-              </div>
-            </div>
-            
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
             <FormField
               control={form.control}
               name="patientId"
@@ -303,135 +261,21 @@ export function NewReferralDialog({ hospitalName }: { hospitalName: string }) {
                 <FormItem>
                   <FormLabel>Patient</FormLabel>
                   <FormControl>
-                    <div className="w-full">
-                      <PatientSearch
-                        onPatientSelect={(patient) => {
-                          // Update form field with patient ID
-                          field.onChange(patient.id);
-                          
-                          // Store selected patient data for display
-                          setSelectedPatient(patient);
-                          setIsSearching(false);
-                        }}
-                        fetchPatients={async (searchTerm) => {
-                          setIsSearching(true);
-                          try {
-                            // First try direct MRN lookup if the search term looks like an MRN
-                            // Ensure we're using the standard NHS-style 5-character format
-                            if (searchTerm.length === 5 && /^[A-Za-z0-9]{5}$/.test(searchTerm)) {
-                              try {
-                                // Use the centralized patient search API with the MRN parameter
-                                // This ensures we're using the proper field (mrn) per CentralHealth requirements
-                                const standardizedMrn = searchTerm.toUpperCase();
-                                const response = await fetch(`/api/patients/search?medicalId=${encodeURIComponent(standardizedMrn)}`);
-                                
-                                if (response.ok) {
-                                  const responseData = await response.json();
-                                  
-                                  // Check if we got a valid patient response
-                                  if (responseData.success && responseData.patient) {
-                                    const patientData = responseData.patient;
-                                    // Convert to Patient format
-                                    const patient: Patient = {
-                                      id: patientData.id,
-                                      mrn: patientData.mrn || '', // Use mrn as the standard field
-                                      firstName: patientData.name?.split(' ')[0] || '',
-                                      lastName: patientData.name?.split(' ').slice(1).join(' ') || '',
-                                      fullName: patientData.name || '',
-                                      dateOfBirth: patientData.dateOfBirth || patientData.birthDate,
-                                      sex: patientData.gender || patientData.sex,
-                                      _original: patientData
-                                    };
-                                    setIsSearching(false);
-                                    return [patient];
-                                  }
-                                }
-                              } catch (mrnError) {
-                                console.log('MRN direct lookup failed, falling back to search:', mrnError);
-                              }
-                            }
-                            
-                            // Fall back to regular search using the centralized patient search API
-                            // This ensures consistent handling of patient data across the application
-                            const response = await fetch(`/api/patients/search?search=${encodeURIComponent(searchTerm)}`);
-                            
-                            if (!response.ok) {
-                              const errorData = await response.json().catch(() => ({}));
-                              throw new Error(errorData.message || 'Failed to search patients');
-                            }
-                            
-                            const data = await response.json();
-                            setIsSearching(false);
-                            return data.patients || [];
-                          } catch (error) {
-                            console.error('Error searching patients:', error);
-                            setIsSearching(false);
-                            return [];
-                          }
-                        }}
-                        fetchPatientByMrn={async (mrn) => {
-                          setIsSearching(true);
-                          try {
-                            // Use the centralized patient search API with the medicalId parameter
-                            // This ensures we're using the proper field (mrn) per CentralHealth requirements
-                            const standardizedMrn = mrn.toUpperCase();
-                            const response = await fetch(`/api/patients/search?medicalId=${encodeURIComponent(standardizedMrn)}`);
-                            
-                            if (!response.ok) {
-                              const errorData = await response.json().catch(() => ({}));
-                              throw new Error(errorData.message || 'Patient not found');
-                            }
-                            
-                            const responseData = await response.json();
-                            
-                            // Check if we got a valid patient response
-                            if (!responseData.success) {
-                              throw new Error('Patient not found');
-                            }
-                            
-                            // The API returns a single patient when searching by medicalId
-                            const patientData = responseData.patient;
-                            
-                            // Log the successful result
-                            console.log('Found patient with MRN:', patientData?.mrn || 'unknown');
-                            
-                            setIsSearching(false);
-                            
-                            // Return a single patient object in the expected format
-                            // Ensure we're using mrn as the standard medical ID field per CentralHealth policy
-                            return {
-                              id: patientData.id,
-                              mrn: patientData.mrn || '', // Use mrn as the primary field per CentralHealth policy
-                              firstName: patientData.name?.split(' ')[0] || '',
-                              lastName: patientData.name?.split(' ').slice(1).join(' ') || '',
-                              fullName: patientData.name || '',
-                              dateOfBirth: patientData.dateOfBirth || patientData.birthDate,
-                              sex: patientData.gender || patientData.sex,
-                              _original: patientData
-                            };
-                          } catch (error) {
-                            console.error('Error fetching patient by MRN:', error);
-                            // Show a toast notification with the error message
-                            toast.error(error instanceof Error ? error.message : 'Failed to fetch patient by MRN');
-                            setIsSearching(false);
-                            return null;
-                          }
-                        }}
-                        searchPlaceholder="Search by name, medical ID, or scan QR code"
-                      />
+                    <div>
+                      <ConnectedPatientSearch onPatientSelect={handlePatientSelect} />
+                      {selectedPatient && (
+                        <div className="mt-2 text-sm text-gray-600 border p-2 rounded-md bg-muted">
+                          Selected: {getPatientName(selectedPatient)} (MRN:{" "}
+                          {selectedPatient.mrn})
+                        </div>
+                      )}
                     </div>
                   </FormControl>
-                  {selectedPatient && (
-                    <div className="mt-2 p-2 border rounded-md bg-muted">
-                      <div className="font-medium">{selectedPatient.fullName || `${selectedPatient.firstName} ${selectedPatient.lastName}`}</div>
-                      <div className="text-xs text-muted-foreground">Medical ID: {selectedPatient.mrn}</div>
-                    </div>
-                  )}
                   <FormMessage />
                 </FormItem>
               )}
             />
-            
+
             <FormField
               control={form.control}
               name="toHospitalId"
@@ -439,13 +283,12 @@ export function NewReferralDialog({ hospitalName }: { hospitalName: string }) {
                 <FormItem>
                   <FormLabel>Receiving Hospital</FormLabel>
                   <Select
-                    disabled={isLoadingHospitals}
                     onValueChange={field.onChange}
                     defaultValue={field.value}
                   >
                     <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select receiving hospital" />
+                      <SelectTrigger disabled={isLoadingHospitals}>
+                        <SelectValue placeholder="Select a hospital" />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -456,15 +299,17 @@ export function NewReferralDialog({ hospitalName }: { hospitalName: string }) {
                         </div>
                       ) : hospitals.length > 0 ? (
                         hospitals.map((hospital) => (
-                          <SelectItem 
-                            key={hospital.id} 
+                          <SelectItem
+                            key={hospital.id}
                             value={hospital.id}
                           >
                             {hospital.name}
                           </SelectItem>
                         ))
                       ) : (
-                        <div className="p-2 text-sm text-muted-foreground">No hospitals found</div>
+                        <div className="p-2 text-sm text-muted-foreground">
+                          No hospitals found
+                        </div>
                       )}
                     </SelectContent>
                   </Select>
@@ -472,36 +317,7 @@ export function NewReferralDialog({ hospitalName }: { hospitalName: string }) {
                 </FormItem>
               )}
             />
-            
-            <FormField
-              control={form.control}
-              name="priority"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Priority</FormLabel>
-                  <Select
-                    onValueChange={field.onChange}
-                    defaultValue={field.value}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select priority" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="ROUTINE">Routine</SelectItem>
-                      <SelectItem value="URGENT">Urgent</SelectItem>
-                      <SelectItem value="EMERGENCY">Emergency</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormDescription>
-                    Indicates the urgency of the referral
-                  </FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            
+
             <FormField
               control={form.control}
               name="reason"
@@ -522,7 +338,7 @@ export function NewReferralDialog({ hospitalName }: { hospitalName: string }) {
                 </FormItem>
               )}
             />
-            
+
             <FormField
               control={form.control}
               name="notes"
@@ -543,50 +359,69 @@ export function NewReferralDialog({ hospitalName }: { hospitalName: string }) {
                 </FormItem>
               )}
             />
-            
-            <FormField
-              control={form.control}
-              name="requiresAmbulance"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                  <FormControl>
-                    <Checkbox
-                      checked={field.value}
-                      onCheckedChange={field.onChange}
-                    />
-                  </FormControl>
-                  <div className="space-y-1 leading-none">
-                    <FormLabel>
-                      Ambulance Required
-                    </FormLabel>
+
+            <div className="grid grid-cols-2 gap-4">
+              <FormField
+                control={form.control}
+                name="priority"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Priority</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      defaultValue={field.value}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select priority" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="ROUTINE">Routine</SelectItem>
+                        <SelectItem value="URGENT">Urgent</SelectItem>
+                        <SelectItem value="EMERGENCY">Emergency</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <FormDescription>
-                      Check if the patient requires ambulance transport
+                      Indicates the urgency of the referral
                     </FormDescription>
-                  </div>
-                </FormItem>
-              )}
-            />
-            
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="requiresAmbulance"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                    <FormControl>
+                      <Checkbox
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <div className="space-y-1 leading-none">
+                      <FormLabel>
+                        Ambulance Required
+                      </FormLabel>
+                      <FormDescription>
+                        Check if the patient requires ambulance transport
+                      </FormDescription>
+                    </div>
+                  </FormItem>
+                )}
+              />
+            </div>
+
             <DialogFooter>
-              <Button 
-                type="button" 
-                variant="outline" 
-                onClick={() => setOpen(false)}
-              >
+              <Button variant="outline" onClick={() => setOpen(false)}>
                 Cancel
               </Button>
-              <Button 
-                type="submit" 
-                disabled={isSubmitting}
-              >
+              <Button type="submit" disabled={isSubmitting}>
                 {isSubmitting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  'Create Referral'
-                )}
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : null}
+                Create Referral
               </Button>
             </DialogFooter>
           </form>
@@ -595,3 +430,5 @@ export function NewReferralDialog({ hospitalName }: { hospitalName: string }) {
     </Dialog>
   )
 }
+
+export default NewReferralDialog;
