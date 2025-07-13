@@ -1,16 +1,28 @@
-import { PageHeader } from "@/components/page-header"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { Search, UserCheck, Clock, CheckCircle, XCircle } from "lucide-react"
-import { NewReferralDialog } from "../../../../components/new-referral-dialog"
-import { ReferralTableClient } from "@/components/referral-table-client"
-import { prisma } from "@/lib/prisma"
-import { cn } from "@/lib/utils"
+"use client"
 
+/* eslint-disable react-hooks/exhaustive-deps */
+/* eslint-disable @next/next/no-async-client-component */
+
+import { useState, useEffect } from "react"
+// import { use } from "react" - not needed yet
+import { useRouter } from "next/navigation"
+import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
+import { Switch } from "@/components/ui/switch"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Clock, CheckCircle, XCircle, UserCheck, Ambulance } from "lucide-react"
+import { NewReferralDialog } from "./new-referral-dialog"
+import { cn } from "@/lib/utils"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { updateReferralStatus, PatientReferral, ReferralStatus, getAllReferrals } from "@/utils/referral-utils"
+
+// Types for page props
 interface ReferralPageProps {
-  params: { hospitalName: string }
+  params: {
+    hospitalName: string;
+  };
+  searchParams?: { [key: string]: string | string[] | undefined };
 }
 
 // Define the types with proper relations
@@ -25,378 +37,561 @@ type Hospital = {
   name: string;
 };
 
+// Define the admin dashboard referral type that extends PatientReferral
 type ReferralWithRelations = {
   id: string;
-  createdAt: Date;
-  updatedAt: Date;
-  completedAt?: Date | null;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+  completedAt?: string | Date | null;
   referralCode: string;
   status: string;
   priority: string;
   notes?: string | null;
-  ambulanceRequired: boolean;
+  requiresAmbulance: boolean; // Using consistent naming
   patientId: string;
+  patientName?: string; // Added patientName field
   referringHospitalId: string;
   receivingHospitalId: string;
-  patient: Patient;
-  referringHospital: Hospital;
-  receivingHospital: Hospital;
+  referringHospitalName?: string; // Added hospital name fields to match PatientReferral
+  receivingHospitalName?: string;
+  patient?: Patient;
+  referringHospital?: Hospital;
+  receivingHospital?: Hospital;
+  mrn?: string; // Medical ID following NHS standard // Using standardized medical ID field
 };
 
-async function getReferrals(hospitalName: string): Promise<ReferralWithRelations[]> {
-  try {
-    // Check if prisma client is available
-    if (!prisma) {
-      console.error("Prisma client is not properly initialized");
-      return [];
-    }
+// Cache keys for session storage
+const REFERRALS_CACHE_KEY = 'centralhealth_referrals_cache';
+const REFERRAL_FILTER_KEY = 'centralhealth_referrals_show_all';
 
-    // Find the hospital first
-    const hospital = await prisma.hospital.findFirst({
-      where: { subdomain: hospitalName },
-      select: { id: true }
-    }).catch((err: unknown) => {
-      console.error("Error finding hospital:", err);
-      return null;
-    });
-    
-    if (!hospital) {
-      console.log(`No hospital found with subdomain: ${hospitalName}`);
-      return [];
+// Client-side function to get referrals from localStorage with persistence and caching
+function useReferrals(hospitalName: string) {
+  const [referrals, setReferrals] = useState<ReferralWithRelations[]>([]);
+  const [loading, setLoading] = useState(true);
+  // Get initial filter preference from sessionStorage or default to true
+  const [showAllReferrals, setShowAllReferrals] = useState<boolean>(() => {
+    // Only run in client side
+    if (typeof window !== 'undefined') {
+      const savedPreference = sessionStorage.getItem(REFERRAL_FILTER_KEY);
+      return savedPreference !== null ? savedPreference === 'true' : true;
     }
-    
-    // Use a try-catch block specifically for the referral query
-    try {
-      // Check if the model exists in the Prisma schema
-      if (!(prisma as any)["referral"]) {
-        console.error("The referral model doesn't seem to exist in the Prisma schema");
-        return [];
-      }
-      
-      // Attempt to fetch referrals safely
-      const referrals = await (prisma as any).referral.findMany({
-        where: {
-          OR: [
-            { fromHospitalId: hospital.id },
-            { toHospitalId: hospital.id }
-          ]
-        },
-        include: {
-          patient: true,
-          fromHospital: true,  // Updated to match Prisma schema relation names
-          toHospital: true,    // Updated to match Prisma schema relation names
-        },
-        orderBy: { createdAt: 'desc' }
-      }).catch((err: Error) => {
-        console.error("Error fetching referrals:", err);
-        return [];
-      });
-      
-      return referrals as ReferralWithRelations[];
-    } catch (referralError: unknown) {
-      console.error("Error in referral query:", referralError);
-      return [];
-    }
-  } catch (error: unknown) {
-    console.error("Error in getReferrals:", error);
-    return [];
-  }
-}
-
-async function getStats(hospitalName: string) {
-  try {
-    // Check if prisma client is available
-    if (!prisma) {
-      console.error("Prisma client is not properly initialized");
-      return { total: 0, pending: 0, completed: 0, todayCompleted: 0 };
-    }
-
-    // Find the hospital first
-    const hospital = await prisma.hospital.findFirst({
-      where: { subdomain: hospitalName },
-      select: { id: true }
-    }).catch((err: unknown) => {
-      console.error("Error finding hospital:", err);
-      return null;
-    });
-    
-    if (!hospital) {
-      console.log(`No hospital found with subdomain: ${hospitalName}`);
-      return { total: 0, pending: 0, completed: 0, todayCompleted: 0 };
-    }
-    
-    // Check if the model exists in the Prisma schema
-    if (!(prisma as any)["referral"]) {
-      console.error("The referral model doesn't seem to exist in the Prisma schema");
-      return { total: 0, pending: 0, completed: 0, todayCompleted: 0 };
-    }
-    
-    // Calculate statistics with individual try-catch blocks
-    let total = 0, pending = 0, completed = 0, todayCompleted = 0;
-    
-    // Total referrals
-    try {
-      total = await (prisma as any).referral.count({
-        where: {
-          OR: [
-            { fromHospitalId: hospital.id },
-            { toHospitalId: hospital.id }
-          ]
-        },
-      }).catch((err: unknown) => {
-        console.error("Error counting total:", err);
-        return 0;
-      });
-    } catch (e: unknown) {
-      console.error("Error counting total referrals:", e);
-    }
-    
-    // Pending referrals
-    try {
-      pending = await (prisma as any).referral.count({
-        where: {
-          OR: [
-            { fromHospitalId: hospital.id },
-            { toHospitalId: hospital.id }
-          ],
-          status: "PENDING"
-        },
-      }).catch((err: unknown) => {
-        console.error("Error counting pending:", err);
-        return 0;
-      });
-    } catch (e: unknown) {
-      console.error("Error counting pending referrals:", e);
-    }
-    
-    // Completed referrals
-    try {
-      completed = await (prisma as any).referral.count({
-        where: {
-          OR: [
-            { fromHospitalId: hospital.id },
-            { toHospitalId: hospital.id }
-          ],
-          status: "COMPLETED"
-        },
-      }).catch((err: unknown) => {
-        console.error("Error counting completed:", err);
-        return 0;
-      });
-    } catch (e: unknown) {
-      console.error("Error counting completed referrals:", e);
-    }
-    
-    // Today's completed referrals
-    try {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      
-      todayCompleted = await (prisma as any).referral.count({
-        where: {
-          OR: [
-            { fromHospitalId: hospital.id },
-            { toHospitalId: hospital.id }
-          ],
-          status: "COMPLETED",
-          completedAt: {
-            gte: today
-          }
-        },
-      }).catch((err: unknown) => {
-        console.error("Error counting today's completed:", err);
-        return 0;
-      });
-    } catch (e: unknown) {
-      console.error("Error counting today's completed referrals:", e);
-    }
-    
-    return { total, pending, completed, todayCompleted };
-  } catch (error: unknown) {
-    console.error("Error in getStats:", error);
-    return { total: 0, pending: 0, completed: 0, todayCompleted: 0 };
-  }
-}
-
-export default async function ReferralPage({ params }: ReferralPageProps) {
-  // Ensure hospitalName is properly awaited if it's a promise
-  const hospitalName = typeof params.hospitalName === 'function' 
-    ? await Promise.resolve(params.hospitalName) 
-    : params.hospitalName;
-    
-  console.log('Using hospital name:', hospitalName);
-  const displayHospitalName = hospitalName.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
-  
-  // Get the hospital information first
-  const hospital = await prisma.hospital.findFirst({
-    where: { subdomain: hospitalName },
-    select: { id: true, name: true }
+    return true; // Default to showing all for debugging
   });
   
-  console.log('Found hospital:', hospital?.id, hospital?.name);
+  // Save filter preference to session storage for persistence
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem(REFERRAL_FILTER_KEY, String(showAllReferrals));
+    }
+  }, [showAllReferrals]);
   
-  const referrals = await getReferrals(hospitalName);
-  const stats = await getStats(hospitalName);
+  // Function to clear referrals cache when new data comes in
+  const clearReferralsCache = () => {
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem(REFERRALS_CACHE_KEY);
+    }
+  };
   
-  // Format referrals for display
-  const formattedReferrals = referrals.map((referral: ReferralWithRelations) => {
-    // Extract patient name from JSON structure
-    const patientName = (() => {
-      try {
-        if (referral.patient && referral.patient.name) {
-          const nameObj = referral.patient.name as any;
-          if (nameObj && nameObj.given && nameObj.family) {
-            return `${Array.isArray(nameObj.given) ? nameObj.given.join(' ') : nameObj.given} ${nameObj.family}`;
-          }
-        }
-        return referral.patient?.mrn || 'Unknown';
-      } catch {
-        return 'Unknown Patient';
-      }
-    })();
+  // Load referrals from localStorage with caching
+  const loadReferrals = () => {
+    setLoading(true);
     
-    return {
-      id: referral.id,
-      referralCode: referral.referralCode,
-      patientName,
-      patientId: referral.patientId,
-      referringHospital: referral.referringHospital?.name || 'Unknown Hospital',
-      receivingHospital: referral.receivingHospital?.name || 'Unknown Hospital',
-      status: referral.status,
-      priority: referral.priority || 'ROUTINE',
-      date: referral.createdAt.toISOString().split('T')[0],
-      notes: referral.notes || '',
+    try {
+      // First check if we have cached referrals
+      const cachedData = sessionStorage.getItem(REFERRALS_CACHE_KEY);
+      let allReferrals = [];
+      
+      if (cachedData) {
+        console.log("Using cached referrals data");
+        allReferrals = JSON.parse(cachedData);
+      } else {
+        console.log("Loading referrals from localStorage");
+        allReferrals = getAllReferrals();
+        // Cache the results for better performance
+        sessionStorage.setItem(REFERRALS_CACHE_KEY, JSON.stringify(allReferrals));
+      }
+      
+      console.log(`Processing ${allReferrals.length} referrals`);
+      
+      // Transform raw referrals to ReferralWithRelations format
+      const transformedReferrals: ReferralWithRelations[] = allReferrals.map((ref: PatientReferral) => {
+        // Create consistent structure and ensure mrn field is used
+        return {
+          ...ref,
+          mrn: ref.mrn || ref.patientId, // Ensure mrn field is populated
+          patientName: ref.patientName || 'Patient', // Explicitly set patientName
+          patient: {
+            id: ref.patientId,
+            name: { text: ref.patientName || 'Patient' }, // Set name.text format
+            mrn: ref.mrn || ref.patientId
+          },
+          referringHospital: {
+            id: ref.referringHospitalId,
+            name: ref.referringHospitalName || "Unknown Hospital"
+          },
+          receivingHospital: {
+            id: ref.receivingHospitalId,
+            name: ref.receivingHospitalName || "Unknown Hospital"
+          }
+        };
+      });
+      
+      let filteredReferrals = transformedReferrals;
+      
+      if (!showAllReferrals && hospitalName) {
+        // More lenient hospital name matching (normalized, partial)
+        const normalizeHospitalName = (name?: string) => {
+          return (name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+        };
+        
+        const normalizedHospitalName = normalizeHospitalName(hospitalName);
+        console.log(`Filtering referrals for hospital: ${hospitalName} (normalized: ${normalizedHospitalName})`);
+        
+        filteredReferrals = transformedReferrals.filter(ref => {
+          const normalizedRefHospital = normalizeHospitalName(ref.referringHospital?.name);
+          const normalizedRecHospital = normalizeHospitalName(ref.receivingHospital?.name);
+          
+          // Check if hospital name is included in either referring or receiving hospital
+          const isMatch = normalizedRefHospital.includes(normalizedHospitalName) || 
+                          normalizedRecHospital.includes(normalizedHospitalName);
+          
+          if (!isMatch) {
+            console.log(`Referral ${ref.referralCode} excluded - hospitals: ${ref.referringHospital?.name}, ${ref.receivingHospital?.name}`);
+          }
+          
+          return isMatch;
+        });
+      }
+      
+      console.log(`Displaying ${filteredReferrals.length} referrals${showAllReferrals ? ' (showing all)' : ''}`);
+      setReferrals(filteredReferrals);
+    } catch (error) {
+      console.error("Error loading referrals:", error);
+      setReferrals([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Set up event listeners and initial load
+  useEffect(() => {
+    loadReferrals();
+    
+    // Listen for storage events (when localStorage changes in another tab)
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key?.includes('referral')) {
+        loadReferrals();
+      }
     };
-  });
+    
+    // Custom event for when a referral is created or updated
+    const handleReferralUpdate = () => {
+      console.log("Referral updated event received");
+      clearReferralsCache(); // Clear the cache when referrals are updated
+      loadReferrals();
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('referralUpdated', handleReferralUpdate);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('referralUpdated', handleReferralUpdate);
+    };
+  }, [showAllReferrals]); // Re-run when filter toggle changes
+  
+  return {
+    referrals,
+    loading,
+    loadReferrals,
+    showAllReferrals,
+    setShowAllReferrals
+  };
+}
 
+// Client-side function to calculate referral stats from referrals list
+function useReferralStats(referrals: ReferralWithRelations[]) {
+  const [stats, setStats] = useState({
+    total: 0,
+    pending: 0,
+    completed: 0,
+    rejected: 0,
+    successRate: 0
+  });
+  
+  useEffect(() => {
+    const total = referrals.length;
+    const pending = referrals.filter(r => r.status === "PENDING").length;
+    const completed = referrals.filter(r => r.status === "COMPLETED").length;
+    const rejected = referrals.filter(r => r.status === "REJECTED").length;
+    const successRate = total > 0 ? Math.round((completed / total) * 100) : 0;
+    
+    setStats({
+      total,
+      pending,
+      completed,
+      rejected,
+      successRate
+    });
+  }, [referrals]);
+  
+  return stats;
+}
+
+export default function ReferralPage({ params }: ReferralPageProps) {
+  // State to track if component is mounted (client-side)
+  const [isMounted, setIsMounted] = useState(false);
+  
+  // Extract hospital name from URL path to avoid Next.js params warning
+  const [hospitalName, setHospitalName] = useState('');
+  
+  // Initialize hospital name from pathname on client side only
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      // Extract hospital name from URL path: /hospitalName/admin/referral
+      const pathParts = window.location.pathname.split('/');
+      if (pathParts.length > 1 && pathParts[1]) {
+        setHospitalName(pathParts[1]);
+      }
+    }
+  }, []);
+  
+  // Use our custom hooks
+  const { 
+    referrals, 
+    loading, 
+    loadReferrals, 
+    showAllReferrals, 
+    setShowAllReferrals 
+  } = useReferrals(hospitalName);
+  const stats = useReferralStats(referrals);
+  
+  // Format hospital name for display (convert slug to title case)
+  const displayHospitalName = hospitalName
+    ? hospitalName.split('-').map((word: string) => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+    : '';
+  
+  // Function to load all referrals
+  const loadAllReferrals = () => {
+    console.log("Loading all referrals");
+    setIsMounted(true);
+    loadReferrals();
+  };
+  
+  // Set up event listeners and initial load
+  useEffect(() => {
+    loadAllReferrals();
+    
+    // Listen for storage events (when localStorage changes in another tab)
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key?.includes('referral')) {
+        loadReferrals();
+      }
+    };
+    
+    // Custom event for when a referral is created or updated
+    const handleReferralUpdate = () => {
+      console.log("Referral updated event received");
+      loadReferrals();
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('referralUpdated', handleReferralUpdate);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('referralUpdated', handleReferralUpdate);
+    };
+  }, [showAllReferrals]); // Re-run when filter toggle changes
+  
+  // Helper function to format date
+  const formatDate = (date: string | Date | undefined | null) => {
+    if (!date) return 'N/A';
+    const d = new Date(date);
+    return isNaN(d.getTime()) ? 'Invalid Date' : d.toLocaleDateString();
+  };
+  
+  // Helper function to get status badge
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "PENDING":
+    switch (status?.toUpperCase()) {
+      case 'COMPLETED':
         return (
-          <Badge className="bg-yellow-500 text-white">
-            <Clock className="h-3 w-3 mr-1" />
-            Pending
-          </Badge>
-        )
-      case "COMPLETED":
-        return (
-          <Badge className="bg-green-500 text-white">
+          <Badge className="bg-green-500 hover:bg-green-600">
             <CheckCircle className="h-3 w-3 mr-1" />
             Completed
           </Badge>
-        )
-      case "ACCEPTED":
+        );
+      case 'PENDING':
         return (
-          <Badge className="bg-blue-500 text-white">
+          <Badge className="bg-yellow-500 hover:bg-yellow-600">
+            <Clock className="h-3 w-3 mr-1" />
+            Pending
+          </Badge>
+        );
+      case 'REJECTED':
+        return (
+          <Badge className="bg-red-500 hover:bg-red-600">
+            <XCircle className="h-3 w-3 mr-1" />
+            Rejected
+          </Badge>
+        );
+      case 'ACCEPTED':
+        return (
+          <Badge className="bg-blue-500 hover:bg-blue-600">
             <UserCheck className="h-3 w-3 mr-1" />
             Accepted
           </Badge>
-        )
-      case "CANCELLED":
+        );
+      default:
         return (
-          <Badge className="bg-red-500 text-white">
-            <XCircle className="h-3 w-3 mr-1" />
-            Cancelled
+          <Badge className="bg-gray-500 hover:bg-gray-600">
+            {status || 'Unknown'}
           </Badge>
-        )
-      case "NONE":
-        return <Badge variant="outline">None</Badge>
-      default:
-        return <Badge variant="secondary">{status}</Badge>
+        );
     }
-  }
-
+  };
+  
+  // Helper function to get priority badge
   const getPriorityBadge = (priority: string) => {
-    switch (priority) {
-      case "High":
-        return <Badge variant="destructive">High</Badge>
-      case "Medium":
-        return <Badge className="bg-yellow-500 text-white">Medium</Badge>
-      case "Low":
-        return <Badge className="bg-green-500 text-white">Low</Badge>
-      default:
-        return <Badge variant="outline">{priority}</Badge>
+    const priorityColor = priority?.toUpperCase() === 'HIGH' 
+      ? 'bg-red-500 hover:bg-red-600' 
+      : priority?.toUpperCase() === 'MEDIUM' 
+        ? 'bg-yellow-500 hover:bg-yellow-600' 
+        : 'bg-blue-500 hover:bg-blue-600';
+    
+    return <Badge className={priorityColor}>{priority || 'Normal'}</Badge>;
+  };
+  
+  // Function to update referral status using the standardized utility
+  const updateStatus = async (referralId: string, newStatus: ReferralStatus) => {
+    try {
+      const updatedReferral = updateReferralStatus(referralId, newStatus);
+      console.log(`Updated referral ${referralId} status to ${newStatus}`);
+      loadReferrals();
+      return updatedReferral;
+    } catch (error) {
+      console.error(`Failed to update referral ${referralId} status:`, error);
+      return null;
     }
-  }
-
+  };
+  
   return (
-    <div className="flex-1 space-y-6 p-4 md:p-8 pt-6">
-      <PageHeader
-        title={`Welcome to ${hospitalName} - Referral Management`}
-        description="Manage patient referrals between departments and external facilities"
-        breadcrumbs={[{ label: hospitalName }, { label: "Admin" }, { label: "Referral Management" }]}
-      />
-
+    <div className="flex flex-col gap-6 p-6">
+      <div className="space-y-2">
+        <h1 className="text-3xl font-bold tracking-tight">
+          {isMounted ? `Welcome to ${displayHospitalName} Referral Management` : 'Welcome to Referral Management'}
+        </h1>
+        <p className="text-muted-foreground">Manage patient referrals between hospitals and departments</p>
+      </div>
+      
+      {/* Debug Controls */}
+      <div className="flex items-center space-x-2">
+        <Switch
+          id="show-all-referrals"
+          checked={showAllReferrals}
+          onCheckedChange={setShowAllReferrals}
+        />
+        <Label htmlFor="show-all-referrals">Debug Mode: Show All Referrals</Label>
+      </div>
+      
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Referrals</CardTitle>
-            <UserCheck className="h-4 w-4 text-muted-foreground" />
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total Referrals</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">0</div>
-            <p className="text-xs text-muted-foreground">No data available</p>
+            <div className="text-2xl font-bold">{stats.total}</div>
+            <p className="text-xs text-muted-foreground">All-time referrals</p>
           </CardContent>
         </Card>
+        
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Pending Referrals</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Pending Referrals</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">0</div>
-            <p className="text-xs text-muted-foreground">No pending referrals</p>
+            <div className="flex items-center">
+              <Clock className="h-4 w-4 mr-2 text-amber-500" />
+              <div className="text-2xl font-bold">{stats.pending}</div>
+            </div>
+            <p className="text-xs text-muted-foreground">Awaiting action</p>
           </CardContent>
         </Card>
+        
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Completed Today</CardTitle>
-            <CheckCircle className="h-4 w-4 text-muted-foreground" />
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Completed Referrals</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">0</div>
-            <p className="text-xs text-muted-foreground">No completed referrals</p>
+            <div className="flex items-center">
+              <CheckCircle className="h-4 w-4 mr-2 text-green-500" />
+              <div className="text-2xl font-bold">{stats.completed}</div>
+            </div>
+            <p className="text-xs text-muted-foreground">Successfully processed</p>
           </CardContent>
         </Card>
+        
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Success Rate</CardTitle>
-            <UserCheck className="h-4 w-4 text-muted-foreground" />
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Success Rate</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">0%</div>
-            <p className="text-xs text-muted-foreground">No data available</p>
+            <div className="text-2xl font-bold">{stats.successRate}%</div>
+            <p className="text-xs text-muted-foreground">Completion rate</p>
           </CardContent>
         </Card>
       </div>
-
-      {/* Referrals Management */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Referral Management</CardTitle>
-            <NewReferralDialog />
+      
+      {/* Referral Management Section */}
+      <div className="mt-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-2xl font-bold">Referral Management</h2>
+          <NewReferralDialog hospitalName={hospitalName} />
+        </div>
+        
+        {loading ? (
+          <div className="flex items-center justify-center h-40">
+            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full mx-auto"></div>
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center space-x-4 mb-6">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <Input placeholder="Search referrals..." className="pl-10" />
-            </div>
-            <Button variant="outline">Filter</Button>
-          </div>
-
+        ) : (
           <div className="rounded-md border">
-            {/* Use the client component to display both server and local referrals */}
-            <ReferralTableClient 
-              serverReferrals={formattedReferrals} 
-              hospitalId={hospital?.id || ''} 
-            />
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Referral Code</TableHead>
+                  <TableHead>Patient</TableHead>
+                  <TableHead>From</TableHead>
+                  <TableHead>To</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Priority</TableHead>
+                  <TableHead>Ambulance</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {referrals.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="h-24 text-center">
+                      No referrals found.
+                      {!showAllReferrals && (
+                        <div className="mt-2">
+                          <Button
+                            variant="outline"
+                            onClick={() => setShowAllReferrals(true)}
+                            size="sm"
+                          >
+                            Show All Referrals
+                          </Button>
+                        </div>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  referrals.map((referral) => (
+                    <TableRow key={referral.id}>
+                      <TableCell className="font-medium">{referral.referralCode}</TableCell>
+                      <TableCell>{referral.patientName || referral.patient?.name?.text || referral.mrn || 'Unknown Patient'}</TableCell>
+                      <TableCell>{referral.referringHospital?.name || 'Unknown'}</TableCell>
+                      <TableCell>{referral.receivingHospital?.name || 'Unknown'}</TableCell>
+                      <TableCell>{getStatusBadge(referral.status)}</TableCell>
+                      <TableCell>{getPriorityBadge(referral.priority)}</TableCell>
+                      <TableCell>
+                        {referral.requiresAmbulance ? (
+                          <Badge className="bg-blue-500">
+                            <Ambulance className="h-3 w-3 mr-1" />
+                            Required
+                          </Badge>
+                        ) : 'No'}
+                      </TableCell>
+                      <TableCell>{formatDate(referral.createdAt)}</TableCell>
+                      <TableCell>
+                        <div className="flex space-x-2">
+                          {/* Hospital comparison is done using multiple possible fields */}
+                          
+                          {/* Show Accept/Reject buttons for PENDING referrals where we're the RECEIVING hospital */}
+                          {referral.status === 'PENDING' && (
+                            // This is a receiving hospital if ANY of these are true
+                            referral.receivingHospitalId === hospitalName || 
+                            referral.receivingHospital?.name === hospitalName ||
+                            referral.receivingHospitalName === hospitalName ||
+                            // Also check if we're explicitly NOT the referring hospital
+                            (referral.referringHospitalId !== hospitalName && 
+                             (!referral.referringHospital || referral.referringHospital.name !== hospitalName) &&
+                             (!referral.referringHospitalName || referral.referringHospitalName !== hospitalName))
+                          ) && (
+                            <>
+                              <Button
+                                variant="outline" 
+                                size="sm"
+                                className="bg-green-50 text-green-700 hover:bg-green-100"
+                                onClick={() => updateStatus(referral.id, 'ACCEPTED')}
+                              >
+                                <UserCheck className="h-3 w-3 mr-1" />
+                                Accept
+                              </Button>
+                              <Button
+                                variant="outline" 
+                                size="sm"
+                                className="bg-red-50 text-red-700 hover:bg-red-100"
+                                onClick={() => updateStatus(referral.id, 'REJECTED')}
+                              >
+                                <XCircle className="h-3 w-3 mr-1" />
+                                Reject
+                              </Button>
+                            </>
+                          )}
+                          {/* Show Complete button only for accepted referrals where this hospital is the receiving hospital */}
+                          {referral.status === 'ACCEPTED' && (
+                            // This is a receiving hospital if ANY of these are true
+                            referral.receivingHospitalId === hospitalName || 
+                            referral.receivingHospital?.name === hospitalName ||
+                            referral.receivingHospitalName === hospitalName ||
+                            // Also check if we're explicitly NOT the referring hospital
+                            (referral.referringHospitalId !== hospitalName && 
+                             (!referral.referringHospital || referral.referringHospital.name !== hospitalName) &&
+                             (!referral.referringHospitalName || referral.referringHospitalName !== hospitalName))
+                          ) && (
+                            <Button
+                              variant="outline" 
+                              size="sm"
+                              className="bg-blue-50 text-blue-700 hover:bg-blue-100"
+                              onClick={() => updateStatus(referral.id, 'COMPLETED')}
+                            >
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Complete
+                            </Button>
+                          )}
+                          
+                          {/* For referring hospitals, show status indicator only */}
+                          {(
+                            referral.referringHospitalId === hospitalName || 
+                            referral.referringHospital?.name === hospitalName ||
+                            referral.referringHospitalName === hospitalName
+                          ) && !(
+                            referral.receivingHospitalId === hospitalName || 
+                            referral.receivingHospital?.name === hospitalName ||
+                            referral.receivingHospitalName === hospitalName
+                          ) && (
+                            <span className="text-sm text-gray-500">
+                              {referral.status === 'PENDING' ? 'Awaiting receiving hospital' : 
+                               referral.status === 'ACCEPTED' ? 'Accepted by receiving hospital' :
+                               referral.status === 'COMPLETED' ? 'Treatment completed' :
+                               referral.status === 'REJECTED' ? 'Rejected by receiving hospital' : 
+                               'Status: ' + referral.status}
+                            </span>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
           </div>
-        </CardContent>
-      </Card>
+        )}
+      </div>
     </div>
-  )
+  );
 }
