@@ -13,6 +13,7 @@ import { FileEdit, Eye, CalendarPlus } from "lucide-react"
 interface AntenatalPatient {
   id: string
   name: string
+  mrn: string // Using mrn as the standardized medical ID field per CentralHealth System rules
   age: number
   gestationalAge: number
   nextAppointment: string
@@ -26,9 +27,11 @@ interface AntenatalPatientListProps {
   patients: AntenatalPatient[]
   isLoading: boolean
   hospitalName: string
+  handleViewPatient?: (patient: AntenatalPatient) => void
+  handleAppointment?: (patient: AntenatalPatient) => void
 }
 
-export function AntenatalPatientList({ patients, isLoading, hospitalName }: AntenatalPatientListProps) {
+export function AntenatalPatientList({ patients, isLoading, hospitalName, handleViewPatient, handleAppointment }: AntenatalPatientListProps) {
   // Function to get risk level badge color
   const getRiskBadgeColor = (riskLevel: string) => {
     switch (riskLevel) {
@@ -97,7 +100,9 @@ export function AntenatalPatientList({ patients, isLoading, hospitalName }: Ante
                   ) : null}
                   <AvatarFallback>{getInitials(patient.name)}</AvatarFallback>
                 </Avatar>
-                <div>
+                <div className="space-y-1">
+                  <div className="font-medium">{patient.name}</div>
+                  <div className="text-xs text-muted-foreground">MRN: {patient.mrn}</div>
                   <p className="font-medium">{patient.name}</p>
                   <p className="text-sm text-muted-foreground">{patient.age} years</p>
                 </div>
@@ -127,22 +132,22 @@ export function AntenatalPatientList({ patients, isLoading, hospitalName }: Ante
                 <Button
                   size="sm"
                   variant="ghost"
-                  asChild
+                  onClick={handleViewPatient ? () => handleViewPatient(patient) : () => 
+                    window.location.href = `/${hospitalName}/admin/antenatal/${patient.id}`
+                  }
                 >
-                  <Link href={`/${hospitalName}/admin/patients/${patient.id}/antenatal`}>
-                    <Eye className="h-4 w-4 mr-1" />
-                    View
-                  </Link>
+                  <Eye className="h-4 w-4 mr-1" />
+                  View
                 </Button>
                 <Button
                   size="sm"
                   variant="ghost"
-                  asChild
+                  onClick={handleAppointment ? () => handleAppointment(patient) : () => 
+                    window.location.href = `/${hospitalName}/admin/antenatal/${patient.id}/appointments/new`
+                  }
                 >
-                  <Link href={`/${hospitalName}/admin/patients/${patient.id}/antenatal/appointment`}>
-                    <CalendarPlus className="h-4 w-4 mr-1" />
-                    Appointment
-                  </Link>
+                  <CalendarPlus className="h-4 w-4 mr-1" />
+                  Appointment
                 </Button>
               </div>
             </TableCell>
