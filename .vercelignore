@@ -1,0 +1,44 @@
+# Mobile app folder
+mobile_app/
+
+# Backend folder (if separate from Next.js API routes)
+backend/
+
+# Development files
+dev-setup.js
+debug-*.js
+test-*.js
+test-*.mjs
+add-hospital.js
+
+# Documentation
+docs/
+referral.md
+
+# Temporary files
+tmp/
+temp-*.txt
+
+# Python virtual environment
+venv/
+
+# Lock files (keep package-lock.json for npm)
+pnpm-lock.yaml
+yarn.lock
+
+# Build artifacts
+.next/
+tsconfig.tsbuildinfo
+
+# Environment files (except production template)
+.env
+.env.local
+.env.local.backup
+.env.offline.example
+
+# OS files
+.DS_Store
+
+# IDE files
+.vscode/
+.windsurf/
