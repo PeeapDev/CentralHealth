@@ -1,7 +1,4 @@
 {
-  "buildCommand": "next build",
-  "outputDirectory": ".next",
-  "framework": "nextjs",
   "functions": {
     "app/api/**/*.js": { 
       "memory": 1024,
@@ -13,7 +10,5 @@
       "SKIP_ENV_VALIDATION": "1",
       "NEXT_TELEMETRY_DISABLED": "1"
     }
-  },
-  "installCommand": "npm ci",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD ./"
+  }
 }
