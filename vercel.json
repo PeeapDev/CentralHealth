@@ -1,0 +1,14 @@
+{
+  "functions": {
+    "app/api/**/*.js": { 
+      "memory": 1024,
+      "maxDuration": 30
+    }
+  },
+  "build": {
+    "env": {
+      "SKIP_ENV_VALIDATION": "1"
+    }
+  },
+  "crons": []
+}
