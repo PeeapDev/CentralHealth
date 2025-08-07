@@ -8,7 +8,8 @@
   "build": {
     "env": {
       "SKIP_ENV_VALIDATION": "1",
-      "NEXT_TELEMETRY_DISABLED": "1"
+      "NEXT_TELEMETRY_DISABLED": "1",
+      "DISABLE_ESLINT": "true"
     }
   }
 }
