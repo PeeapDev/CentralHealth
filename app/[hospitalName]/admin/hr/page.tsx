@@ -130,7 +130,7 @@ const staffFormSchema = z.object({
   phone: z.string().optional(),
   gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
   shift: z.enum(["MORNING", "AFTERNOON", "NIGHT", "FLEXIBLE"]).optional(),
-  profilePicture: z.instanceof(File).optional(),
+  profilePicture: z.any().optional(), // File object for client-side only
   telemedicineEnabled: z.boolean().optional().default(false),
   onlineBookingEnabled: z.boolean().optional().default(false),
 });
